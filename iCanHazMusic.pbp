@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 5.72 (MacOS X - x64)">
+  <section name="config">
+    <options closefiles="1" openmode="0" name="iCanHazMusic"/>
+  </section>
+  <section name="data">
+    <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
+    <log show="1"/>
+    <lastopen date="2021-03-14 21:04" user="deseven" host="de7mac.local"/>
+  </section>
+  <section name="files">
+    <file name="main.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="95762ebbf4271a7e6eb1cbd262d55929"/>
+    </file>
+    <file name="proc.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="77f4385cf6369df9b77d355280307f8e"/>
+    </file>
+    <file name="const.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="68054a1b14efe0cdd15edaad67f06389"/>
+    </file>
+  </section>
+  <section name="targets">
+    <target name="Default Target" enabled="1" default="1">
+      <inputfile value="main.pb"/>
+      <outputfile value="iCanHazMusic.app"/>
+      <options thread="1" xpskin="1" debug="1"/>
+    </target>
+  </section>
+</project>

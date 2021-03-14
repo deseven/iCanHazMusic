@@ -1,0 +1,8 @@
+*.exe
+*.app
+*.zip
+*.dmg
+*.log
+.DS_Store
+Thumbs.db
+project.cfg
