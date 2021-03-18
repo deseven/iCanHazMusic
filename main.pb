@@ -11,12 +11,8 @@ Define lyricsThread.i
 Define i.i,j.i
 Define *elem.track_info
 Define playlistString.s
-Define nowPlayingID.i = -1
-Define nowPlayingPath.s
-Define nowPlayingAlbumArt.s
-Define nowPlayingArtist.s
-Define nowPlayingTitle.s
-Define nowPlayingLyrics.s
+Define nowPlaying.nowPlaying
+nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define numThreads.l = CountCPUs(#PB_System_ProcessCPUs)
 If numThreads > 4 : numThreads = 4 : EndIf ; more than enough
@@ -25,6 +21,7 @@ Define tagsToGetLock.i = CreateMutex()
 UseMD5Fingerprint()
 UsePNGImageDecoder()
 UseJPEGImageDecoder()
+InitNetwork()
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
@@ -61,9 +58,19 @@ DrawText(500/2-TextWidth("[no album art]")/2,500/2-TextHeight("[no album art]")/
 StopDrawing()
 ImageGadget(#albumArt,WindowWidth(#wnd)-500,0,500,500,ImageID(#defaultAlbumArt))
 
-EditorGadget(#lyrics,WindowWidth(#wnd)-500,500,500,WindowHeight(#wnd)-500,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
+TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
+TextGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,559,500,16,"[standby]",#PB_Text_Center)
+ProgressBarGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,575,490,20,0,100)
+
+ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-495,595,50,25,#playSymbol)
+ButtonGadget(#toolbarStop,WindowWidth(#wnd)-445,595,50,25,#stopSymbol)
+ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
+
+EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
 
 loadState()
+
+BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
 
 Repeat
   ev = WaitWindowEvent()
@@ -93,8 +100,6 @@ Repeat
               For j = 0 To numThreads - 1
                 AddElement(tagsParserThreads())
                 tagsParserThreads() = CreateThread(@getTags(),j)
-                ;Debug CocoaMessage(0,ThreadID(tagsParserThreads()),"isExecuting")
-                ;ThreadPriority(tagsParserThreads(),1)
               Next
             Else
               MessageRequester(#myName,"Can't open file " + playlist,#PB_MessageRequester_Error)
@@ -109,11 +114,42 @@ Repeat
               doPlay()
             EndIf
           EndIf
+        Case #toolbarPlayPause
+          If nowPlaying\ID = -1
+            If GetGadgetState(#playlist) > -1
+              doPlay()
+            EndIf
+          Else
+            If GetGadgetText(#toolbarPlayPause) = #playSymbol
+              If IsProgram(playPID)
+                RunProgram("/bin/kill","-SIGCONT " + ProgramID(playPID),"")
+              EndIf
+              SetGadgetText(#toolbarPlayPause,#pauseSymbol)
+              nowPlaying\startedAt = ElapsedMilliseconds() - GetGadgetData(#nowPlayingProgress) * 1000
+              AddWindowTimer(#wnd,0,1000)
+            Else
+              If IsProgram(playPID)
+                RunProgram("/bin/kill","-SIGSTOP " + ProgramID(playPID),"")
+              EndIf
+              SetGadgetText(#toolbarPlayPause,#playSymbol)
+              RemoveWindowTimer(#wnd,0)
+            EndIf
+          EndIf
+        Case #toolbarStop
+          If nowPlaying\ID <> -1
+            doStop()
+          EndIf
       EndSelect
     Case #PB_Event_SizeWindow
       ResizeGadget(#playlist,#PB_Ignore,#PB_Ignore,WindowWidth(#wnd)-500,WindowHeight(#wnd))
       ResizeGadget(#albumArt,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-500)
+      ResizeGadget(#nowPlaying,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarPlayPause,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarStop,WindowWidth(#wnd)-445,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
+      ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
     Case #evTagGetSuccess
       *elem = EventData()
       With *elem
@@ -132,9 +168,12 @@ Repeat
       SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
     Case #evTagGetFinish
       saveState()
+    Case #evPlayStart
+      nowPlaying\startedAt = ElapsedMilliseconds()
+      AddWindowTimer(#wnd,0,1000)
     Case #evPlayFinish
-      If nowPlayingID < CountGadgetItems(#playlist) - 1
-        SetGadgetState(#playlist,nowPlayingID + 1)
+      If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+        SetGadgetState(#playlist,nowPlaying\ID + 1)
         doPlay()
       Else
         doStop()
@@ -143,7 +182,7 @@ Repeat
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
     Case #evLyricsSuccess
-      SetGadgetText(#lyrics,nowPlayingLyrics)
+      SetGadgetText(#lyrics,nowPlaying\lyrics)
   EndSelect
 ForEver
 

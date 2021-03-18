@@ -1,16 +1,30 @@
 ﻿#myName = "iCanHazMusic"
 
+#playSymbol = "▶"
+#pauseSymbol = "❚ ❚"
+#stopSymbol = "■"
+#refreshSymbol = "♻"
+
 Enumeration
   #wnd
   #playlist
   #albumArt
+  #nowPlaying
+  #nowPlayingProgress
+  #nowPlayingDuration
   #lyrics
+  #toolbarPlayPause
+  #toolbarStop
+  #toolbarLyricsEdit
+  #toolbarLyricsReload
+  #toolbarLyricsReloadWeb
 EndEnumeration
 
 Enumeration globalEvents #PB_Event_FirstCustomValue
   #evTagGetSuccess
   #evTagGetFail
   #evTagGetFinish
+  #evPlayStart
   #evPlayFinish
   #evLyricsFail
   #evLyricsSuccess
@@ -69,6 +83,20 @@ Structure track_info
   duration.s
   bitrate.i
   tags.tags
+EndStructure
+
+Structure nowPlaying
+  ID.i
+  path.s
+  artist.s
+  title.s
+  album.s
+  duration.s
+  durationSec.i
+  details.s
+  lyrics.s
+  albumArt.s
+  startedAt.i
 EndStructure
 
 #sep = Chr(10)

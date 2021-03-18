@@ -168,12 +168,13 @@ EndProcedure
 
 Procedure play(dummy)
   Shared playPID.i
-  Shared nowPlayingPath.s
+  Shared nowPlaying
   If IsProgram(playPID)
     KillProgram(playPID)
     CloseProgram(playPID)
   EndIf
-  playPID = RunProgram("/usr/local/bin/ffplay",~"-vn -nodisp -autoexit \"" + nowPlayingPath + ~"\"","",#PB_Program_Open)
+  playPID = RunProgram("/usr/local/bin/ffplay",~"-vn -nodisp -autoexit \"" + nowPlaying\path + ~"\"","",#PB_Program_Open)
+  PostEvent(#evPlayStart)
   WaitProgram(playPID)
   CloseProgram(playPID)
   ;Delay(10000)
@@ -181,13 +182,13 @@ Procedure play(dummy)
 EndProcedure
 
 Procedure lyrics(dummy)
-  Shared nowPlayingArtist,nowPlayingTitle,nowPlayingLyrics,dataDir
-  Protected lyricsHash.s = StringFingerprint(nowPlayingArtist + " - " + nowPlayingTitle,#PB_Cipher_MD5)
+  Shared nowPlaying,dataDir
+  Protected lyricsHash.s = StringFingerprint(nowPlaying\artist + " - " + nowPlaying\title,#PB_Cipher_MD5)
   Protected NewList args.s()
   Protected json.s
   
   If FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
-    nowPlayingLyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
+    nowPlaying\lyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
     ;Debug "loaded lyrics from cache"
     PostEvent(#evLyricsSuccess)
     ProcedureReturn
@@ -201,8 +202,8 @@ Procedure lyrics(dummy)
   AddElement(args()) : args() = "-m"
   AddElement(args()) : args() = "lyricsgenius"
   AddElement(args()) : args() = "song"
-  AddElement(args()) : args() = nowPlayingTitle
-  AddElement(args()) : args() = nowPlayingArtist
+  AddElement(args()) : args() = nowPlaying\title
+  AddElement(args()) : args() = nowPlaying\artist
   AddElement(args()) : args() = "--save"
   AddElement(args()) : args() = "-q"
   SetEnvironmentVariable("GENIUS_ACCESS_TOKEN",#geniusToken)
@@ -214,12 +215,12 @@ Procedure lyrics(dummy)
       json = ReadFileFast(dataDir + "/tmp/" + geniusPath)
       If ParseJSON(2,json)
         Protected isInstrumental.b = GetJSONBoolean(GetJSONMember(JSONValue(2),"instrumental"))
-        nowPlayingLyrics = GetJSONString(GetJSONMember(JSONValue(2),"lyrics"))
-        If Len(nowPlayingLyrics) = 0 And isInstrumental
-          nowPlayingLyrics = "[Instrumental]"
+        nowPlaying\lyrics = GetJSONString(GetJSONMember(JSONValue(2),"lyrics"))
+        If Len(nowPlaying\lyrics) = 0 And isInstrumental
+          nowPlaying\lyrics = "[Instrumental]"
         EndIf
         FreeJSON(2)
-        WriteFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt",nowPlayingLyrics)
+        WriteFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt",nowPlaying\lyrics)
         PostEvent(#evLyricsSuccess)
         DeleteFile(dataDir + "/tmp/" + geniusPath,#PB_FileSystem_Force)
         ProcedureReturn
@@ -284,14 +285,12 @@ Procedure loadState()
 EndProcedure
 
 Procedure loadAlbumArt()
-  Shared nowPlayingAlbumArt.s
-  Shared nowPlayingPath.s
-  Shared nowPlayingID
-  Protected fileDir.s = GetPathPart(nowPlayingPath)
+  Shared nowPlaying
+  Protected fileDir.s = GetPathPart(nowPlaying\path)
   Protected albumArt.s
   
-  If nowPlayingID = -1
-    nowPlayingAlbumArt = ""
+  If nowPlaying\ID = -1
+    nowPlaying\albumArt= ""
     If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
     SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     ProcedureReturn
@@ -344,7 +343,7 @@ Procedure loadAlbumArt()
     FinishDirectory(0)
   EndIf
   
-  If nowPlayingAlbumArt <> albumArt
+  If nowPlaying\albumArt <> albumArt
     If albumArt
       If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
       LoadImage(#currentAlbumArt,albumArt)
@@ -353,10 +352,27 @@ Procedure loadAlbumArt()
     Else
       SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     EndIf
-    nowPlayingAlbumArt = albumArt
+    nowPlaying\albumArt = albumArt
   ;Else
   ;  Debug "image is the same"
   EndIf
+EndProcedure
+
+Procedure nowPlayingHandler()
+  Shared nowPlaying
+  Protected currentTimeSec.i = (ElapsedMilliseconds() - nowPlaying\startedAt) / 1000
+  Protected currentTime.s
+  If nowPlaying\durationSec > 3600
+    currentTime = FormatDate("%hh:%ii:%ss",currentTimeSec)
+  Else
+    currentTime = FormatDate("%ii:%ss",currentTimeSec)
+  EndIf
+  SetGadgetText(#nowPlayingDuration,currentTime + " / " + nowPlaying\duration)
+  Protected part.f = nowPlaying\durationSec / 100
+  If part > 0
+    SetGadgetState(#nowPlayingProgress,currentTimeSec / part)
+  EndIf
+  SetGadgetData(#nowPlayingProgress,currentTimeSec)
 EndProcedure
 
 Macro cleanUp()
@@ -376,34 +392,56 @@ EndMacro
 
 Macro doPlay()
   If IsThread(playThread) : KillThread(playThread) : EndIf
-  If nowPlayingID <> -1
-    SetGadgetItemText(#playlist,nowPlayingID,"",#status)
+  If nowPlaying\ID <> -1
+    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf
-  nowPlayingID = GetGadgetState(#playlist)
-  nowPlayingPath = GetGadgetItemText(#playlist,nowPlayingID,#file)
-  nowPlayingArtist = GetGadgetItemText(#playlist,nowPlayingID,#artist)
-  nowPlayingTitle = GetGadgetItemText(#playlist,nowPlayingID,#title)
-  nowPlayingLyrics = ""
+  nowPlaying\ID = GetGadgetState(#playlist)
+  nowPlaying\path = GetGadgetItemText(#playlist,nowPlaying\ID,#file)
+  nowPlaying\artist = GetGadgetItemText(#playlist,nowPlaying\ID,#artist)
+  nowPlaying\title = GetGadgetItemText(#playlist,nowPlaying\ID,#title)
+  nowPlaying\album = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
+  nowPlaying\duration = GetGadgetItemText(#playlist,nowPlaying\ID,#duration)
+  If Len(nowPlaying\duration) > 5
+    nowPlaying\durationSec = ParseDate("%hh:%ii:%ss",nowPlaying\duration)
+  Else
+    nowPlaying\durationSec = ParseDate("%ii:%ss",nowPlaying\duration)
+  EndIf
+  nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
+  nowPlaying\lyrics = ""
   playThread = CreateThread(@play(),0)
-  SetGadgetItemText(#playlist,nowPlayingID,"▶",#status)
+  SetGadgetText(#toolbarPlayPause,#pauseSymbol)
+  SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
+  SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
   SetGadgetText(#lyrics,"[looking for lyrics...]")
+  SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
+  If nowPlaying\durationSec > 3600
+    SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
+  Else
+    SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
+  EndIf
+  SetGadgetState(#nowPlayingProgress,0)
   lyricsThread = CreateThread(@lyrics(),0)
   loadAlbumArt()
 EndMacro
 
 Macro doStop()
-  SetGadgetItemText(#playlist,nowPlayingID,"",#status)
-  nowPlayingID = -1
-  nowPlayingPath = ""
-  nowPlayingArtist = ""
-  nowPlayingTitle = ""
-  nowPlayingLyrics = ""
+  RemoveWindowTimer(#wnd,0)
+  If nowPlaying\ID <> - 1
+    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
+  EndIf
+  ClearStructure(@nowPlaying,nowPlaying)
+  nowPlaying\ID = -1
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If IsProgram(playPID)
     KillProgram(playPID)
     CloseProgram(playPID)
   EndIf
+  SetGadgetText(#toolbarPlayPause,#playSymbol)
+  SetWindowTitle(#wnd,#myName)
+  SetGadgetText(#nowPlaying,"")
+  SetGadgetText(#nowPlayingDuration,"[standby]")
+  SetGadgetState(#nowPlayingProgress,0)
   SetGadgetText(#lyrics,"")
   loadAlbumArt()
 EndMacro
