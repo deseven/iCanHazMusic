@@ -44,6 +44,8 @@ EndEnumeration
 Enumeration menu
   #menu
   #openPlaylist
+  #addDirectory
+  #addFile
 EndEnumeration
 
 Enumeration albumArt

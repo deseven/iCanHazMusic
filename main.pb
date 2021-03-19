@@ -4,11 +4,13 @@ IncludeFile "const.pb"
 
 NewList tagsToGet.track_info()
 Define ev.i
-Define playlist.s
+Define playlist.s,directory.s,file.s
+NewList filesInDirectory.s()
 Define playThread.i,playPID.i
 NewList tagsParserThreads.i()
 Define lyricsThread.i
 Define i.i,j.i
+Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
@@ -40,7 +42,10 @@ WindowBounds(#wnd,800,720,#PB_Ignore,#PB_Ignore)
 
 CreateMenu(#menu,WindowID(#wnd))
 MenuTitle("File")
-MenuItem(#openPlaylist,"Open Playlist")
+MenuItem(#openPlaylist,"Open Playlist...")
+MenuItem(#addDirectory,"Add Diectory...")
+MenuItem(#addFile,"Add File(s)...")
+MenuTitle("Last.fm")
 
 ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",20)
 AddGadgetColumn(#playlist,#file,"File",200)
@@ -90,21 +95,53 @@ Repeat
                 If Left(playlistString,1) = "#"
                   Continue
                 EndIf
-                AddElement(tagsToGet())
-                tagsToGet()\id = i
-                tagsToGet()\path = playlistString
-                AddGadgetItem(#playlist,-1,#sep + tagsToGet()\path)
-                i + 1
+                If isSupportedFile(playlistString) And FileSize(playlistString) > 0
+                  AddElement(tagsToGet())
+                  tagsToGet()\id = i
+                  tagsToGet()\path = playlistString
+                  AddGadgetItem(#playlist,-1,#sep + tagsToGet()\path)
+                  i + 1
+                EndIf
               Wend
               CloseFile(0)
-              For j = 0 To numThreads - 1
-                AddElement(tagsParserThreads())
-                tagsParserThreads() = CreateThread(@getTags(),j)
-              Next
+              doTags()
             Else
               MessageRequester(#myName,"Can't open file " + playlist,#PB_MessageRequester_Error)
             EndIf
           EndIf
+        Case #addDirectory
+          skip = #False
+          ForEach tagsParserThreads()
+            If IsThread(tagsParserThreads())
+              skip = #True
+              Break
+            EndIf
+          Next
+          If skip
+            MessageRequester(#myName,"Please wait untill current parsing is completed",#PB_MessageRequester_Error)
+          Else
+            directory = PathRequester("Select directory","")
+            If FileSize(directory) = -2
+              ClearList(filesInDirectory())
+              RecursiveDirectorySafe(directory,filesInDirectory())
+              If ListSize(filesInDirectory())
+                SortList(filesInDirectory(),#PB_Sort_Ascending|#PB_Sort_NoCase)
+                i = CountGadgetItems(#playlist)
+                ForEach filesInDirectory()
+                  If isSupportedFile(filesInDirectory())
+                    AddElement(tagsToGet())
+                    tagsToGet()\id = i
+                    tagsToGet()\path = filesInDirectory()
+                    AddGadgetItem(#playlist,-1,#sep + filesInDirectory())
+                    i + 1
+                  EndIf
+                Next
+                doTags()
+              EndIf
+            EndIf
+          EndIf
+        Case #PB_Menu_Quit
+          Break
       EndSelect
     Case #PB_Event_Gadget
       Select EventGadget()
@@ -167,7 +204,18 @@ Repeat
       SetGadgetItemText(#playlist,*elem\id,"[failed to get artist]",#artist)
       SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
     Case #evTagGetFinish
-      saveState()
+      skip = #False
+      ForEach tagsParserThreads()
+        If IsThread(tagsParserThreads())
+          skip = #True
+          Break
+        EndIf
+      Next
+      If Not skip
+        saveState()
+        ClearList(tagsParserThreads())
+        ClearList(tagsToGet())
+      EndIf
     Case #evPlayStart
       nowPlaying\startedAt = ElapsedMilliseconds()
       AddWindowTimer(#wnd,0,1000)

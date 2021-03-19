@@ -1,4 +1,47 @@
-﻿Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
+﻿; taken here http://forums.purebasic.com/english/viewtopic.php?p=357702#p357702
+Procedure RecursiveDirectorySafe(path$, List File.s())
+   Protected NewList ToDo.s(), hd
+   
+   If Right(path$, 1) <> "/" : path$ + "/" : EndIf
+   
+   AddElement(ToDo())
+   ToDo() = path$
+   
+   ResetList(ToDo())
+   
+   While NextElement(ToDo())
+      path$ = ToDo()
+      DeleteElement(ToDo())
+      
+      hd = ExamineDirectory(#PB_Any, path$, "*.*")
+      
+      If hd
+         While NextDirectoryEntry(hd)
+            
+            If DirectoryEntryType(hd) = #PB_DirectoryEntry_File
+               AddElement(File())
+               File() = path$ + DirectoryEntryName(hd)
+               
+            Else
+               If DirectoryEntryName(hd) <> "." And DirectoryEntryName(hd) <> ".."
+                  ; ajout du répertoire
+                  AddElement(ToDo())
+                  ToDo() = path$ + DirectoryEntryName(hd) + "/"
+                  
+               EndIf
+            EndIf
+            
+         Wend
+         
+         FinishDirectory(hd)
+      EndIf
+      
+      ResetList(ToDo())
+   Wend
+   
+EndProcedure
+
+Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
   Protected i
   Protected arg.s
   Protected argsArray
@@ -62,6 +105,20 @@
   CocoaMessage(0,task,"release")
   
   ProcedureReturn stdout
+EndProcedure
+
+Procedure.b isSupportedFile(path.s)
+  path = LCase(GetExtensionPart(path))
+  If path = "mp3" Or
+     path = "m4a" Or
+     path = "ogg" Or
+     path = "oga" Or
+     path = "flac" Or
+     path = "alac" Or
+     path = "ape" Or
+     path = "wma"
+    ProcedureReturn #True
+  EndIf
 EndProcedure
 
 Procedure.s ReadFileFast(path.s)
@@ -444,4 +501,13 @@ Macro doStop()
   SetGadgetState(#nowPlayingProgress,0)
   SetGadgetText(#lyrics,"")
   loadAlbumArt()
+EndMacro
+
+Macro doTags()
+  If ListSize(tagsToGet())
+    For j = 0 To numThreads - 1
+      AddElement(tagsParserThreads())
+      tagsParserThreads() = CreateThread(@getTags(),j)
+    Next
+  EndIf
 EndMacro
