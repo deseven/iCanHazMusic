@@ -121,6 +121,16 @@ Procedure.b isSupportedFile(path.s)
   EndIf
 EndProcedure
 
+Procedure.b isParsingCompleted()
+  Shared tagsParserThreads()
+  ForEach tagsParserThreads()
+    If IsThread(tagsParserThreads())
+      ProcedureReturn #False
+    EndIf
+  Next
+  ProcedureReturn #True
+EndProcedure
+
 Procedure.s ReadFileFast(path.s)
   Protected file = ReadFile(#PB_Any,path)
   Protected string.s
@@ -141,9 +151,60 @@ Procedure WriteFileFast(path.s,string.s)
   ProcedureReturn #False
 EndProcedure
 
+Procedure.b lastfmAuth(lastfmAuthStep.b)
+  Shared lastfmToken.s,lastfmSession.s,lastfmUser.s
+  Shared lastfmTokenResponse.s,lastfmSessionResponse.s
+  Protected api_sig.s,request.i,response.s,json.i
+  Select lastfmAuthStep
+    Case #getToken
+      lastfmToken = ""
+      api_sig = StringFingerprint("api_key" + #lastfmAPIKey + "methodauth.getToken" + #lastfmSecret,#PB_Cipher_MD5)
+      request = HTTPRequest(#PB_HTTP_Get,#lastfmEndpoint + "/2.0/?method=auth.getToken&api_key=" + #lastfmAPIKey + "&format=json&api_sig=" + api_sig)
+      If request
+        response = HTTPInfo(request,#PB_HTTP_Response)
+        FinishHTTP(request)
+        json = ParseJSON(#PB_Any,response)
+        If json
+          lastfmToken = GetJSONString(GetJSONMember(JSONValue(json),"token"))
+          FreeJSON(json)
+        EndIf
+        If lastfmToken
+          ProcedureReturn #True
+        Else
+          lastfmTokenResponse = response
+        EndIf
+      EndIf
+    Case #openAuthLink
+      RunProgram("open","http://www.last.fm/api/auth/?api_key=" + #lastfmAPIKey + "&token=" + lastfmToken,"")
+      ProcedureReturn #True
+    Case #getSession
+      lastfmSession = ""
+      api_sig = StringFingerprint("api_key" + #lastfmAPIKey + "methodauth.getSessiontoken" + lastfmToken + #lastfmSecret,#PB_Cipher_MD5)
+      ;Debug "api_key" + #lastfmAPIKey + "methodauth.getSessiontoken" + lastfmToken + #lastfmSecret
+      ;Debug api_sig
+      request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json","method=auth.getSession&api_key=" + #lastfmAPIKey + "&token=" + lastfmToken + "&api_sig=" + api_sig)
+      If request
+        response = HTTPInfo(request,#PB_HTTP_Response)
+        FinishHTTP(request)
+        json = ParseJSON(#PB_Any,response)
+        If json
+          ;{"session":{"subscriber":0,"name":"...","key":"..."}}
+          lastfmSession = GetJSONString(GetJSONMember(GetJSONMember(JSONValue(json),"session"),"key"))
+          lastfmUser = GetJSONString(GetJSONMember(GetJSONMember(JSONValue(json),"session"),"name"))
+          FreeJSON(json)
+        EndIf
+        If lastfmSession
+          ProcedureReturn #True
+        Else
+          lastfmSessionResponse = response
+        EndIf
+      EndIf
+  EndSelect
+EndProcedure
+
 Procedure getTags(start.i)
   Shared tagsToGet.track_info()
-  Shared numThreads.l
+  Shared numThreads.b
   Shared tagsToGetLock.i
   Protected metadata.ffprobe_answer
   Protected json.s
@@ -285,6 +346,34 @@ Procedure lyrics(dummy)
     EndIf
   EndIf
   PostEvent(#evLyricsFail)
+EndProcedure
+
+Procedure saveSettings()
+  Shared dataDir.s
+  Shared nowPlaying
+  Shared lastfmSession.s,lastfmUser.s
+  Protected json.i = CreateJSON(#PB_Any)
+  Protected object.i = SetJSONObject(JSONValue(json))
+  SetJSONInteger(AddJSONMember(object,"last_played_track_id"),nowPlaying\ID)
+  SetJSONString(AddJSONMember(object,"lastfm_session"),lastfmSession)
+  SetJSONString(AddJSONMember(object,"lastfm_user"),lastfmUser)
+  WriteFileFast(dataDir + "/settings.json",ComposeJSON(json,#PB_JSON_PrettyPrint))
+  FreeJSON(json)
+EndProcedure
+
+Procedure loadSettings()
+  Shared dataDir.s
+  Shared lastfmSession.s,lastfmUser.s
+  Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
+  Protected json.i = ParseJSON(#PB_Any,settingsData)
+  Protected settings.settings
+  If json
+    ExtractJSONStructure(JSONValue(json),@settings,settings)
+    FreeJSON(json)
+    lastfmSession = settings\lastfm_session
+    lastfmUser = settings\lastfm_user
+    SetGadgetState(#playlist,settings\last_played_track_id)
+  EndIf
 EndProcedure
 
 Procedure saveState()
@@ -505,6 +594,11 @@ EndMacro
 
 Macro doTags()
   If ListSize(tagsToGet())
+    If ListSize(tagsToGet()) < systemThreads
+      numThreads = ListSize(tagsToGet())
+    Else
+      numThreads = systemThreads
+    EndIf
     For j = 0 To numThreads - 1
       AddElement(tagsParserThreads())
       tagsParserThreads() = CreateThread(@getTags(),j)

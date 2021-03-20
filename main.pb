@@ -16,9 +16,12 @@ Define playlistString.s
 Define nowPlaying.nowPlaying
 nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
-Define numThreads.l = CountCPUs(#PB_System_ProcessCPUs)
-If numThreads > 4 : numThreads = 4 : EndIf ; more than enough
+Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
+If systemThreads > 4 : systemThreads = 4 : EndIf ; more than enough
+Define numThreads.b
 Define tagsToGetLock.i = CreateMutex()
+Define lastfmToken.s,lastfmSession.s,lastfmUser.s
+Define lastfmTokenResponse.s,lastfmSessionResponse.s
 
 UseMD5Fingerprint()
 UsePNGImageDecoder()
@@ -46,6 +49,15 @@ MenuItem(#openPlaylist,"Open Playlist...")
 MenuItem(#addDirectory,"Add Diectory...")
 MenuItem(#addFile,"Add File(s)...")
 MenuTitle("Last.fm")
+MenuItem(#lastfmState,"")
+MenuBar()
+MenuItem(#lastfmUser,"Not logged in")
+DisableMenuItem(#menu,#lastfmUser,#True)
+
+CreatePopupMenu(#playlistMenu)
+MenuItem(#playlistReloadTags,"Reload tags")
+MenuItem(#playlistRemove,"Remove from playlist")
+MenuItem(#playlistRemoveAlbum,"Remove album from playlist")
 
 ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",20)
 AddGadgetColumn(#playlist,#file,"File",200)
@@ -74,6 +86,18 @@ ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymb
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
 
 loadState()
+loadSettings()
+
+If lastfmSession
+  SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
+Else
+  SetMenuItemText(#menu,#lastfmState,"Login to Last.fm")
+EndIf
+If lastfmUser
+  SetMenuItemText(#menu,#lastfmUser,lastfmUser)
+  DisableMenuItem(#menu,#lastfmUser,#False)
+EndIf
+
 
 BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
 
@@ -110,16 +134,7 @@ Repeat
             EndIf
           EndIf
         Case #addDirectory
-          skip = #False
-          ForEach tagsParserThreads()
-            If IsThread(tagsParserThreads())
-              skip = #True
-              Break
-            EndIf
-          Next
-          If skip
-            MessageRequester(#myName,"Please wait untill current parsing is completed",#PB_MessageRequester_Error)
-          Else
+          If isParsingCompleted()
             directory = PathRequester("Select directory","")
             If FileSize(directory) = -2
               ClearList(filesInDirectory())
@@ -139,6 +154,69 @@ Repeat
                 doTags()
               EndIf
             EndIf
+          Else
+            MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
+          EndIf
+        Case #addFile
+          If isParsingCompleted()
+            file = OpenFileRequester("Select file(s)","","",0,#PB_Requester_MultiSelection)
+            i = CountGadgetItems(#playlist)
+            While file
+              If isSupportedFile(file)
+                AddElement(tagsToGet())
+                tagsToGet()\id = i
+                tagsToGet()\path = file
+                AddGadgetItem(#playlist,-1,#sep + file)
+                i + 1
+              EndIf
+              file = NextSelectedFileName()
+            Wend
+            doTags()
+          Else
+            MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
+          EndIf
+        Case #playlistReloadTags
+          If isParsingCompleted()
+            AddElement(tagsToGet())
+            tagsToGet()\id = GetGadgetState(#playlist)
+            tagsToGet()\path = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#file)
+            doTags()
+          Else
+            MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
+          EndIf
+        Case #lastfmState
+          If lastfmSession
+            If MessageRequester(#myName,"Do you really want to log out of Last.fm? Scrobbling will be disabled.",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
+              SetMenuItemText(#menu,#lastfmState,"Login to last.fm")
+              DisableMenuItem(#menu,#lastfmUser,#True)
+              lastfmSession = ""
+              lastfmUser = ""
+              saveSettings()
+            EndIf
+          Else
+            If lastfmAuth(#getToken)
+              MessageRequester(#myName,"You're going to be redirected to Last.fm in order to authorize " + #myName + " for scrobbling. Press OK to continue.")
+              lastfmAuth(#openAuthLink)
+              Delay(1000)
+              MessageRequester(#myName,"Press OK again when you finished.")
+              While Not lastfmAuth(#getSession)
+                If MessageRequester(#myName,~"Failed getting session for Last.fm, want to try again?\n\n" + lastfmSessionResponse,#PB_MessageRequester_YesNo|#PB_MessageRequester_Error) = #PB_MessageRequester_No
+                  Break
+                EndIf
+              Wend
+              If lastfmSession And lastfmUser
+                SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
+                SetMenuItemText(#menu,#lastfmUser,lastfmUser)
+                DisableMenuItem(#menu,#lastfmUser,#False)
+              EndIf
+              saveSettings()
+            Else
+              MessageRequester(#myName,~"Failed getting auth token for Last.fm, please try again later and if the problem persists, contact the developer.\n\n" + lastfmTokenResponse,#PB_MessageRequester_Error)
+            EndIf
+          EndIf
+        Case #lastfmUser
+          If lastfmUser
+            RunProgram("open","https://www.last.fm/user/" + lastfmUser,"")
           EndIf
         Case #PB_Menu_Quit
           Break
@@ -146,11 +224,17 @@ Repeat
     Case #PB_Event_Gadget
       Select EventGadget()
         Case #playlist
-          If EventType() = #PB_EventType_LeftDoubleClick
-            If GetGadgetState(#playlist) > -1
-              doPlay()
-            EndIf
-          EndIf
+          Select EventType()
+            Case #PB_EventType_LeftDoubleClick
+              If GetGadgetState(#playlist) > -1
+                doPlay()
+                saveSettings()
+              EndIf
+            Case #PB_EventType_RightClick
+              If GetGadgetState(#playlist) <> -1
+                DisplayPopupMenu(#playlistMenu,WindowID(#wnd))
+              EndIf
+          EndSelect
         Case #toolbarPlayPause
           If nowPlaying\ID = -1
             If GetGadgetState(#playlist) > -1
@@ -204,14 +288,7 @@ Repeat
       SetGadgetItemText(#playlist,*elem\id,"[failed to get artist]",#artist)
       SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
     Case #evTagGetFinish
-      skip = #False
-      ForEach tagsParserThreads()
-        If IsThread(tagsParserThreads())
-          skip = #True
-          Break
-        EndIf
-      Next
-      If Not skip
+      If isParsingCompleted()
         saveState()
         ClearList(tagsParserThreads())
         ClearList(tagsToGet())
@@ -223,6 +300,7 @@ Repeat
       If nowPlaying\ID < CountGadgetItems(#playlist) - 1
         SetGadgetState(#playlist,nowPlaying\ID + 1)
         doPlay()
+        saveSettings()
       Else
         doStop()
         SetGadgetState(#playlist,-1)

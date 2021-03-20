@@ -46,11 +46,23 @@ Enumeration menu
   #openPlaylist
   #addDirectory
   #addFile
+  #lastfmState
+  #lastfmUser
+  #playlistMenu
+  #playlistReloadTags
+  #playlistRemove
+  #playlistRemoveAlbum
 EndEnumeration
 
 Enumeration albumArt
   #defaultAlbumArt
   #currentAlbumArt
+EndEnumeration
+
+Enumeration lastfmAuthSteps
+  #getToken
+  #openAuthLink
+  #getSession
 EndEnumeration
 
 Structure ffprobe_format
@@ -101,6 +113,16 @@ Structure nowPlaying
   startedAt.i
 EndStructure
 
+Structure settings
+  last_played_track_id.i
+  lastfm_session.s
+  lastfm_user.s
+EndStructure
+
 #sep = Chr(10)
 
 #geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
+
+#lastfmEndpoint = "https://ws.audioscrobbler.com/"
+#lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
+#lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
