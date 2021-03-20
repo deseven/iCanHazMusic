@@ -111,6 +111,7 @@ Structure nowPlaying
   lyrics.s
   albumArt.s
   startedAt.i
+  startedAtTime.i
 EndStructure
 
 Structure settings

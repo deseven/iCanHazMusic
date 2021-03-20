@@ -151,10 +151,36 @@ Procedure WriteFileFast(path.s,string.s)
   ProcedureReturn #False
 EndProcedure
 
-Procedure.b lastfmAuth(lastfmAuthStep.b)
+Procedure lastfmUpdateNowPlaying(dummy.i)
+  Shared nowPlaying,lastfmSession
+  Protected api_sig.s = StringFingerprint("api_key" + 
+                                          #lastfmAPIKey + 
+                                          "artist" + 
+                                          nowPlaying\artist + 
+                                          "methodtrack.updateNowPlayingsk" + 
+                                          lastfmSession + 
+                                          "track" + 
+                                          nowPlaying\title + 
+                                          #lastfmSecret,#PB_Cipher_MD5)
+  Protected request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
+                                  "method=track.updateNowPlaying&api_key=" + 
+                                  #lastfmAPIKey + 
+                                  "&artist=" +
+                                  nowPlaying\artist +
+                                  "&track=" +
+                                  nowPlaying\title +
+                                  "&sk=" +
+                                  lastfmSession +
+                                  "&api_sig=" + api_sig)
+  If request
+    FinishHTTP(request)
+  EndIf
+EndProcedure
+
+Procedure lastfmAuth(lastfmAuthStep.b)
   Shared lastfmToken.s,lastfmSession.s,lastfmUser.s
   Shared lastfmTokenResponse.s,lastfmSessionResponse.s
-  Protected api_sig.s,request.i,response.s,json.i
+  Protected api_sig.s,request.i,response.s,json.i,status.s
   Select lastfmAuthStep
     Case #getToken
       lastfmToken = ""
@@ -162,16 +188,17 @@ Procedure.b lastfmAuth(lastfmAuthStep.b)
       request = HTTPRequest(#PB_HTTP_Get,#lastfmEndpoint + "/2.0/?method=auth.getToken&api_key=" + #lastfmAPIKey + "&format=json&api_sig=" + api_sig)
       If request
         response = HTTPInfo(request,#PB_HTTP_Response)
+        status = HTTPInfo(request,#PB_HTTP_StatusCode)
         FinishHTTP(request)
         json = ParseJSON(#PB_Any,response)
-        If json
+        If json And status = "200"
           lastfmToken = GetJSONString(GetJSONMember(JSONValue(json),"token"))
           FreeJSON(json)
         EndIf
         If lastfmToken
           ProcedureReturn #True
         Else
-          lastfmTokenResponse = response
+          lastfmTokenResponse = "HTTP " + status + ~"\n" + response
         EndIf
       EndIf
     Case #openAuthLink
@@ -185,9 +212,10 @@ Procedure.b lastfmAuth(lastfmAuthStep.b)
       request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json","method=auth.getSession&api_key=" + #lastfmAPIKey + "&token=" + lastfmToken + "&api_sig=" + api_sig)
       If request
         response = HTTPInfo(request,#PB_HTTP_Response)
+        status = HTTPInfo(request,#PB_HTTP_StatusCode)
         FinishHTTP(request)
         json = ParseJSON(#PB_Any,response)
-        If json
+        If json And status = "200"
           ;{"session":{"subscriber":0,"name":"...","key":"..."}}
           lastfmSession = GetJSONString(GetJSONMember(GetJSONMember(JSONValue(json),"session"),"key"))
           lastfmUser = GetJSONString(GetJSONMember(GetJSONMember(JSONValue(json),"session"),"name"))
@@ -196,7 +224,7 @@ Procedure.b lastfmAuth(lastfmAuthStep.b)
         If lastfmSession
           ProcedureReturn #True
         Else
-          lastfmSessionResponse = response
+          lastfmSessionResponse = "HTTP " + status + ~"\n" + response
         EndIf
       EndIf
   EndSelect

@@ -91,7 +91,7 @@ loadSettings()
 If lastfmSession
   SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
 Else
-  SetMenuItemText(#menu,#lastfmState,"Login to Last.fm")
+  SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
 EndIf
 If lastfmUser
   SetMenuItemText(#menu,#lastfmUser,lastfmUser)
@@ -187,7 +187,8 @@ Repeat
         Case #lastfmState
           If lastfmSession
             If MessageRequester(#myName,"Do you really want to log out of Last.fm? Scrobbling will be disabled.",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
-              SetMenuItemText(#menu,#lastfmState,"Login to last.fm")
+              SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
+              SetMenuItemText(#menu,#lastfmState,"Not logged in")
               DisableMenuItem(#menu,#lastfmUser,#True)
               lastfmSession = ""
               lastfmUser = ""
@@ -205,6 +206,7 @@ Repeat
                 EndIf
               Wend
               If lastfmSession And lastfmUser
+                MessageRequester(#myName,"You are successfully logged in as " + lastfmUser,#PB_MessageRequester_Info)
                 SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
                 SetMenuItemText(#menu,#lastfmUser,lastfmUser)
                 DisableMenuItem(#menu,#lastfmUser,#False)
@@ -248,6 +250,7 @@ Repeat
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
               nowPlaying\startedAt = ElapsedMilliseconds() - GetGadgetData(#nowPlayingProgress) * 1000
               AddWindowTimer(#wnd,0,1000)
+              CreateThread(@lastfmUpdateNowPlaying(),0)
             Else
               If IsProgram(playPID)
                 RunProgram("/bin/kill","-SIGSTOP " + ProgramID(playPID),"")
@@ -296,6 +299,7 @@ Repeat
     Case #evPlayStart
       nowPlaying\startedAt = ElapsedMilliseconds()
       AddWindowTimer(#wnd,0,1000)
+      CreateThread(@lastfmUpdateNowPlaying(),0)
     Case #evPlayFinish
       If nowPlaying\ID < CountGadgetItems(#playlist) - 1
         SetGadgetState(#playlist,nowPlaying\ID + 1)
