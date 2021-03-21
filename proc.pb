@@ -151,28 +151,82 @@ Procedure WriteFileFast(path.s,string.s)
   ProcedureReturn #False
 EndProcedure
 
-Procedure lastfmUpdateNowPlaying(dummy.i)
-  Shared nowPlaying,lastfmSession
+Procedure lastfmScrobble(*nowPlaying.nowPlaying)
+  Debug "lastfm: scrobbling"
+  Shared lastfmSession
+  Protected NewList args.s()
+  AddElement(args()) : args() = "-u"
+  AddElement(args()) : args() = "+%s"
+  Protected unixtimeUTC.s = RunProgramNative("/bin/date",args())
   Protected api_sig.s = StringFingerprint("api_key" + 
                                           #lastfmAPIKey + 
                                           "artist" + 
-                                          nowPlaying\artist + 
+                                          *nowPlaying\artist + 
+                                          "duration" +
+                                          Str(*nowPlaying\durationSec) +
+                                          "methodtrack.scrobblesk" + 
+                                          lastfmSession +
+                                          "timestamp" +
+                                          unixtimeUTC +
+                                          "track" + 
+                                          *nowPlaying\title + 
+                                          #lastfmSecret,#PB_Cipher_MD5)
+  Protected request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
+                                  "method=track.scrobble&api_key=" + 
+                                  #lastfmAPIKey + 
+                                  "&artist=" +
+                                  *nowPlaying\artist +
+                                  "&track=" +
+                                  *nowPlaying\title +
+                                  "&duration=" +
+                                  Str(*nowPlaying\durationSec) +
+                                  "&timestamp=" +
+                                  unixtimeUTC +
+                                  "&sk=" +
+                                  lastfmSession +
+                                  "&api_sig=" + api_sig)
+  If request
+    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
+    If status <> "200"
+      Protected error.s = "Last.fm scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+      Debug error
+    EndIf
+    FinishHTTP(request)
+  EndIf
+EndProcedure
+
+Procedure lastfmUpdateNowPlaying(*nowPlaying.nowPlaying)
+  Debug "lastfm: updating nowplaying"
+  Shared lastfmSession
+  Protected api_sig.s = StringFingerprint("api_key" + 
+                                          #lastfmAPIKey + 
+                                          "artist" + 
+                                          *nowPlaying\artist + 
+                                          "duration" +
+                                          Str(*nowPlaying\durationSec) +
                                           "methodtrack.updateNowPlayingsk" + 
                                           lastfmSession + 
                                           "track" + 
-                                          nowPlaying\title + 
+                                          *nowPlaying\title + 
                                           #lastfmSecret,#PB_Cipher_MD5)
   Protected request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
                                   "method=track.updateNowPlaying&api_key=" + 
                                   #lastfmAPIKey + 
                                   "&artist=" +
-                                  nowPlaying\artist +
+                                  *nowPlaying\artist +
                                   "&track=" +
-                                  nowPlaying\title +
+                                  *nowPlaying\title +
+                                  "&duration=" +
+                                  Str(*nowPlaying\durationSec) +
                                   "&sk=" +
                                   lastfmSession +
                                   "&api_sig=" + api_sig)
   If request
+    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
+    If status <> "200"
+      Protected error.s = "Last.fm nowplaying update failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+      Debug error
+    EndIf
     FinishHTTP(request)
   EndIf
 EndProcedure
@@ -631,5 +685,20 @@ Macro doTags()
       AddElement(tagsParserThreads())
       tagsParserThreads() = CreateThread(@getTags(),j)
     Next
+  EndIf
+EndMacro
+
+Macro updateLastfmStatus()
+  If lastfmSession
+    SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
+  Else
+    SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
+  EndIf
+  If lastfmUser
+    SetMenuItemText(#menu,#lastfmUser,lastfmUser)
+    DisableMenuItem(#menu,#lastfmUser,#False)
+  Else
+    SetMenuItemText(#menu,#lastfmUser,"Not logged in")
+    DisableMenuItem(#menu,#lastfmUser,#False)
   EndIf
 EndMacro

@@ -14,6 +14,7 @@ Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
+Define nowPlayingSafe.nowPlaying
 nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
@@ -51,7 +52,7 @@ MenuItem(#addFile,"Add File(s)...")
 MenuTitle("Last.fm")
 MenuItem(#lastfmState,"")
 MenuBar()
-MenuItem(#lastfmUser,"Not logged in")
+MenuItem(#lastfmUser,"")
 DisableMenuItem(#menu,#lastfmUser,#True)
 
 CreatePopupMenu(#playlistMenu)
@@ -88,16 +89,7 @@ EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Ed
 loadState()
 loadSettings()
 
-If lastfmSession
-  SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
-Else
-  SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
-EndIf
-If lastfmUser
-  SetMenuItemText(#menu,#lastfmUser,lastfmUser)
-  DisableMenuItem(#menu,#lastfmUser,#False)
-EndIf
-
+updateLastfmStatus()
 
 BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
 
@@ -187,12 +179,10 @@ Repeat
         Case #lastfmState
           If lastfmSession
             If MessageRequester(#myName,"Do you really want to log out of Last.fm? Scrobbling will be disabled.",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
-              SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
-              SetMenuItemText(#menu,#lastfmState,"Not logged in")
-              DisableMenuItem(#menu,#lastfmUser,#True)
               lastfmSession = ""
               lastfmUser = ""
               saveSettings()
+              updateLastfmStatus()
             EndIf
           Else
             If lastfmAuth(#getToken)
@@ -207,9 +197,7 @@ Repeat
               Wend
               If lastfmSession And lastfmUser
                 MessageRequester(#myName,"You are successfully logged in as " + lastfmUser,#PB_MessageRequester_Info)
-                SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
-                SetMenuItemText(#menu,#lastfmUser,lastfmUser)
-                DisableMenuItem(#menu,#lastfmUser,#False)
+                updateLastfmStatus()
               EndIf
               saveSettings()
             Else
@@ -250,7 +238,8 @@ Repeat
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
               nowPlaying\startedAt = ElapsedMilliseconds() - GetGadgetData(#nowPlayingProgress) * 1000
               AddWindowTimer(#wnd,0,1000)
-              CreateThread(@lastfmUpdateNowPlaying(),0)
+              CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
+              CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
             Else
               If IsProgram(playPID)
                 RunProgram("/bin/kill","-SIGSTOP " + ProgramID(playPID),"")
@@ -299,8 +288,11 @@ Repeat
     Case #evPlayStart
       nowPlaying\startedAt = ElapsedMilliseconds()
       AddWindowTimer(#wnd,0,1000)
-      CreateThread(@lastfmUpdateNowPlaying(),0)
+      CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
+      CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
     Case #evPlayFinish
+      CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
+      CreateThread(@lastfmScrobble(),@nowPlayingSafe)
       If nowPlaying\ID < CountGadgetItems(#playlist) - 1
         SetGadgetState(#playlist,nowPlaying\ID + 1)
         doPlay()
