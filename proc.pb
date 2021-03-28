@@ -603,6 +603,24 @@ Procedure nowPlayingHandler()
   SetGadgetData(#nowPlayingProgress,currentTimeSec)
 EndProcedure
 
+ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
+  Shared nowPlaying
+  If IsMenu(#dockMenu) : FreeMenu(#dockMenu) : EndIf
+  CreateMenu(#dockMenu,0)
+  MenuTitle("")
+  If nowPlaying\isPaused Or nowPlaying\ID = -1
+    MenuItem(#dockPlayPause,"Play")
+  Else
+    MenuItem(#dockPlayPause,"Pause")
+  EndIf
+  MenuItem(#dockNext,"Next Track")
+  MenuItem(#dockPrevious,"Previous Track")
+  If nowPlaying\ID <> -1
+    MenuItem(#dockStop,"Stop")
+  EndIf
+  ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
+EndProcedure
+
 Macro cleanUp()
   ClearGadgetItems(#playlist)
   ClearList(tagsToGet())
@@ -619,6 +637,10 @@ Macro cleanUp()
 EndMacro
 
 Macro doPlay()
+  If IsProgram(playPID)
+    KillProgram(playPID)
+    CloseProgram(playPID)
+  EndIf
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
@@ -636,6 +658,7 @@ Macro doPlay()
   EndIf
   nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
   nowPlaying\lyrics = ""
+  nowPlaying\isPaused = #False
   playThread = CreateThread(@play(),0)
   SetGadgetText(#toolbarPlayPause,#pauseSymbol)
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)

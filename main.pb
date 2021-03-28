@@ -23,6 +23,9 @@ Define numThreads.b
 Define tagsToGetLock.i = CreateMutex()
 Define lastfmToken.s,lastfmSession.s,lastfmUser.s
 Define lastfmTokenResponse.s,lastfmSessionResponse.s
+Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
+Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
+Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 
 UseMD5Fingerprint()
 UsePNGImageDecoder()
@@ -80,8 +83,10 @@ TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
 TextGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,559,500,16,"[standby]",#PB_Text_Center)
 ProgressBarGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,575,490,20,0,100)
 
-ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-495,595,50,25,#playSymbol)
-ButtonGadget(#toolbarStop,WindowWidth(#wnd)-445,595,50,25,#stopSymbol)
+ButtonGadget(#toolbarPrevious,WindowWidth(#wnd)-495,595,50,25,#previousSymbol)
+ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-445,595,50,25,#playSymbol)
+ButtonGadget(#toolbarNext,WindowWidth(#wnd)-395,595,50,25,#nextSymbol)
+ButtonGadget(#toolbarStop,WindowWidth(#wnd)-345,595,50,25,#stopSymbol)
 ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
@@ -92,6 +97,9 @@ loadSettings()
 updateLastfmStatus()
 
 BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
+
+class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
+CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
 
 Repeat
   ev = WaitWindowEvent()
@@ -208,6 +216,14 @@ Repeat
           If lastfmUser
             RunProgram("open","https://www.last.fm/user/" + lastfmUser,"")
           EndIf
+        Case #dockPlayPause
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarPlayPause)
+        Case #dockStop
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarStop)
+        Case #dockNext
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
+        Case #dockPrevious
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
         Case #PB_Menu_Quit
           Break
       EndSelect
@@ -231,16 +247,18 @@ Repeat
               doPlay()
             EndIf
           Else
-            If GetGadgetText(#toolbarPlayPause) = #playSymbol
+            If nowPlaying\isPaused
+              nowPlaying\isPaused = #False
               If IsProgram(playPID)
                 RunProgram("/bin/kill","-SIGCONT " + ProgramID(playPID),"")
               EndIf
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
               nowPlaying\startedAt = ElapsedMilliseconds() - GetGadgetData(#nowPlayingProgress) * 1000
-              AddWindowTimer(#wnd,0,1000)
+              AddWindowTimer(#wnd,0,900)
               CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
               CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
             Else
+              nowPlaying\isPaused = #True
               If IsProgram(playPID)
                 RunProgram("/bin/kill","-SIGSTOP " + ProgramID(playPID),"")
               EndIf
@@ -252,6 +270,24 @@ Repeat
           If nowPlaying\ID <> -1
             doStop()
           EndIf
+        Case #toolbarNext
+          If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+            SetGadgetState(#playlist,nowPlaying\ID + 1)
+            doPlay()
+            saveSettings()
+          Else
+            doStop()
+            SetGadgetState(#playlist,-1)
+          EndIf
+        Case #toolbarPrevious
+          If nowPlaying\ID > 0
+            SetGadgetState(#playlist,nowPlaying\ID - 1)
+            doPlay()
+            saveSettings()
+          Else
+            doStop()
+            SetGadgetState(#playlist,-1)
+          EndIf
       EndSelect
     Case #PB_Event_SizeWindow
       ResizeGadget(#playlist,#PB_Ignore,#PB_Ignore,WindowWidth(#wnd)-500,WindowHeight(#wnd))
@@ -259,8 +295,10 @@ Repeat
       ResizeGadget(#nowPlaying,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
       ResizeGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
       ResizeGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarPlayPause,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarStop,WindowWidth(#wnd)-445,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarPrevious,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarPlayPause,WindowWidth(#wnd)-445,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarNext,WindowWidth(#wnd)-395,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+      ResizeGadget(#toolbarStop,WindowWidth(#wnd)-345,#PB_Ignore,#PB_Ignore,#PB_Ignore)
       ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
       ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
     Case #evTagGetSuccess
@@ -287,20 +325,13 @@ Repeat
       EndIf
     Case #evPlayStart
       nowPlaying\startedAt = ElapsedMilliseconds()
-      AddWindowTimer(#wnd,0,1000)
+      AddWindowTimer(#wnd,0,900)
       CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
       CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
     Case #evPlayFinish
       CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
       CreateThread(@lastfmScrobble(),@nowPlayingSafe)
-      If nowPlaying\ID < CountGadgetItems(#playlist) - 1
-        SetGadgetState(#playlist,nowPlaying\ID + 1)
-        doPlay()
-        saveSettings()
-      Else
-        doStop()
-        SetGadgetState(#playlist,-1)
-      EndIf
+      PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
     Case #evLyricsSuccess

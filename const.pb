@@ -2,6 +2,8 @@
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
+#nextSymbol = "▶▶"
+#previousSymbol = "◀◀"
 #stopSymbol = "■"
 #refreshSymbol = "♻"
 
@@ -14,6 +16,8 @@ Enumeration
   #nowPlayingDuration
   #lyrics
   #toolbarPlayPause
+  #toolbarNext
+  #toolbarPrevious
   #toolbarStop
   #toolbarLyricsEdit
   #toolbarLyricsReload
@@ -52,6 +56,11 @@ Enumeration menu
   #playlistReloadTags
   #playlistRemove
   #playlistRemoveAlbum
+  #dockMenu
+  #dockPlayPause
+  #dockNext
+  #dockPrevious
+  #dockStop
 EndEnumeration
 
 Enumeration albumArt
@@ -112,6 +121,7 @@ Structure nowPlaying
   albumArt.s
   startedAt.i
   startedAtTime.i
+  isPaused.b
 EndStructure
 
 Structure settings
