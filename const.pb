@@ -57,6 +57,8 @@ Enumeration menu
   #playlistRemove
   #playlistRemoveAlbum
   #dockMenu
+  #dockArtist
+  #dockTitle
   #dockPlayPause
   #dockNext
   #dockPrevious

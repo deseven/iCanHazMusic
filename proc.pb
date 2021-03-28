@@ -608,6 +608,13 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   If IsMenu(#dockMenu) : FreeMenu(#dockMenu) : EndIf
   CreateMenu(#dockMenu,0)
   MenuTitle("")
+  If nowPlaying\ID <> -1
+    MenuItem(#dockArtist,nowPlaying\artist)
+    MenuItem(#dockTitle,nowPlaying\title)
+    DisableMenuItem(#dockMenu,#dockArtist,#True)
+    DisableMenuItem(#dockMenu,#dockTitle,#True)
+    MenuBar()
+  EndIf
   If nowPlaying\isPaused Or nowPlaying\ID = -1
     MenuItem(#dockPlayPause,"Play")
   Else
