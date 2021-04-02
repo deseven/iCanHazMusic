@@ -44,7 +44,7 @@ EndIf
 IncludeFile "proc.pb"
 
 ExamineDesktops()
-OpenWindow(#wnd,0,0,DesktopWidth(0),DesktopHeight(0),#myName,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu)
+OpenWindow(#wnd,0,0,DesktopWidth(0),DesktopHeight(0),#myName,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget)
 WindowBounds(#wnd,800,720,#PB_Ignore,#PB_Ignore)
 
 CreateMenu(#menu,WindowID(#wnd))
@@ -271,22 +271,26 @@ Repeat
             doStop()
           EndIf
         Case #toolbarNext
-          If nowPlaying\ID < CountGadgetItems(#playlist) - 1
-            SetGadgetState(#playlist,nowPlaying\ID + 1)
-            doPlay()
-            saveSettings()
-          Else
-            doStop()
-            SetGadgetState(#playlist,-1)
+          If nowPlaying\ID <> - 1
+            If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+              SetGadgetState(#playlist,nowPlaying\ID + 1)
+              doPlay()
+              saveSettings()
+            Else
+              doStop()
+              SetGadgetState(#playlist,-1)
+            EndIf
           EndIf
         Case #toolbarPrevious
-          If nowPlaying\ID > 0
-            SetGadgetState(#playlist,nowPlaying\ID - 1)
-            doPlay()
-            saveSettings()
-          Else
-            doStop()
-            SetGadgetState(#playlist,-1)
+          If nowPlaying\ID <> - 1
+            If nowPlaying\ID > 0
+              SetGadgetState(#playlist,nowPlaying\ID - 1)
+              doPlay()
+              saveSettings()
+            Else
+              doStop()
+              SetGadgetState(#playlist,-1)
+            EndIf
           EndIf
       EndSelect
     Case #PB_Event_SizeWindow

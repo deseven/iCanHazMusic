@@ -649,6 +649,7 @@ Macro doPlay()
     CloseProgram(playPID)
   EndIf
   If IsThread(playThread) : KillThread(playThread) : EndIf
+  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf

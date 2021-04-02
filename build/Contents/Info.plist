@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>iCanHazMusic</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleIconFile</key>
+	<string>main.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>wtf.d7.icanhazmusic</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleSignature</key>
+	<string>PURE</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.1</string>
+	<key>CFBundleName</key>
+	<string>iCanHazMusic</string>
+	<key>CSResourcesFileMapped</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSDisablePersistence</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.12</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Access to system events is required to handle keyboard shortcuts.</string>
+</dict>
+</plist>
