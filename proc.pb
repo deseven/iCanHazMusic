@@ -111,12 +111,13 @@ Procedure.b isSupportedFile(path.s)
   path = LCase(GetExtensionPart(path))
   If path = "mp3" Or
      path = "m4a" Or
-     path = "ogg" Or
-     path = "oga" Or
+     path = "aac" Or
+     path = "ac3" Or
+     path = "wav" Or
+     path = "aif" Or
+     path = "aiff" Or
      path = "flac" Or
-     path = "alac" Or
-     path = "ape" Or
-     path = "wma"
+     path = "alac"
     ProcedureReturn #True
   EndIf
 EndProcedure
@@ -367,17 +368,23 @@ Procedure getTags(start.i)
 EndProcedure
 
 Procedure play(dummy)
-  Shared playPID.i
+  Shared AVAudioPlayer
   Shared nowPlaying
-  If IsProgram(playPID)
-    KillProgram(playPID)
-    CloseProgram(playPID)
+  Protected currentTime.d
+  Debug nowPlaying\path
+  AVAudioPlayer = CocoaMessage(0,CocoaMessage(0,0,"AVAudioPlayer alloc"),
+                               "initWithContentsOfURL:",CocoaMessage(0,0,"NSURL fileURLWithPath:$",@nowPlaying\path),
+                               "error:",#Null)
+  If AVAudioPlayer
+    If CocoaMessage(0,AVAudioPlayer,"play") = #YES
+      PostEvent(#evPlayStart)
+      While CocoaMessage(0,AVAudioPlayer,"isPlaying") Or nowPlaying\isPaused
+        Delay(10)
+      Wend
+    EndIf
+    CocoaMessage(0,AVAudioPlayer,"dealloc")
+    AVAudioPlayer = 0
   EndIf
-  playPID = RunProgram("/usr/local/bin/ffplay",~"-vn -nodisp -autoexit \"" + nowPlaying\path + ~"\"","",#PB_Program_Open)
-  PostEvent(#evPlayStart)
-  WaitProgram(playPID)
-  CloseProgram(playPID)
-  ;Delay(10000)
   PostEvent(#evPlayFinish)
 EndProcedure
 
@@ -393,11 +400,7 @@ Procedure lyrics(dummy)
     PostEvent(#evLyricsSuccess)
     ProcedureReturn
   EndIf
-  
-  ;AddElement(args()) : args() = "-u"
-  ;AddElement(args()) : args() = "-v"
-  ;AddElement(args()) : args() = ~"-c 'prisdfnt(\"hi\")'"
-  ;AddElement(args()) : args() = ~""
+
   AddElement(args()) : args() = "-u"
   AddElement(args()) : args() = "-m"
   AddElement(args()) : args() = "lyricsgenius"
@@ -543,40 +546,46 @@ Procedure loadAlbumArt()
     albumArt = fileDir + "cover.png"
   EndIf
   
-  If ExamineDirectory(0,fileDir,"*.jpg")
-    While NextDirectoryEntry(0)
-      If DirectoryEntryType(0) = #PB_DirectoryEntry_File
-        albumArt = fileDir + DirectoryEntryName(0)
-        Break
-      EndIf
-    Wend
-    FinishDirectory(0)
-  EndIf
-  If ExamineDirectory(0,fileDir,"*.jpeg")
-    While NextDirectoryEntry(0)
-      If DirectoryEntryType(0) = #PB_DirectoryEntry_File
-        albumArt = fileDir + DirectoryEntryName(0)
-        Break
-      EndIf
-    Wend
-    FinishDirectory(0)
-  EndIf
-  If ExamineDirectory(0,fileDir,"*.png")
-    While NextDirectoryEntry(0)
-      If DirectoryEntryType(0) = #PB_DirectoryEntry_File
-        albumArt = fileDir + DirectoryEntryName(0)
-        Break
-      EndIf
-    Wend
-    FinishDirectory(0)
+  If Not Len(albumArt)
+    If ExamineDirectory(0,fileDir,"*.jpg")
+      While NextDirectoryEntry(0)
+        If DirectoryEntryType(0) = #PB_DirectoryEntry_File
+          albumArt = fileDir + DirectoryEntryName(0)
+          Break
+        EndIf
+      Wend
+      FinishDirectory(0)
+    EndIf
+    If ExamineDirectory(0,fileDir,"*.jpeg")
+      While NextDirectoryEntry(0)
+        If DirectoryEntryType(0) = #PB_DirectoryEntry_File
+          albumArt = fileDir + DirectoryEntryName(0)
+          Break
+        EndIf
+      Wend
+      FinishDirectory(0)
+    EndIf
+    If ExamineDirectory(0,fileDir,"*.png")
+      While NextDirectoryEntry(0)
+        If DirectoryEntryType(0) = #PB_DirectoryEntry_File
+          albumArt = fileDir + DirectoryEntryName(0)
+          Break
+        EndIf
+      Wend
+      FinishDirectory(0)
+    EndIf
   EndIf
   
   If nowPlaying\albumArt <> albumArt
     If albumArt
       If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
-      LoadImage(#currentAlbumArt,albumArt)
-      ResizeImage(#currentAlbumArt,500,500,#PB_Image_Smooth)
-      SetGadgetState(#albumArt,ImageID(#currentAlbumArt))
+      Debug "loading " + albumArt
+      If LoadImage(#currentAlbumArt,albumArt)
+        ResizeImage(#currentAlbumArt,500,500,#PB_Image_Smooth)
+        SetGadgetState(#albumArt,ImageID(#currentAlbumArt))
+      Else
+        SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
+      EndIf
     Else
       SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     EndIf
@@ -588,19 +597,23 @@ EndProcedure
 
 Procedure nowPlayingHandler()
   Shared nowPlaying
-  Protected currentTimeSec.i = (ElapsedMilliseconds() - nowPlaying\startedAt) / 1000
+  Shared AVAudioPlayer
+  Protected currentTimeSec.d
   Protected currentTime.s
-  If nowPlaying\durationSec > 3600
-    currentTime = FormatDate("%hh:%ii:%ss",currentTimeSec)
-  Else
-    currentTime = FormatDate("%ii:%ss",currentTimeSec)
+  If AVAudioPlayer And nowPlaying\ID <> -1
+    CocoaMessage(@currentTimeSec,AVAudioPlayer,"currentTime")
+    If nowPlaying\durationSec > 3600
+      currentTime = FormatDate("%hh:%ii:%ss",currentTimeSec)
+    Else
+      currentTime = FormatDate("%ii:%ss",currentTimeSec)
+    EndIf
+    SetGadgetText(#nowPlayingDuration,currentTime + " / " + nowPlaying\duration)
+    Protected part.f = nowPlaying\durationSec / 100
+    If part > 0
+      SetGadgetState(#nowPlayingProgress,currentTimeSec / part)
+    EndIf
+    SetGadgetData(#nowPlayingProgress,currentTimeSec)
   EndIf
-  SetGadgetText(#nowPlayingDuration,currentTime + " / " + nowPlaying\duration)
-  Protected part.f = nowPlaying\durationSec / 100
-  If part > 0
-    SetGadgetState(#nowPlayingProgress,currentTimeSec / part)
-  EndIf
-  SetGadgetData(#nowPlayingProgress,currentTimeSec)
 EndProcedure
 
 ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
@@ -637,21 +650,18 @@ Macro cleanUp()
   ClearList(tagsParserThreads())
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If IsProgram(playPID)
-    KillProgram(playPID)
-    CloseProgram(playPID)
-  EndIf
 EndMacro
 
 Macro doPlay()
-  If IsProgram(playPID)
-    KillProgram(playPID)
-    CloseProgram(playPID)
-  EndIf
+  RemoveWindowTimer(#wnd,0)
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
+  EndIf
+  If AVAudioPlayer
+    CocoaMessage(0,AVAudioPlayer,"stop")
+    CocoaMessage(0,AVAudioPlayer,"dealloc")
   EndIf
   nowPlaying\ID = GetGadgetState(#playlist)
   nowPlaying\path = GetGadgetItemText(#playlist,nowPlaying\ID,#file)
@@ -688,14 +698,14 @@ Macro doStop()
   If nowPlaying\ID <> - 1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf
+  If AVAudioPlayer
+    CocoaMessage(0,AVAudioPlayer,"stop")
+    CocoaMessage(0,AVAudioPlayer,"dealloc")
+  EndIf
   ClearStructure(@nowPlaying,nowPlaying)
   nowPlaying\ID = -1
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If IsProgram(playPID)
-    KillProgram(playPID)
-    CloseProgram(playPID)
-  EndIf
   SetGadgetText(#toolbarPlayPause,#playSymbol)
   SetWindowTitle(#wnd,#myName)
   SetGadgetText(#nowPlaying,"")

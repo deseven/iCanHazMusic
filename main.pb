@@ -6,7 +6,7 @@ NewList tagsToGet.track_info()
 Define ev.i
 Define playlist.s,directory.s,file.s
 NewList filesInDirectory.s()
-Define playThread.i,playPID.i
+Define playThread.i
 NewList tagsParserThreads.i()
 Define lyricsThread.i
 Define i.i,j.i
@@ -26,11 +26,13 @@ Define lastfmTokenResponse.s,lastfmSessionResponse.s
 Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
+Define AVAudioPlayer.i
 
 UseMD5Fingerprint()
 UsePNGImageDecoder()
 UseJPEGImageDecoder()
 InitNetwork()
+ImportC "-framework AVKit" : EndImport
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
@@ -245,22 +247,22 @@ Repeat
           If nowPlaying\ID = -1
             If GetGadgetState(#playlist) > -1
               doPlay()
+              saveSettings()
             EndIf
           Else
             If nowPlaying\isPaused
               nowPlaying\isPaused = #False
-              If IsProgram(playPID)
-                RunProgram("/bin/kill","-SIGCONT " + ProgramID(playPID),"")
+              If AVAudioPlayer
+                CocoaMessage(0,AVAudioPlayer,"play")
               EndIf
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
-              nowPlaying\startedAt = ElapsedMilliseconds() - GetGadgetData(#nowPlayingProgress) * 1000
               AddWindowTimer(#wnd,0,900)
               CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
               CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
             Else
               nowPlaying\isPaused = #True
-              If IsProgram(playPID)
-                RunProgram("/bin/kill","-SIGSTOP " + ProgramID(playPID),"")
+              If AVAudioPlayer
+                CocoaMessage(0,AVAudioPlayer,"pause")
               EndIf
               SetGadgetText(#toolbarPlayPause,#playSymbol)
               RemoveWindowTimer(#wnd,0)
@@ -328,7 +330,6 @@ Repeat
         ClearList(tagsToGet())
       EndIf
     Case #evPlayStart
-      nowPlaying\startedAt = ElapsedMilliseconds()
       AddWindowTimer(#wnd,0,900)
       CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
       CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)

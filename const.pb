@@ -121,8 +121,7 @@ Structure nowPlaying
   details.s
   lyrics.s
   albumArt.s
-  startedAt.i
-  startedAtTime.i
+  currentTime.d
   isPaused.b
 EndStructure
 
