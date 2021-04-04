@@ -15,7 +15,8 @@ Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
-Define nowPlayingSafe.nowPlaying
+Define nowPlayingSafeUpdate.nowPlaying
+Define nowPlayingSafeScrobble.nowPlaying
 nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
@@ -263,8 +264,8 @@ Repeat
               EndIf
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
               AddWindowTimer(#wnd,0,900)
-              CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-              CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
+              CopyStructure(@nowPlaying,@nowPlayingSafeUpdate,nowPlaying)
+              CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafeUpdate)
             Else
               nowPlaying\isPaused = #True
               If AVAudioPlayer
@@ -340,11 +341,11 @@ Repeat
       EndIf
     Case #evPlayStart
       AddWindowTimer(#wnd,0,900)
-      CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-      CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafe)
+      CopyStructure(@nowPlaying,@nowPlayingSafeUpdate,nowPlaying)
+      CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafeUpdate)
     Case #evPlayFinish
-      CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-      CreateThread(@lastfmScrobble(),@nowPlayingSafe)
+      CopyStructure(@nowPlaying,@nowPlayingSafeScrobble,nowPlaying)
+      CreateThread(@lastfmScrobble(),@nowPlayingSafeScrobble)
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")

@@ -3,46 +3,28 @@
 EndMacro
 
 ; taken from http://forums.purebasic.com/english/viewtopic.php?p=346952#p346952
-Procedure.s replacestrin(st.s,vad.s,till.s)
-  Protected a.l
-  Protected final.s
-  If FindString(st.s,vad.s,1)
-    For a=1 To Len(st.s)
-      If Mid(st.s,a,1)=vad.s
-        final.s+till.s
-      Else
-        final.s+Mid(st.s,a,1)
-      EndIf
-    Next
-    ProcedureReturn final.s
-  Else
-    ProcedureReturn st.s
-  EndIf
-EndProcedure
-
-; taken from http://forums.purebasic.com/english/viewtopic.php?p=346952#p346952
 Procedure.s URLEncode(st.s)
-  st.s=URLEncoder(st.s)
-  st.s=replacestrin(st.s,"&","%26")
-  st.s=replacestrin(st.s,"!","%21")
-  st.s=replacestrin(st.s,"*","%2A")
-  st.s=replacestrin(st.s,"'","%27")
-  st.s=replacestrin(st.s,"(","%28")
-  st.s=replacestrin(st.s,")","%29")
-  st.s=replacestrin(st.s,";","%3B")
-  st.s=replacestrin(st.s,":","%3A")
-  st.s=replacestrin(st.s,"@","%40")
-  st.s=replacestrin(st.s,"&","%26")
-  st.s=replacestrin(st.s,"=","%3D")
-  st.s=replacestrin(st.s,"+","%2B")
-  st.s=replacestrin(st.s,"$","%24")
-  st.s=replacestrin(st.s,",","%2C")
-  st.s=replacestrin(st.s,"/","%2F")
-  st.s=replacestrin(st.s,"?","%3F")
-  st.s=replacestrin(st.s,"#","%23")
-  st.s=replacestrin(st.s,"[","%5B")
-  st.s=replacestrin(st.s,"]","%5D")
-  ProcedureReturn st.s
+  st=URLEncoder(st)
+  st=ReplaceString(st,"&","%26")
+  st=ReplaceString(st,"!","%21")
+  st=ReplaceString(st,"*","%2A")
+  st=ReplaceString(st,"'","%27")
+  st=ReplaceString(st,"(","%28")
+  st=ReplaceString(st,")","%29")
+  st=ReplaceString(st,";","%3B")
+  st=ReplaceString(st,":","%3A")
+  st=ReplaceString(st,"@","%40")
+  st=ReplaceString(st,"&","%26")
+  st=ReplaceString(st,"=","%3D")
+  st=ReplaceString(st,"+","%2B")
+  st=ReplaceString(st,"$","%24")
+  st=ReplaceString(st,",","%2C")
+  st=ReplaceString(st,"/","%2F")
+  st=ReplaceString(st,"?","%3F")
+  st=ReplaceString(st,"#","%23")
+  st=ReplaceString(st,"[","%5B")
+  st=ReplaceString(st,"]","%5D")
+  ProcedureReturn st
 EndProcedure
 
 ; taken from http://forums.purebasic.com/english/viewtopic.php?p=357702#p357702
@@ -196,6 +178,8 @@ Macro cleanUp()
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next
+  FreeMutex(tagsToGetLock)
+  tagsToGetLock = CreateMutex()
   ClearList(tagsParserThreads())
   If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
@@ -246,17 +230,18 @@ EndMacro
 Macro doStop()
   debugLog("playback","stopping")
   RemoveWindowTimer(#wnd,0)
+  If IsThread(playThread) : KillThread(playThread) : EndIf
+  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> - 1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf
   If AVAudioPlayer
     CocoaMessage(0,AVAudioPlayer,"stop")
     CocoaMessage(0,AVAudioPlayer,"dealloc")
+    AVAudioPlayer = 0
   EndIf
   ClearStructure(@nowPlaying,nowPlaying)
   nowPlaying\ID = -1
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   SetGadgetText(#toolbarPlayPause,#playSymbol)
   SetWindowTitle(#wnd,#myName)
   SetGadgetText(#nowPlaying,"")

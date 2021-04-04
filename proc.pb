@@ -2,6 +2,7 @@
   debugLog("lastfm","scrobbling " + Str(*nowPlaying\ID))
   Shared lastfmSession
   Protected NewList args.s()
+  Protected error.s
   AddElement(args()) : args() = "-u"
   AddElement(args()) : args() = "+%s"
   Protected unixtimeUTC.s = RunProgramNative("/bin/date",args())
@@ -35,20 +36,27 @@
   If request
     Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
     If status <> "200"
-      Protected error.s = "Last.fm scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
-      Debug error
+      error = "scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
     Else
-      debugLog("lastfm","scrobbled")
+      If FindString(HTTPInfo(request,#PB_HTTP_Response),~"\"accepted\":1")
+        debugLog("lastfm","scrobbled")
+      Else
+        error = "scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+      EndIf
     EndIf
     FinishHTTP(request)
   Else
     debugLog("lastfm","failed to make a request")
+  EndIf
+  If error
+    debugLog("lastfm",error)
   EndIf
 EndProcedure
 
 Procedure lastfmUpdateNowPlaying(*nowPlaying.nowPlaying)
   debugLog ("lastfm","updating nowplaying")
   Shared lastfmSession
+  Protected error.s
   Protected api_sig.s = StringFingerprint("api_key" + 
                                           #lastfmAPIKey + 
                                           "artist" + 
@@ -75,10 +83,12 @@ Procedure lastfmUpdateNowPlaying(*nowPlaying.nowPlaying)
   If request
     Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
     If status <> "200"
-      Protected error.s = "Last.fm nowplaying update failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
-      Debug error
+      error = "nowplaying update failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
     EndIf
     FinishHTTP(request)
+  EndIf
+  If error
+    debugLog("lastfm",error)
   EndIf
 EndProcedure
 
