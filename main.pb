@@ -15,8 +15,8 @@ Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
-Define nowPlayingSafeUpdate.nowPlaying
-Define nowPlayingSafeScrobble.nowPlaying
+Define nowPlayingUpdate.nowPlaying
+Define nowPlayingScrobble.nowPlaying
 nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
@@ -29,6 +29,11 @@ Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define AVAudioPlayer.i
+Define stopPlaying.b
+Define lastfmNeedsUpdate.b
+Define lastfmNeedsScrobble.b
+
+Global EXIT = #False
 
 UseMD5Fingerprint()
 UsePNGImageDecoder()
@@ -102,7 +107,13 @@ loadSettings()
 
 updateLastfmStatus()
 
-BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
+nowPlaying\ID = -1
+CopyStructure(@nowPlaying,@nowPlayingScrobble,nowPlaying)
+
+Define lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
+Define lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
+
+BindEvent(#evUpdateNowPlaying,@nowPlayingHandler(),#wnd)
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
 debugLog("main","handlers registered")
@@ -255,27 +266,13 @@ Repeat
             EndIf
           Else
             If nowPlaying\isPaused
-              debugLog("playback","continued")
               nowPlaying\isPaused = #False
-              If AVAudioPlayer
-                CocoaMessage(0,AVAudioPlayer,"play")
-              Else
-                debugLog("playback","got a continue event, but AVAP doesn't exist!")
-              EndIf
+              debugLog("playback","continued")
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
-              AddWindowTimer(#wnd,0,900)
-              CopyStructure(@nowPlaying,@nowPlayingSafeUpdate,nowPlaying)
-              CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafeUpdate)
             Else
               nowPlaying\isPaused = #True
-              If AVAudioPlayer
-                CocoaMessage(0,AVAudioPlayer,"pause")
-              Else
-                debugLog("playback","got a pause event, but AVAP doesn't exist!")
-              EndIf
               debugLog("playback","paused")
               SetGadgetText(#toolbarPlayPause,#playSymbol)
-              RemoveWindowTimer(#wnd,0)
             EndIf
           EndIf
         Case #toolbarStop
@@ -340,12 +337,11 @@ Repeat
         ClearList(tagsToGet())
       EndIf
     Case #evPlayStart
-      AddWindowTimer(#wnd,0,900)
-      CopyStructure(@nowPlaying,@nowPlayingSafeUpdate,nowPlaying)
-      CreateThread(@lastfmUpdateNowPlaying(),@nowPlayingSafeUpdate)
+      CopyStructure(@nowPlaying,@nowPlayingUpdate,nowPlaying)
+      lastfmNeedsUpdate = #True
     Case #evPlayFinish
-      CopyStructure(@nowPlaying,@nowPlayingSafeScrobble,nowPlaying)
-      CreateThread(@lastfmScrobble(),@nowPlayingSafeScrobble)
+      CopyStructure(@nowPlaying,@nowPlayingScrobble,nowPlaying)
+      lastfmNeedsScrobble = #True
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
@@ -354,5 +350,5 @@ Repeat
   EndSelect
 ForEver
 
-cleanUp()
+die()
 debugLog("main","exiting")

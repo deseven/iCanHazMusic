@@ -32,6 +32,7 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evPlayFinish
   #evLyricsFail
   #evLyricsSuccess
+  #evUpdateNowPlaying
 EndEnumeration
 
 Enumeration columns

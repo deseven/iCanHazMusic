@@ -173,29 +173,37 @@ EndProcedure
 
 Macro cleanUp()
   debugLog("main","cleaning up")
+  EXIT = #True
+  ForEach tagsParserThreads()
+    WaitThread(tagsParserThreads())
+  Next
+  EXIT = #False
   ClearGadgetItems(#playlist)
   ClearList(tagsToGet())
+  ClearList(tagsParserThreads())
+  FreeMutex(tagsToGetLock)
+  tagsToGetLock = CreateMutex()  
+EndMacro
+
+Macro die()
+  If IsThread(playThread) : KillThread(playThread) : EndIf
+  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
+  If IsThread(lastfmUpdateNowPlayingThread) : KillThread(lastfmUpdateNowPlayingThread) : EndIf
+  If IsThread(lastfmScrobbleThread) : KillThread(lastfmScrobbleThread) : EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next
-  FreeMutex(tagsToGetLock)
-  tagsToGetLock = CreateMutex()
-  ClearList(tagsParserThreads())
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
 EndMacro
 
 Macro doPlay()
   debugLog("playback","playing start")
-  RemoveWindowTimer(#wnd,0)
-  If IsThread(playThread) : KillThread(playThread) : EndIf
+  If IsThread(playThread)
+    stopPlaying = #True
+    WaitThread(playThread)
+  EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
-  EndIf
-  If AVAudioPlayer
-    CocoaMessage(0,AVAudioPlayer,"stop")
-    CocoaMessage(0,AVAudioPlayer,"dealloc")
   EndIf
   nowPlaying\ID = GetGadgetState(#playlist)
   nowPlaying\path = GetGadgetItemText(#playlist,nowPlaying\ID,#file)
@@ -211,7 +219,6 @@ Macro doPlay()
   nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
   nowPlaying\lyrics = ""
   nowPlaying\isPaused = #False
-  playThread = CreateThread(@play(),0)
   SetGadgetText(#toolbarPlayPause,#pauseSymbol)
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
   SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
@@ -222,6 +229,7 @@ Macro doPlay()
   Else
     SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
   EndIf
+  playThread = CreateThread(@play(),0)
   SetGadgetState(#nowPlayingProgress,0)
   lyricsThread = CreateThread(@lyrics(),0)
   loadAlbumArt()
@@ -229,16 +237,13 @@ EndMacro
 
 Macro doStop()
   debugLog("playback","stopping")
-  RemoveWindowTimer(#wnd,0)
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If nowPlaying\ID <> - 1
-    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
+  If IsThread(playThread)
+    stopPlaying = #True
+    WaitThread(playThread)
   EndIf
-  If AVAudioPlayer
-    CocoaMessage(0,AVAudioPlayer,"stop")
-    CocoaMessage(0,AVAudioPlayer,"dealloc")
-    AVAudioPlayer = 0
+  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
+  If nowPlaying\ID <> -1
+    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf
   ClearStructure(@nowPlaying,nowPlaying)
   nowPlaying\ID = -1
