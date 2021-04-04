@@ -1,159 +1,5 @@
-﻿; taken here http://forums.purebasic.com/english/viewtopic.php?p=357702#p357702
-Procedure RecursiveDirectorySafe(path$, List File.s())
-   Protected NewList ToDo.s(), hd
-   
-   If Right(path$, 1) <> "/" : path$ + "/" : EndIf
-   
-   AddElement(ToDo())
-   ToDo() = path$
-   
-   ResetList(ToDo())
-   
-   While NextElement(ToDo())
-      path$ = ToDo()
-      DeleteElement(ToDo())
-      
-      hd = ExamineDirectory(#PB_Any, path$, "*.*")
-      
-      If hd
-         While NextDirectoryEntry(hd)
-            
-            If DirectoryEntryType(hd) = #PB_DirectoryEntry_File
-               AddElement(File())
-               File() = path$ + DirectoryEntryName(hd)
-               
-            Else
-               If DirectoryEntryName(hd) <> "." And DirectoryEntryName(hd) <> ".."
-                  ; ajout du répertoire
-                  AddElement(ToDo())
-                  ToDo() = path$ + DirectoryEntryName(hd) + "/"
-                  
-               EndIf
-            EndIf
-            
-         Wend
-         
-         FinishDirectory(hd)
-      EndIf
-      
-      ResetList(ToDo())
-   Wend
-   
-EndProcedure
-
-Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
-  Protected i
-  Protected arg.s
-  Protected argsArray
-  Protected stdout.s
-  
-  If FileSize(path) <= 0
-    ProcedureReturn ""
-  EndIf
-  
-  If ListSize(args())
-    SelectElement(args(),0)
-    arg = args()
-    argsArray = CocoaMessage(0,0,"NSArray arrayWithObject:$",@arg)
-    If ListSize(args()) > 1
-      For i = 1 To ListSize(args()) - 1
-        SelectElement(args(),i)
-        arg = args()
-        argsArray = CocoaMessage(0,argsArray,"arrayByAddingObject:$",@arg)
-      Next
-    EndIf
-  EndIf
-  Protected task = CocoaMessage(0,CocoaMessage(0,0,"NSTask alloc"),"init")
-  
-  CocoaMessage(0,task,"setLaunchPath:$",@path)
-  
-  If argsArray
-    CocoaMessage(0,task,"setArguments:",argsArray)
-  EndIf
-  
-  If workdir
-    CocoaMessage(0,task,"setCurrentDirectoryPath:$",@workdir)
-  EndIf
-  
-  If stdin
-    Protected writePipe = CocoaMessage(0,0,"NSPipe pipe")
-    Protected writeHandle = CocoaMessage(0,writePipe,"fileHandleForWriting")
-    CocoaMessage(0,task,"setStandardInput:",writePipe)
-    Protected string = CocoaMessage(0,0,"NSString stringWithString:$",@stdin)
-    Protected stringData = CocoaMessage(0,string,"dataUsingEncoding:",#NSUTF8StringEncoding)
-  EndIf
-  
-  Protected readPipe = CocoaMessage(0,0,"NSPipe pipe")
-  Protected readHandle = CocoaMessage(0,readPipe,"fileHandleForReading")
-  CocoaMessage(0,task,"setStandardOutput:",readPipe)
-  
-  CocoaMessage(0,task,"setStandardError:",CocoaMessage(0,task,"standardOutput"))
-  
-  CocoaMessage(0,task,"launch")
-  
-  If stdin
-    CocoaMessage(0,writeHandle,"writeData:",stringData)
-    CocoaMessage(0,writeHandle,"closeFile")
-  EndIf
-  
-  Protected outputData = CocoaMessage(0,readHandle,"readDataToEndOfFile")
-  If outputData
-    Protected stdoutNative = CocoaMessage(0,CocoaMessage(0,0,"NSString alloc"),"initWithData:",outputData,"encoding:",#NSUTF8StringEncoding)
-    stdout = PeekS(CocoaMessage(0,stdoutNative,"UTF8String"),-1,#PB_UTF8)
-  EndIf
-  
-  CocoaMessage(0,task,"release")
-  
-  ProcedureReturn stdout
-EndProcedure
-
-Procedure.b isSupportedFile(path.s)
-  path = LCase(GetExtensionPart(path))
-  If path = "mp3" Or
-     path = "m4a" Or
-     path = "aac" Or
-     path = "ac3" Or
-     path = "wav" Or
-     path = "aif" Or
-     path = "aiff" Or
-     path = "flac" Or
-     path = "alac"
-    ProcedureReturn #True
-  EndIf
-EndProcedure
-
-Procedure.b isParsingCompleted()
-  Shared tagsParserThreads()
-  ForEach tagsParserThreads()
-    If IsThread(tagsParserThreads())
-      ProcedureReturn #False
-    EndIf
-  Next
-  ProcedureReturn #True
-EndProcedure
-
-Procedure.s ReadFileFast(path.s)
-  Protected file = ReadFile(#PB_Any,path)
-  Protected string.s
-  If file
-    string = ReadString(file,#PB_File_IgnoreEOL)
-    CloseFile(file)
-  EndIf
-  ProcedureReturn string
-EndProcedure
-
-Procedure WriteFileFast(path.s,string.s)
-  Protected file = CreateFile(#PB_Any,path)
-  If file
-    WriteString(file,string)
-    CloseFile(file)
-    ProcedureReturn #True
-  EndIf
-  ProcedureReturn #False
-EndProcedure
-
-Procedure lastfmScrobble(*nowPlaying.nowPlaying)
-  Debug "lastfm: scrobbling"
+﻿Procedure lastfmScrobble(*nowPlaying.nowPlaying)
+  debugLog("lastfm","scrobbling " + Str(*nowPlaying\ID))
   Shared lastfmSession
   Protected NewList args.s()
   AddElement(args()) : args() = "-u"
@@ -176,9 +22,9 @@ Procedure lastfmScrobble(*nowPlaying.nowPlaying)
                                   "method=track.scrobble&api_key=" + 
                                   #lastfmAPIKey + 
                                   "&artist=" +
-                                  *nowPlaying\artist +
+                                  URLEncode(*nowPlaying\artist) +
                                   "&track=" +
-                                  *nowPlaying\title +
+                                  URLEncode(*nowPlaying\title) +
                                   "&duration=" +
                                   Str(*nowPlaying\durationSec) +
                                   "&timestamp=" +
@@ -191,13 +37,17 @@ Procedure lastfmScrobble(*nowPlaying.nowPlaying)
     If status <> "200"
       Protected error.s = "Last.fm scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
       Debug error
+    Else
+      debugLog("lastfm","scrobbled")
     EndIf
     FinishHTTP(request)
+  Else
+    debugLog("lastfm","failed to make a request")
   EndIf
 EndProcedure
 
 Procedure lastfmUpdateNowPlaying(*nowPlaying.nowPlaying)
-  Debug "lastfm: updating nowplaying"
+  debugLog ("lastfm","updating nowplaying")
   Shared lastfmSession
   Protected api_sig.s = StringFingerprint("api_key" + 
                                           #lastfmAPIKey + 
@@ -214,9 +64,9 @@ Procedure lastfmUpdateNowPlaying(*nowPlaying.nowPlaying)
                                   "method=track.updateNowPlaying&api_key=" + 
                                   #lastfmAPIKey + 
                                   "&artist=" +
-                                  *nowPlaying\artist +
+                                  URLEncode(*nowPlaying\artist) +
                                   "&track=" +
-                                  *nowPlaying\title +
+                                  URLEncode(*nowPlaying\title) +
                                   "&duration=" +
                                   Str(*nowPlaying\durationSec) +
                                   "&sk=" +
@@ -371,7 +221,7 @@ Procedure play(dummy)
   Shared AVAudioPlayer
   Shared nowPlaying
   Protected currentTime.d
-  Debug nowPlaying\path
+  debugLog("playback",nowPlaying\path)
   AVAudioPlayer = CocoaMessage(0,CocoaMessage(0,0,"AVAudioPlayer alloc"),
                                "initWithContentsOfURL:",CocoaMessage(0,0,"NSURL fileURLWithPath:$",@nowPlaying\path),
                                "error:",#Null)
@@ -396,7 +246,7 @@ Procedure lyrics(dummy)
   
   If FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
     nowPlaying\lyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
-    ;Debug "loaded lyrics from cache"
+    debugLog ("lyrics","loaded from cache")
     PostEvent(#evLyricsSuccess)
     ProcedureReturn
   EndIf
@@ -413,6 +263,7 @@ Procedure lyrics(dummy)
   Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),dataDir + "/tmp")
   ;Debug res
   If Left(res,6) = "Wrote "
+    debugLog("lyrics","got from genius")
     Protected geniusPath.s = RTrim(RTrim(RTrim(Mid(res,7),#LF$)),".")
     If FileSize(dataDir + "/tmp/" + geniusPath) > 0
       json = ReadFileFast(dataDir + "/tmp/" + geniusPath)
@@ -427,6 +278,8 @@ Procedure lyrics(dummy)
         PostEvent(#evLyricsSuccess)
         DeleteFile(dataDir + "/tmp/" + geniusPath,#PB_FileSystem_Force)
         ProcedureReturn
+      Else
+        debugLog("lyrics","failed to parse genius answer")
       EndIf
     EndIf
   EndIf
@@ -444,6 +297,7 @@ Procedure saveSettings()
   SetJSONString(AddJSONMember(object,"lastfm_user"),lastfmUser)
   WriteFileFast(dataDir + "/settings.json",ComposeJSON(json,#PB_JSON_PrettyPrint))
   FreeJSON(json)
+  debugLog("main","settings saved")
 EndProcedure
 
 Procedure loadSettings()
@@ -459,6 +313,7 @@ Procedure loadSettings()
     lastfmUser = settings\lastfm_user
     SetGadgetState(#playlist,settings\last_played_track_id)
   EndIf
+  debugLog("main","settings loaded")
 EndProcedure
 
 Procedure saveState()
@@ -486,6 +341,7 @@ Procedure saveState()
   If CreateFile(1,dataDir + "/current_state.json")
     WriteString(1,state)
     CloseFile(1)
+    debugLog("main","state saved")
   Else
     MessageRequester(#myName,"Can't save current state to " + dataDir + "/current_state.json",#PB_MessageRequester_Error)
   EndIf
@@ -511,6 +367,7 @@ Procedure loadState()
                                   values("details"))
       Next
       FreeJSON(1)
+      debugLog("main","state loaded")
     EndIf
   EndIf
 EndProcedure
@@ -579,7 +436,7 @@ Procedure loadAlbumArt()
   If nowPlaying\albumArt <> albumArt
     If albumArt
       If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
-      Debug "loading " + albumArt
+      debugLog ("albumart","loading " + albumArt)
       If LoadImage(#currentAlbumArt,albumArt)
         ResizeImage(#currentAlbumArt,500,500,#PB_Image_Smooth)
         SetGadgetState(#albumArt,ImageID(#currentAlbumArt))
@@ -587,11 +444,10 @@ Procedure loadAlbumArt()
         SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
       EndIf
     Else
+      debugLog ("albumart","failed to load")
       SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     EndIf
     nowPlaying\albumArt = albumArt
-  ;Else
-  ;  Debug "image is the same"
   EndIf
 EndProcedure
 
@@ -641,105 +497,12 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
 EndProcedure
 
-Macro cleanUp()
-  ClearGadgetItems(#playlist)
-  ClearList(tagsToGet())
+Procedure.b isParsingCompleted()
+  Shared tagsParserThreads()
   ForEach tagsParserThreads()
-    If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
-  Next
-  ClearList(tagsParserThreads())
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-EndMacro
-
-Macro doPlay()
-  RemoveWindowTimer(#wnd,0)
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If nowPlaying\ID <> -1
-    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
-  EndIf
-  If AVAudioPlayer
-    CocoaMessage(0,AVAudioPlayer,"stop")
-    CocoaMessage(0,AVAudioPlayer,"dealloc")
-  EndIf
-  nowPlaying\ID = GetGadgetState(#playlist)
-  nowPlaying\path = GetGadgetItemText(#playlist,nowPlaying\ID,#file)
-  nowPlaying\artist = GetGadgetItemText(#playlist,nowPlaying\ID,#artist)
-  nowPlaying\title = GetGadgetItemText(#playlist,nowPlaying\ID,#title)
-  nowPlaying\album = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
-  nowPlaying\duration = GetGadgetItemText(#playlist,nowPlaying\ID,#duration)
-  If Len(nowPlaying\duration) > 5
-    nowPlaying\durationSec = ParseDate("%hh:%ii:%ss",nowPlaying\duration)
-  Else
-    nowPlaying\durationSec = ParseDate("%ii:%ss",nowPlaying\duration)
-  EndIf
-  nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
-  nowPlaying\lyrics = ""
-  nowPlaying\isPaused = #False
-  playThread = CreateThread(@play(),0)
-  SetGadgetText(#toolbarPlayPause,#pauseSymbol)
-  SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
-  SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
-  SetGadgetText(#lyrics,"[looking for lyrics...]")
-  SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
-  If nowPlaying\durationSec > 3600
-    SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
-  Else
-    SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
-  EndIf
-  SetGadgetState(#nowPlayingProgress,0)
-  lyricsThread = CreateThread(@lyrics(),0)
-  loadAlbumArt()
-EndMacro
-
-Macro doStop()
-  RemoveWindowTimer(#wnd,0)
-  If nowPlaying\ID <> - 1
-    SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
-  EndIf
-  If AVAudioPlayer
-    CocoaMessage(0,AVAudioPlayer,"stop")
-    CocoaMessage(0,AVAudioPlayer,"dealloc")
-  EndIf
-  ClearStructure(@nowPlaying,nowPlaying)
-  nowPlaying\ID = -1
-  If IsThread(playThread) : KillThread(playThread) : EndIf
-  If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  SetGadgetText(#toolbarPlayPause,#playSymbol)
-  SetWindowTitle(#wnd,#myName)
-  SetGadgetText(#nowPlaying,"")
-  SetGadgetText(#nowPlayingDuration,"[standby]")
-  SetGadgetState(#nowPlayingProgress,0)
-  SetGadgetText(#lyrics,"")
-  loadAlbumArt()
-EndMacro
-
-Macro doTags()
-  If ListSize(tagsToGet())
-    If ListSize(tagsToGet()) < systemThreads
-      numThreads = ListSize(tagsToGet())
-    Else
-      numThreads = systemThreads
+    If IsThread(tagsParserThreads())
+      ProcedureReturn #False
     EndIf
-    For j = 0 To numThreads - 1
-      AddElement(tagsParserThreads())
-      tagsParserThreads() = CreateThread(@getTags(),j)
-    Next
-  EndIf
-EndMacro
-
-Macro updateLastfmStatus()
-  If lastfmSession
-    SetMenuItemText(#menu,#lastfmState,"Log out of Last.fm")
-  Else
-    SetMenuItemText(#menu,#lastfmState,"Log in to Last.fm")
-  EndIf
-  If lastfmUser
-    SetMenuItemText(#menu,#lastfmUser,lastfmUser)
-    DisableMenuItem(#menu,#lastfmUser,#False)
-  Else
-    SetMenuItemText(#menu,#lastfmUser,"Not logged in")
-    DisableMenuItem(#menu,#lastfmUser,#False)
-  EndIf
-EndMacro
+  Next
+  ProcedureReturn #True
+EndProcedure

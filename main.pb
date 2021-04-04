@@ -1,6 +1,7 @@
 ﻿EnableExplicit
 
 IncludeFile "const.pb"
+IncludeFile "helpers.pb"
 
 NewList tagsToGet.track_info()
 Define ev.i
@@ -93,15 +94,17 @@ ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymb
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
 
+debugLog("main","interface loaded")
+
 loadState()
 loadSettings()
 
 updateLastfmStatus()
 
 BindEvent(#PB_Event_Timer,@nowPlayingHandler(),#wnd)
-
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
+debugLog("main","handlers registered")
 
 Repeat
   ev = WaitWindowEvent()
@@ -251,9 +254,12 @@ Repeat
             EndIf
           Else
             If nowPlaying\isPaused
+              debugLog("playback","continued")
               nowPlaying\isPaused = #False
               If AVAudioPlayer
                 CocoaMessage(0,AVAudioPlayer,"play")
+              Else
+                debugLog("playback","got a continue event, but AVAP doesn't exist!")
               EndIf
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
               AddWindowTimer(#wnd,0,900)
@@ -263,7 +269,10 @@ Repeat
               nowPlaying\isPaused = #True
               If AVAudioPlayer
                 CocoaMessage(0,AVAudioPlayer,"pause")
+              Else
+                debugLog("playback","got a pause event, but AVAP doesn't exist!")
               EndIf
+              debugLog("playback","paused")
               SetGadgetText(#toolbarPlayPause,#playSymbol)
               RemoveWindowTimer(#wnd,0)
             EndIf
@@ -345,3 +354,4 @@ Repeat
 ForEver
 
 cleanUp()
+debugLog("main","exiting")
