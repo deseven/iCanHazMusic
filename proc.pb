@@ -2,6 +2,7 @@
   Shared lastfmSession
   Shared nowPlayingScrobble
   Shared lastfmNeedsScrobble
+  Protected nowPlayingScrobbleSafe.nowPlaying
   Protected NewList args.s()
   Protected error.s
   Protected unixtimeUTC.s
@@ -14,30 +15,31 @@
   Repeat
     Delay(1000)
     If lastfmNeedsScrobble And lastfmSession
-      debugLog("lastfm","scrobbling " + Str(nowPlayingScrobble\ID))
+      CopyStructure(@nowPlayingScrobble,@nowPlayingScrobbleSafe,nowPlaying)
+      debugLog("lastfm","scrobbling " + Str(nowPlayingScrobbleSafe\ID))
       unixtimeUTC = RunProgramNative("/bin/date",args())
       api_sig = StringFingerprint("api_key" + 
                                               #lastfmAPIKey + 
                                               "artist" + 
-                                              nowPlayingScrobble\artist + 
+                                              nowPlayingScrobbleSafe\artist + 
                                               "duration" +
-                                              Str(nowPlayingScrobble\durationSec) +
+                                              Str(nowPlayingScrobbleSafe\durationSec) +
                                               "methodtrack.scrobblesk" + 
                                               lastfmSession +
                                               "timestamp" +
                                               unixtimeUTC +
                                               "track" + 
-                                              nowPlayingScrobble\title + 
+                                              nowPlayingScrobbleSafe\title + 
                                               #lastfmSecret,#PB_Cipher_MD5)
       request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
                             "method=track.scrobble&api_key=" + 
                             #lastfmAPIKey + 
                             "&artist=" +
-                            URLEncode(nowPlayingScrobble\artist) +
+                            URLEncode(nowPlayingScrobbleSafe\artist) +
                             "&track=" +
-                            URLEncode(nowPlayingScrobble\title) +
+                            URLEncode(nowPlayingScrobbleSafe\title) +
                             "&duration=" +
-                            Str(nowPlayingScrobble\durationSec) +
+                            Str(nowPlayingScrobbleSafe\durationSec) +
                             "&timestamp=" +
                             unixtimeUTC +
                             "&sk=" +
@@ -58,12 +60,12 @@
         Else
           If FindString(response,~"\"accepted\":1")
             lastfmNeedsScrobble = #False
-            debugLog("lastfm","scrobbled")
+            debugLog("lastfm","scrobbled " + Str(nowPlayingScrobbleSafe\ID))
           ElseIf FindString(response,~"\"ignored\":1")
             lastfmNeedsScrobble = #False
-            error = ~"ignored with\n" + response
+            error = "ignored " + Str(nowPlayingScrobbleSafe\ID) + ~"with\n" + response
           Else
-            error = "scrobble failed with HTTP " + status + ~".\n" + response
+            error = "scrobble " + Str(nowPlayingScrobbleSafe\ID) + " failed with HTTP " + status + ~".\n" + response
           EndIf
         EndIf
         FinishHTTP(request)
@@ -81,33 +83,35 @@ Procedure lastfmUpdateNowPlaying(dummy)
   Shared lastfmSession
   Shared nowPlayingUpdate
   Shared lastfmNeedsUpdate
+  Protected nowPlayingUpdateSafe.nowPlaying
   Protected error.s
   Protected api_sig.s
   Protected request.i
   Repeat
     Delay(1000)
     If lastfmNeedsUpdate
-      debugLog("lastfm","updating nowplaying " + Str(nowPlayingUpdate\ID))
+      CopyStructure(@nowPlayingUpdate,@nowPlayingUpdateSafe,nowPlaying)
+      debugLog("lastfm","updating nowplaying " + Str(nowPlayingUpdateSafe\ID))
       api_sig = StringFingerprint("api_key" + 
                                   #lastfmAPIKey + 
                                   "artist" + 
-                                  nowPlayingUpdate\artist + 
+                                  nowPlayingUpdateSafe\artist + 
                                   "duration" +
-                                  Str(nowPlayingUpdate\durationSec) +
+                                  Str(nowPlayingUpdateSafe\durationSec) +
                                   "methodtrack.updateNowPlayingsk" + 
                                   lastfmSession + 
                                   "track" + 
-                                  nowPlayingUpdate\title + 
+                                  nowPlayingUpdateSafe\title + 
                                   #lastfmSecret,#PB_Cipher_MD5)
       request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
                             "method=track.updateNowPlaying&api_key=" + 
                             #lastfmAPIKey + 
                             "&artist=" +
-                            URLEncode(nowPlayingUpdate\artist) +
+                            URLEncode(nowPlayingUpdateSafe\artist) +
                             "&track=" +
-                            URLEncode(nowPlayingUpdate\title) +
+                            URLEncode(nowPlayingUpdateSafe\title) +
                             "&duration=" +
-                            Str(nowPlayingUpdate\durationSec) +
+                            Str(nowPlayingUpdateSafe\durationSec) +
                             "&sk=" +
                             lastfmSession +
                             "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
@@ -121,9 +125,10 @@ Procedure lastfmUpdateNowPlaying(dummy)
         Wend
         Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
         If status <> "200"
-          error = "nowplaying update failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+          error = "nowplaying update " + Str(nowPlayingUpdateSafe\ID) + " failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
         Else
           lastfmNeedsUpdate = #False
+          debugLog("lastfm","nowplaying updated " + Str(nowPlayingUpdateSafe\ID))
         EndIf
         FinishHTTP(request)
       EndIf
