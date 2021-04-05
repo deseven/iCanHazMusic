@@ -113,7 +113,6 @@ CopyStructure(@nowPlaying,@nowPlayingScrobble,nowPlaying)
 Define lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
 Define lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
 
-BindEvent(#evUpdateNowPlaying,@nowPlayingHandler(),#wnd)
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
 debugLog("main","handlers registered")
@@ -347,6 +346,8 @@ Repeat
       SetGadgetText(#lyrics,"[no lyrics found]")
     Case #evLyricsSuccess
       SetGadgetText(#lyrics,nowPlaying\lyrics)
+    Case #evUpdateNowPlaying
+      updateNowPlaying(EventType(),EventData())
   EndSelect
 ForEver
 

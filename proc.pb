@@ -52,14 +52,18 @@
           EndIf
         Wend
         Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
+        Protected response.s = HTTPInfo(request,#PB_HTTP_Response)
         If status <> "200"
-          error = "scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+          error = "scrobble failed with HTTP " + status + ~".\n" + response
         Else
-          If FindString(HTTPInfo(request,#PB_HTTP_Response),~"\"accepted\":1")
+          If FindString(response,~"\"accepted\":1")
             lastfmNeedsScrobble = #False
             debugLog("lastfm","scrobbled")
+          ElseIf FindString(response,~"\"ignored\":1")
+            lastfmNeedsScrobble = #False
+            error = ~"ignored with\n" + response
           Else
-            error = "scrobble failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+            error = "scrobble failed with HTTP " + status + ~".\n" + response
           EndIf
         EndIf
         FinishHTTP(request)
@@ -535,25 +539,6 @@ Procedure loadAlbumArt()
   EndIf
 EndProcedure
 
-Procedure nowPlayingHandler()
-  Protected currentTime.i = EventType()
-  Protected duration.i = EventData()
-  Protected currentTimeFormatted.s
-  Protected durationFormatted.s
-  If duration > 3600
-    currentTimeFormatted = FormatDate("%hh:%ii:%ss",currentTime)
-    durationFormatted = FormatDate("%hh:%ii:%ss",duration)
-  Else
-    currentTimeFormatted = FormatDate("%ii:%ss",currentTime)
-    durationFormatted = FormatDate("%ii:%ss",duration)
-  EndIf
-  SetGadgetText(#nowPlayingDuration,currentTimeFormatted + " / " + durationFormatted)
-  Protected part.f = duration / 100
-  If part > 0
-    SetGadgetState(#nowPlayingProgress,currentTime / part)
-  EndIf
-EndProcedure
-
 ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   Shared nowPlaying
   If IsMenu(#dockMenu) : FreeMenu(#dockMenu) : EndIf
@@ -587,4 +572,21 @@ Procedure.b isParsingCompleted()
     EndIf
   Next
   ProcedureReturn #True
+EndProcedure
+
+Procedure updateNowPlaying(currentTime.i,duration.i)
+  Protected currentTimeFormatted.s
+  Protected durationFormatted.s
+  If duration > 3600
+    currentTimeFormatted = FormatDate("%hh:%ii:%ss",currentTime)
+    durationFormatted = FormatDate("%hh:%ii:%ss",duration)
+  Else
+    currentTimeFormatted = FormatDate("%ii:%ss",currentTime)
+    durationFormatted = FormatDate("%ii:%ss",duration)
+  EndIf
+  SetGadgetText(#nowPlayingDuration,currentTimeFormatted + " / " + durationFormatted)
+  Protected part.f = duration / 100
+  If part > 0
+    SetGadgetState(#nowPlayingProgress,currentTime / part)
+  EndIf
 EndProcedure
