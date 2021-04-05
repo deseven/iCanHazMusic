@@ -8,6 +8,7 @@
   Protected unixtimeUTC.s
   Protected api_sig.s
   Protected request.i
+  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   AddElement(args()) : args() = "-u"
   AddElement(args()) : args() = "+%s"
@@ -77,6 +78,7 @@
       EndIf
     EndIf
   ForEver
+  CocoaMessage(0,NSPool,"release") ; this will never be called, but whatever
 EndProcedure
 
 Procedure lastfmUpdateNowPlaying(dummy)
