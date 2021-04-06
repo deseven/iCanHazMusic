@@ -205,12 +205,14 @@ Procedure getTags(start.i)
   Protected NewMap tags_lcase.s()
   Protected i.i
   Protected NewList args.s()
+  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   Delay(start * 100) ; to spread execution times
   
   For i = start To ListSize(tagsToGet()) - 1
     
     If EXIT
+      CocoaMessage(0,NSPool,"release")
       ProcedureReturn
     EndIf
     
@@ -279,6 +281,7 @@ Procedure getTags(start.i)
     
     i + numThreads - 1
   Next
+  CocoaMessage(0,NSPool,"release")
   PostEvent(#evTagGetFinish)
 EndProcedure
 
@@ -592,7 +595,7 @@ EndProcedure
 Procedure updateNowPlaying(currentTime.i,duration.i)
   Protected currentTimeFormatted.s
   Protected durationFormatted.s
-  If duration > 3600
+  If duration >= 3600
     currentTimeFormatted = FormatDate("%hh:%ii:%ss",currentTime)
     durationFormatted = FormatDate("%hh:%ii:%ss",duration)
   Else

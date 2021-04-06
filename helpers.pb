@@ -171,6 +171,11 @@ Procedure WriteFileFast(path.s,string.s)
   ProcedureReturn #False
 EndProcedure
 
+Procedure DelayEvent(event.i)
+  Delay(3000)
+  PostEvent(event)
+EndProcedure
+
 Macro cleanUp()
   debugLog("main","cleaning up")
   EXIT = #True

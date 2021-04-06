@@ -59,6 +59,8 @@ WindowBounds(#wnd,800,720,#PB_Ignore,#PB_Ignore)
 CreateMenu(#menu,WindowID(#wnd))
 MenuTitle("File")
 MenuItem(#openPlaylist,"Open Playlist...")
+MenuItem(#savePlaylist,"Save Playlist...")
+MenuBar()
 MenuItem(#addDirectory,"Add Diectory...")
 MenuItem(#addFile,"Add File(s)...")
 MenuTitle("Last.fm")
@@ -150,6 +152,17 @@ Repeat
               MessageRequester(#myName,"Can't open file " + playlist,#PB_MessageRequester_Error)
             EndIf
           EndIf
+        Case #savePlaylist
+          playlist = SaveFileRequester("Save playlist","main.m3u8","",0)
+          If playlist
+            playlistString = ~"#EXTM3U\n"
+            For i = 0 To CountGadgetItems(#playlist)-1
+              playlistString + ~"\n" + GetGadgetItemText(#playlist,i,#file)
+            Next
+            If Not WriteFileFast(playlist,playlistString)
+              MessageRequester(#myName,"Failed to save current playlist to " + playlist,#PB_MessageRequester_Error)
+            EndIf
+          EndIf
         Case #addDirectory
           If isParsingCompleted()
             directory = PathRequester("Select directory","")
@@ -201,6 +214,27 @@ Repeat
           Else
             MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
           EndIf
+        Case #playlistRemove
+          RemoveGadgetItem(#playlist,GetGadgetState(#playlist))
+          saveState()
+        Case #playlistRemoveAlbum
+          Define albumToRemove.s = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#album)
+          For i = GetGadgetState(#playlist) + 1 To CountGadgetItems(#playlist)-1
+            If GetGadgetItemText(#playlist,i,#album) <> albumToRemove
+              Debug GetGadgetItemText(#playlist,i,#album)
+              Debug albumToRemove
+              Break
+            EndIf
+            RemoveGadgetItem(#playlist,i)
+            i - 1 ; because we removed an item and the next one is having the same id now
+          Next
+          For i = GetGadgetState(#playlist) To 0 Step -1
+            If GetGadgetItemText(#playlist,i,#album) <> albumToRemove
+              Break
+            EndIf
+            RemoveGadgetItem(#playlist,i)
+          Next
+          saveState()
         Case #lastfmState
           If lastfmSession
             If MessageRequester(#myName,"Do you really want to log out of Last.fm? Scrobbling will be disabled.",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
@@ -332,10 +366,14 @@ Repeat
       SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
     Case #evTagGetFinish
       If isParsingCompleted()
-        saveState()
-        ClearList(tagsParserThreads())
-        ClearList(tagsToGet())
+        If ListSize(tagsParserThreads())
+          ClearList(tagsParserThreads())
+          CreateThread(@DelayEvent(),#evTagGetSaveState)
+        EndIf
       EndIf
+    Case #evTagGetSaveState
+      saveState()
+      ClearList(tagsToGet())
     Case #evPlayStart
       CopyStructure(@nowPlaying,@nowPlayingUpdate,nowPlaying)
       lastfmNeedsUpdate = #True

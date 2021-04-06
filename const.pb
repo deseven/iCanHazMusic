@@ -28,6 +28,7 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evTagGetSuccess
   #evTagGetFail
   #evTagGetFinish
+  #evTagGetSaveState
   #evPlayStart
   #evPlayFinish
   #evLyricsFail
@@ -49,6 +50,7 @@ EndEnumeration
 Enumeration menu
   #menu
   #openPlaylist
+  #savePlaylist
   #addDirectory
   #addFile
   #lastfmState
