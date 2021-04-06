@@ -18,6 +18,7 @@
     If lastfmNeedsScrobble And lastfmSession
       CopyStructure(@nowPlayingScrobble,@nowPlayingScrobbleSafe,nowPlaying)
       debugLog("lastfm","scrobbling " + Str(nowPlayingScrobbleSafe\ID))
+      error = ""
       unixtimeUTC = RunProgramNative("/bin/date",args())
       api_sig = StringFingerprint("api_key" + 
                                               #lastfmAPIKey + 
@@ -64,7 +65,7 @@
             debugLog("lastfm","scrobbled " + Str(nowPlayingScrobbleSafe\ID))
           ElseIf FindString(response,~"\"ignored\":1")
             lastfmNeedsScrobble = #False
-            error = "ignored " + Str(nowPlayingScrobbleSafe\ID) + ~"with\n" + response
+            error = "ignored " + Str(nowPlayingScrobbleSafe\ID) + ~" with\n" + response
           Else
             error = "scrobble " + Str(nowPlayingScrobbleSafe\ID) + " failed with HTTP " + status + ~".\n" + response
           EndIf
@@ -94,6 +95,7 @@ Procedure lastfmUpdateNowPlaying(dummy)
     If lastfmNeedsUpdate
       CopyStructure(@nowPlayingUpdate,@nowPlayingUpdateSafe,nowPlaying)
       debugLog("lastfm","updating nowplaying " + Str(nowPlayingUpdateSafe\ID))
+      error = ""
       api_sig = StringFingerprint("api_key" + 
                                   #lastfmAPIKey + 
                                   "artist" + 
