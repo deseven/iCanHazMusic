@@ -108,7 +108,8 @@ loadSettings()
 updateLastfmStatus()
 
 nowPlaying\ID = -1
-CopyStructure(@nowPlaying,@nowPlayingScrobble,nowPlaying)
+nowPlayingScrobble\ID = -1
+nowPlayingUpdate\ID = -1
 
 Define lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
 Define lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)

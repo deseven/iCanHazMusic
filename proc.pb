@@ -293,6 +293,7 @@ Procedure play(dummy)
   Protected durationInt.i
   Protected oldCurrent.i
   Protected newCurrent.i
+  Protected lastDurationUpdate.i
   debugLog("playback",nowPlaying\path)
   AVAudioPlayer = CocoaMessage(0,CocoaMessage(0,0,"AVAudioPlayer alloc"),
                                "initWithContentsOfURL:",CocoaMessage(0,0,"NSURL fileURLWithPath:$",@nowPlaying\path),
@@ -320,13 +321,16 @@ Procedure play(dummy)
         If CocoaMessage(0,AVAudioPlayer,"isPlaying") = #False And wasPaused = #False
           Break
         EndIf
-        CocoaMessage(@currentTimeSec,AVAudioPlayer,"currentTime")
-        newCurrent = Int(Round(currentTimeSec,#PB_Round_Down))
-        If oldCurrent <> newCurrent
-          oldCurrent = newCurrent
-          PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,duration)
+        If lastDurationUpdate + 900 <= ElapsedMilliseconds()
+          lastDurationUpdate = ElapsedMilliseconds()
+          CocoaMessage(@currentTimeSec,AVAudioPlayer,"currentTime")
+          newCurrent = Int(Round(currentTimeSec,#PB_Round_Down))
+          If oldCurrent <> newCurrent
+            oldCurrent = newCurrent
+            PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,duration)
+          EndIf
         EndIf
-        Delay(30)
+        Delay(20)
       ForEver
     EndIf
     CocoaMessage(0,AVAudioPlayer,"dealloc")
@@ -567,9 +571,9 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   Else
     MenuItem(#dockPlayPause,"Pause")
   EndIf
-  MenuItem(#dockNext,"Next Track")
-  MenuItem(#dockPrevious,"Previous Track")
   If nowPlaying\ID <> -1
+    MenuItem(#dockNext,"Next Track")
+    MenuItem(#dockPrevious,"Previous Track")
     MenuItem(#dockStop,"Stop")
   EndIf
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
