@@ -338,6 +338,7 @@ Procedure lyrics(dummy)
   Protected lyricsHash.s = StringFingerprint(nowPlaying\artist + " - " + nowPlaying\title,#PB_Cipher_MD5)
   Protected NewList args.s()
   Protected json.s
+  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   If FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
     nowPlaying\lyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
@@ -356,6 +357,7 @@ Procedure lyrics(dummy)
   AddElement(args()) : args() = "-q"
   SetEnvironmentVariable("GENIUS_ACCESS_TOKEN",#geniusToken)
   Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),dataDir + "/tmp")
+  CocoaMessage(0,NSPool,"release")
   ;Debug res
   If Left(res,6) = "Wrote "
     debugLog("lyrics","got from genius")
