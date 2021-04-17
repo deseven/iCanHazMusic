@@ -7,24 +7,24 @@
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2021-04-04 10:29" user="deseven" host="de7mac.local"/>
+    <lastopen date="2021-04-09 23:35" user="deseven" host="de7mac.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="f6233e4db3ee83cc5b0bac3116ff34b3"/>
-    </file>
-    <file name="main.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="c4bca46195baa0edcaf47d4cf82c1d7d"/>
-    </file>
-    <file name="proc.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="b3c53a582508a06f7ee3bc60b9f7b6e2"/>
+      <fingerprint md5="02fc2164209306999d4d9e40caf68e1e"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="5d280b8ce2efefc21c2a7d0538f86568"/>
+      <fingerprint md5="ee08c9bdcc0d0bf9e0e3896e4a1bc3bf"/>
+    </file>
+    <file name="main.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="c331e816e7250c9da2ba19f53c899b5c"/>
+    </file>
+    <file name="proc.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="99c7fe6b5b49035c4c3b96c7527cf78a"/>
     </file>
   </section>
   <section name="targets">

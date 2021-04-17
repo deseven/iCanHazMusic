@@ -1,146 +1,135 @@
 ﻿Procedure lastfmScrobble(dummy)
+  Shared nowPlaying
+  Shared nowPlayingSemaphore
+  Protected nowPlayingSafe.nowPlaying
+  CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
+  SignalSemaphore(nowPlayingSemaphore)
+  
   Shared lastfmSession
-  Shared nowPlayingScrobble
-  Shared lastfmNeedsScrobble
-  Protected nowPlayingScrobbleSafe.nowPlaying
+  Shared lastfmScrobbleError.s
   Protected NewList args.s()
   Protected error.s
   Protected unixtimeUTC.s
   Protected api_sig.s
   Protected request.i
-  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   AddElement(args()) : args() = "-u"
   AddElement(args()) : args() = "+%s"
   
-  Repeat
-    Delay(1000)
-    If lastfmNeedsScrobble And lastfmSession
-      CopyStructure(@nowPlayingScrobble,@nowPlayingScrobbleSafe,nowPlaying)
-      debugLog("lastfm","scrobbling " + Str(nowPlayingScrobbleSafe\ID))
-      error = ""
-      unixtimeUTC = RunProgramNative("/bin/date",args())
-      api_sig = StringFingerprint("api_key" + 
-                                              #lastfmAPIKey + 
-                                              "artist" + 
-                                              nowPlayingScrobbleSafe\artist + 
-                                              "duration" +
-                                              Str(nowPlayingScrobbleSafe\durationSec) +
-                                              "methodtrack.scrobblesk" + 
-                                              lastfmSession +
-                                              "timestamp" +
-                                              unixtimeUTC +
-                                              "track" + 
-                                              nowPlayingScrobbleSafe\title + 
-                                              #lastfmSecret,#PB_Cipher_MD5)
-      request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
-                            "method=track.scrobble&api_key=" + 
-                            #lastfmAPIKey + 
-                            "&artist=" +
-                            URLEncode(nowPlayingScrobbleSafe\artist) +
-                            "&track=" +
-                            URLEncode(nowPlayingScrobbleSafe\title) +
-                            "&duration=" +
-                            Str(nowPlayingScrobbleSafe\durationSec) +
-                            "&timestamp=" +
-                            unixtimeUTC +
-                            "&sk=" +
-                            lastfmSession +
-                            "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
-      If request
-        Protected startTime.i = ElapsedMilliseconds()
-        While HTTPProgress(request) >= 0
-          Delay(50)
-          If ElapsedMilliseconds() > startTime + 10000
-            AbortHTTP(request)
-          EndIf
-        Wend
-        Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
-        Protected response.s = HTTPInfo(request,#PB_HTTP_Response)
-        If status <> "200"
-          error = "scrobble failed with HTTP " + status + ~".\n" + response
-        Else
-          If FindString(response,~"\"accepted\":1")
-            lastfmNeedsScrobble = #False
-            debugLog("lastfm","scrobbled " + Str(nowPlayingScrobbleSafe\ID))
-          ElseIf FindString(response,~"\"ignored\":1")
-            lastfmNeedsScrobble = #False
-            error = "ignored " + Str(nowPlayingScrobbleSafe\ID) + ~" with\n" + response
-          Else
-            error = "scrobble " + Str(nowPlayingScrobbleSafe\ID) + " failed with HTTP " + status + ~".\n" + response
-          EndIf
-        EndIf
-        FinishHTTP(request)
-      Else
-        debugLog("lastfm","failed to make a request")
+  unixtimeUTC = RunProgramNative("/bin/date",args())
+  api_sig = StringFingerprint("api_key" + 
+                              #lastfmAPIKey + 
+                              "artist" + 
+                              nowPlayingSafe\artist + 
+                              "duration" +
+                              Str(nowPlayingSafe\durationSec) +
+                              "methodtrack.scrobblesk" + 
+                              lastfmSession +
+                              "timestamp" +
+                              unixtimeUTC +
+                              "track" + 
+                              nowPlayingSafe\title + 
+                              #lastfmSecret,#PB_Cipher_MD5)
+  request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
+                        "method=track.scrobble&api_key=" + 
+                        #lastfmAPIKey + 
+                        "&artist=" +
+                        URLEncode(nowPlayingSafe\artist) +
+                        "&track=" +
+                        URLEncode(nowPlayingSafe\title) +
+                        "&duration=" +
+                        Str(nowPlayingSafe\durationSec) +
+                        "&timestamp=" +
+                        unixtimeUTC +
+                        "&sk=" +
+                        lastfmSession +
+                        "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
+  If request
+    Protected startTime.i = ElapsedMilliseconds()
+    While HTTPProgress(request) >= 0
+      Delay(50)
+      If ElapsedMilliseconds() > startTime + 10000
+        AbortHTTP(request)
       EndIf
-      If error
-        debugLog("lastfm",error)
+    Wend
+    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
+    Protected response.s = HTTPInfo(request,#PB_HTTP_Response)
+    If status <> "200"
+      error = "scrobble failed with HTTP " + status + ~".\n" + response
+    Else
+      If FindString(response,~"\"accepted\":1")
+        PostEvent(#evLastfmScrobbleSuccess,0,0,0,nowPlayingSafe\ID)
+      ElseIf FindString(response,~"\"ignored\":1")
+        error = "ignored " + Str(nowPlayingSafe\ID) + ~" with\n" + response
+      Else
+        error = "scrobble " + Str(nowPlayingSafe\ID) + " failed with HTTP " + status + ~".\n" + response
       EndIf
     EndIf
-  ForEver
-  CocoaMessage(0,NSPool,"release") ; this will never be called, but whatever
+    FinishHTTP(request)
+  Else
+    error = "failed To make a request"
+  EndIf
+  If error
+    lastfmScrobbleError = error
+    PostEvent(#evLastfmScrobbleError)
+  EndIf
 EndProcedure
 
 Procedure lastfmUpdateNowPlaying(dummy)
+  Shared nowPlaying
+  Shared nowPlayingSemaphore
+  Protected nowPlayingSafe.nowPlaying
+  CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
+  SignalSemaphore(nowPlayingSemaphore)
+  
   Shared lastfmSession
-  Shared nowPlayingUpdate
-  Shared lastfmNeedsUpdate
-  Protected nowPlayingUpdateSafe.nowPlaying
+  Shared lastfmUpdateError.s
   Protected error.s
   Protected api_sig.s
   Protected request.i
-  Repeat
-    Delay(1000)
-    If lastfmNeedsUpdate
-      CopyStructure(@nowPlayingUpdate,@nowPlayingUpdateSafe,nowPlaying)
-      debugLog("lastfm","updating nowplaying " + Str(nowPlayingUpdateSafe\ID))
-      error = ""
-      api_sig = StringFingerprint("api_key" + 
-                                  #lastfmAPIKey + 
-                                  "artist" + 
-                                  nowPlayingUpdateSafe\artist + 
-                                  "duration" +
-                                  Str(nowPlayingUpdateSafe\durationSec) +
-                                  "methodtrack.updateNowPlayingsk" + 
-                                  lastfmSession + 
-                                  "track" + 
-                                  nowPlayingUpdateSafe\title + 
-                                  #lastfmSecret,#PB_Cipher_MD5)
-      request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
-                            "method=track.updateNowPlaying&api_key=" + 
-                            #lastfmAPIKey + 
-                            "&artist=" +
-                            URLEncode(nowPlayingUpdateSafe\artist) +
-                            "&track=" +
-                            URLEncode(nowPlayingUpdateSafe\title) +
-                            "&duration=" +
-                            Str(nowPlayingUpdateSafe\durationSec) +
-                            "&sk=" +
-                            lastfmSession +
-                            "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
-      If request
-        Protected startTime.i = ElapsedMilliseconds()
-        While HTTPProgress(request) >= 0
-          Delay(50)
-          If ElapsedMilliseconds() > startTime + 10000
-            AbortHTTP(request)
-          EndIf
-        Wend
-        Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
-        If status <> "200"
-          error = "nowplaying update " + Str(nowPlayingUpdateSafe\ID) + " failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
-        Else
-          lastfmNeedsUpdate = #False
-          debugLog("lastfm","nowplaying updated " + Str(nowPlayingUpdateSafe\ID))
-        EndIf
-        FinishHTTP(request)
+  api_sig = StringFingerprint("api_key" + 
+                              #lastfmAPIKey + 
+                              "artist" + 
+                              nowPlayingSafe\artist + 
+                              "duration" +
+                              Str(nowPlayingSafe\durationSec) +
+                              "methodtrack.updateNowPlayingsk" + 
+                              lastfmSession + 
+                              "track" + 
+                              nowPlayingSafe\title + 
+                              #lastfmSecret,#PB_Cipher_MD5)
+  request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
+                        "method=track.updateNowPlaying&api_key=" + 
+                        #lastfmAPIKey + 
+                        "&artist=" +
+                        URLEncode(nowPlayingSafe\artist) +
+                        "&track=" +
+                        URLEncode(nowPlayingSafe\title) +
+                        "&duration=" +
+                        Str(nowPlayingSafe\durationSec) +
+                        "&sk=" +
+                        lastfmSession +
+                        "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
+  If request
+    Protected startTime.i = ElapsedMilliseconds()
+    While HTTPProgress(request) >= 0
+      Delay(50)
+      If ElapsedMilliseconds() > startTime + 10000
+        AbortHTTP(request)
       EndIf
-      If error
-        debugLog("lastfm",error)
-      EndIf
+    Wend
+    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
+    If status <> "200"
+      error = "nowplaying update " + Str(nowPlayingSafe\ID) + " failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
+    Else
+      PostEvent(#evLastfmUpdateSuccess,0,0,0,nowPlayingSafe\ID)
     EndIf
-  ForEver
+    FinishHTTP(request)
+  EndIf
+  If error
+    lastfmUpdateError = error
+    PostEvent(#evLastfmUpdateError)
+  EndIf
 EndProcedure
 
 Procedure lastfmAuth(lastfmAuthStep.b)
@@ -205,14 +194,12 @@ Procedure getTags(start.i)
   Protected NewMap tags_lcase.s()
   Protected i.i
   Protected NewList args.s()
-  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   Delay(start * 100) ; to spread execution times
   
   For i = start To ListSize(tagsToGet()) - 1
     
     If EXIT
-      CocoaMessage(0,NSPool,"release")
       ProcedureReturn
     EndIf
     
@@ -281,65 +268,7 @@ Procedure getTags(start.i)
     
     i + numThreads - 1
   Next
-  CocoaMessage(0,NSPool,"release")
   PostEvent(#evTagGetFinish)
-EndProcedure
-
-Procedure play(dummy)
-  Protected AVAudioPlayer.i
-  Shared nowPlaying
-  Shared stopPlaying
-  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
-  Protected wasPaused.b
-  Protected currentTimeSec.d
-  Protected duration.d
-  Protected durationInt.i
-  Protected oldCurrent.i
-  Protected newCurrent.i
-  Protected lastDurationUpdate.i
-  debugLog("playback",nowPlaying\path)
-  AVAudioPlayer = CocoaMessage(0,CocoaMessage(0,0,"AVAudioPlayer alloc"),
-                               "initWithContentsOfURL:",CocoaMessage(0,0,"NSURL fileURLWithPath:$",@nowPlaying\path),
-                               "error:",#Null)
-  If AVAudioPlayer
-    CocoaMessage(@duration,AVAudioPlayer,"duration")
-    durationInt = Int(Round(duration,#PB_Round_Nearest))
-    If CocoaMessage(0,AVAudioPlayer,"play") = #YES
-      PostEvent(#evPlayStart)
-      Repeat
-        If stopPlaying
-          CocoaMessage(0,AVAudioPlayer,"dealloc")
-          CocoaMessage(0,NSPool,"release")
-          stopPlaying = #False
-          ProcedureReturn
-        EndIf
-        If wasPaused <> nowPlaying\isPaused
-          wasPaused = nowPlaying\isPaused
-          If wasPaused
-            CocoaMessage(0,AVAudioPlayer,"pause")
-          Else
-            CocoaMessage(0,AVAudioPlayer,"play")
-          EndIf
-        EndIf
-        If CocoaMessage(0,AVAudioPlayer,"isPlaying") = #False And wasPaused = #False
-          Break
-        EndIf
-        If lastDurationUpdate + 900 <= ElapsedMilliseconds()
-          lastDurationUpdate = ElapsedMilliseconds()
-          CocoaMessage(@currentTimeSec,AVAudioPlayer,"currentTime")
-          newCurrent = Int(Round(currentTimeSec,#PB_Round_Down))
-          If oldCurrent <> newCurrent
-            oldCurrent = newCurrent
-            PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,duration)
-          EndIf
-        EndIf
-        Delay(20)
-      ForEver
-    EndIf
-    CocoaMessage(0,AVAudioPlayer,"dealloc")
-  EndIf
-  CocoaMessage(0,NSPool,"release")
-  PostEvent(#evPlayFinish)
 EndProcedure
 
 Procedure lyrics(dummy)
@@ -347,12 +276,10 @@ Procedure lyrics(dummy)
   Protected lyricsHash.s = StringFingerprint(nowPlaying\artist + " - " + nowPlaying\title,#PB_Cipher_MD5)
   Protected NewList args.s()
   Protected json.s
-  Protected NSPool.i = CocoaMessage(0,0,"NSAutoreleasePool new")
   
   If FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
     nowPlaying\lyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
-    debugLog ("lyrics","loaded from cache")
-    PostEvent(#evLyricsSuccess)
+    PostEvent(#evLyricsSuccessFile)
     ProcedureReturn
   EndIf
 
@@ -366,10 +293,8 @@ Procedure lyrics(dummy)
   AddElement(args()) : args() = "-q"
   SetEnvironmentVariable("GENIUS_ACCESS_TOKEN",#geniusToken)
   Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),dataDir + "/tmp")
-  CocoaMessage(0,NSPool,"release")
   ;Debug res
   If Left(res,6) = "Wrote "
-    debugLog("lyrics","got from genius")
     Protected geniusPath.s = RTrim(RTrim(RTrim(Mid(res,7),#LF$)),".")
     If FileSize(dataDir + "/tmp/" + geniusPath) > 0
       json = ReadFileFast(dataDir + "/tmp/" + geniusPath)
@@ -381,11 +306,9 @@ Procedure lyrics(dummy)
         EndIf
         FreeJSON(2)
         WriteFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt",nowPlaying\lyrics)
-        PostEvent(#evLyricsSuccess)
+        PostEvent(#evLyricsSuccessGenius)
         DeleteFile(dataDir + "/tmp/" + geniusPath,#PB_FileSystem_Force)
         ProcedureReturn
-      Else
-        debugLog("lyrics","failed to parse genius answer")
       EndIf
     EndIf
   EndIf
@@ -580,6 +503,10 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
     MenuItem(#dockStop,"Stop")
   EndIf
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
+EndProcedure
+
+ProcedureC audioPlayerDidFinishPlaying()
+  PostEvent(#evPlayFinish)
 EndProcedure
 
 Procedure.b isParsingCompleted()

@@ -1,13 +1,16 @@
 ﻿EnableExplicit
 
+Threaded _IsMainScope
+_IsMainScope = #True
+
 IncludeFile "const.pb"
 IncludeFile "helpers.pb"
+IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
 
 NewList tagsToGet.track_info()
 Define ev.i
 Define playlist.s,directory.s,file.s
 NewList filesInDirectory.s()
-Define playThread.i
 NewList tagsParserThreads.i()
 Define lyricsThread.i
 Define i.i,j.i
@@ -15,23 +18,29 @@ Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
-Define nowPlayingUpdate.nowPlaying
-Define nowPlayingScrobble.nowPlaying
-nowPlaying\ID = -1
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
 If systemThreads > 4 : systemThreads = 4 : EndIf ; more than enough
 Define numThreads.b
+Define lastfmUpdateNowPlayingThread
+Define lastfmScrobbleThread
+Define nowPlayingSemaphore = CreateSemaphore()
 Define tagsToGetLock.i = CreateMutex()
 Define lastfmToken.s,lastfmSession.s,lastfmUser.s
 Define lastfmTokenResponse.s,lastfmSessionResponse.s
+Define lastfmScrobbleError.s,lastfmUpdateError.s
 Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
-Define AVAudioPlayer.i
-Define stopPlaying.b
-Define lastfmNeedsUpdate.b
-Define lastfmNeedsScrobble.b
+
+
+
+; nowplaying update stuff
+Define currentTimeSec.i
+Define durationSec.i
+Define oldCurrent.i
+Define newCurrent.i
+Define lastDurationUpdate.i
 
 Global EXIT = #False
 
@@ -39,7 +48,6 @@ UseMD5Fingerprint()
 UsePNGImageDecoder()
 UseJPEGImageDecoder()
 InitNetwork()
-ImportC "-framework AVKit" : EndImport
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
@@ -110,18 +118,34 @@ loadSettings()
 updateLastfmStatus()
 
 nowPlaying\ID = -1
-nowPlayingScrobble\ID = -1
-nowPlayingUpdate\ID = -1
-
-Define lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
-Define lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
 
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
+Define AVPdelegateClass = objc_allocateClassPair_(objc_getClass_("NSObject"),"myDelegateClass",0)
+class_addMethod_(AVPdelegateClass,sel_registerName_("audioPlayerDidFinishPlaying:successfully:"),@audioPlayerDidFinishPlaying(),"v@:@@")
+objc_registerClassPair_(AVPdelegateClass)
+Define AVPdelegate = class_createInstance_(AVPdelegateClass,0)
 debugLog("main","handlers registered")
 
+Define timeoutTime.i = #defaultTimeout
+Define fastTimeoutsRoutine = #False
+
 Repeat
-  ev = WaitWindowEvent()
+  ev = WaitWindowEvent(timeoutTime)
+  If audioplayer::getPlayer() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
+    If lastDurationUpdate + 900 <= ElapsedMilliseconds()
+      lastDurationUpdate = ElapsedMilliseconds()
+      newCurrent = audioplayer::getCurrentTime()/1000
+      If oldCurrent <> newCurrent
+        oldCurrent = newCurrent
+        PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
+      EndIf
+    EndIf
+    If fastTimeoutsRoutine And audioplayer::getPlayer() = audioplayer::#PBSoundLibrary And SoundStatus(audioplayer::getPlayerID()) = #PB_Sound_Stopped
+      fastTimeoutsRoutine = #False
+      PostEvent(#evPlayFinish)
+    EndIf
+  EndIf
   Select ev
     Case #PB_Event_CloseWindow
       Break
@@ -138,7 +162,7 @@ Repeat
                 If Left(playlistString,1) = "#"
                   Continue
                 EndIf
-                If isSupportedFile(playlistString) And FileSize(playlistString) > 0
+                If audioplayer::isSupportedFile(playlistString) And FileSize(playlistString) > 0
                   AddElement(tagsToGet())
                   tagsToGet()\id = i
                   tagsToGet()\path = playlistString
@@ -173,7 +197,7 @@ Repeat
                 SortList(filesInDirectory(),#PB_Sort_Ascending|#PB_Sort_NoCase)
                 i = CountGadgetItems(#playlist)
                 ForEach filesInDirectory()
-                  If isSupportedFile(filesInDirectory())
+                  If audioplayer::isSupportedFile(filesInDirectory())
                     AddElement(tagsToGet())
                     tagsToGet()\id = i
                     tagsToGet()\path = filesInDirectory()
@@ -192,7 +216,7 @@ Repeat
             file = OpenFileRequester("Select file(s)","","",0,#PB_Requester_MultiSelection)
             i = CountGadgetItems(#playlist)
             While file
-              If isSupportedFile(file)
+              If audioplayer::isSupportedFile(file)
                 AddElement(tagsToGet())
                 tagsToGet()\id = i
                 tagsToGet()\path = file
@@ -298,13 +322,15 @@ Repeat
               doPlay()
               saveSettings()
             EndIf
-          Else
+          ElseIf audioplayer::getPlayer()
             If nowPlaying\isPaused
               nowPlaying\isPaused = #False
+              audioplayer::play()
               debugLog("playback","continued")
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
             Else
               nowPlaying\isPaused = #True
+              audioplayer::pause()
               debugLog("playback","paused")
               SetGadgetText(#toolbarPlayPause,#playSymbol)
             EndIf
@@ -314,6 +340,7 @@ Repeat
             doStop()
           EndIf
         Case #toolbarNext
+          debugLog("playback","next")
           If nowPlaying\ID <> - 1
             If nowPlaying\ID < CountGadgetItems(#playlist) - 1
               SetGadgetState(#playlist,nowPlaying\ID + 1)
@@ -375,16 +402,36 @@ Repeat
       saveState()
       ClearList(tagsToGet())
     Case #evPlayStart
-      CopyStructure(@nowPlaying,@nowPlayingUpdate,nowPlaying)
-      lastfmNeedsUpdate = #True
+      If lastfmSession
+        debugLog("lastfm","updating nowplaying " + Str(nowPlaying\ID))
+        lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
+        WaitSemaphore(nowPlayingSemaphore)
+      EndIf
     Case #evPlayFinish
-      CopyStructure(@nowPlaying,@nowPlayingScrobble,nowPlaying)
-      lastfmNeedsScrobble = #True
+      debugLog("playback","track ended")
+      If lastfmSession
+        debugLog("lastfm","scrobbling " + Str(nowPlaying\ID))
+        lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
+        WaitSemaphore(nowPlayingSemaphore)
+      EndIf
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
-    Case #evLyricsSuccess
+    Case #evLyricsSuccessGenius,#evLyricsSuccessFile
       SetGadgetText(#lyrics,nowPlaying\lyrics)
+      If ev = #evLyricsSuccessFile
+        debugLog("lyrics","successfully loaded from file")
+      Else
+        debugLog("lyrics","successfully loaded from Genius")
+      EndIf
+    Case #evLastfmScrobbleSuccess
+      debugLog("lastfm","scrobbled " + Str(EventData()))
+    Case #evLastfmScrobbleError
+      debugLog("lastfm",lastfmScrobbleError)
+    Case #evLastfmUpdateSuccess
+      debugLog("lastfm","updated nowplaying " + Str(EventData()))
+    Case #evLastfmUpdateError
+      debugLog("lastfm",lastfmUpdateError)
     Case #evUpdateNowPlaying
       updateNowPlaying(EventType(),EventData())
   EndSelect

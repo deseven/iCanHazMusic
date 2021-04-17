@@ -80,6 +80,10 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
     ProcedureReturn ""
   EndIf
   
+  If Not _IsMainScope
+    Protected Pool = CocoaMessage(0, 0, "NSAutoreleasePool new")
+  EndIf
+  
   If ListSize(args())
     SelectElement(args(),0)
     arg = args()
@@ -133,22 +137,11 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
   
   CocoaMessage(0,task,"release")
   
-  ProcedureReturn stdout
-EndProcedure
-
-Procedure.b isSupportedFile(path.s)
-  path = LCase(GetExtensionPart(path))
-  If path = "mp3" Or
-     path = "m4a" Or
-     path = "aac" Or
-     path = "ac3" Or
-     path = "wav" Or
-     path = "aif" Or
-     path = "aiff" Or
-     path = "flac" Or
-     path = "alac"
-    ProcedureReturn #True
+  If Pool
+    CocoaMessage(0, Pool, "release")
   EndIf
+  
+  ProcedureReturn stdout
 EndProcedure
 
 Procedure.s ReadFileFast(path.s)
@@ -191,7 +184,6 @@ Macro cleanUp()
 EndMacro
 
 Macro die()
-  If IsThread(playThread) : KillThread(playThread) : EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If IsThread(lastfmUpdateNowPlayingThread) : KillThread(lastfmUpdateNowPlayingThread) : EndIf
   If IsThread(lastfmScrobbleThread) : KillThread(lastfmScrobbleThread) : EndIf
@@ -201,10 +193,9 @@ Macro die()
 EndMacro
 
 Macro doPlay()
-  debugLog("playback","playing start")
-  If IsThread(playThread)
-    stopPlaying = #True
-    WaitThread(playThread)
+  debugLog("playback","play")
+  If audioplayer::getPlayer()
+    audioplayer::stop()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
@@ -229,22 +220,38 @@ Macro doPlay()
   SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
   SetGadgetText(#lyrics,"[looking for lyrics...]")
   SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
-  If nowPlaying\durationSec > 3600
+  If nowPlaying\durationSec >= 3600
     SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
   Else
     SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
   EndIf
-  playThread = CreateThread(@play(),0)
+  audioplayer::load(nowPlaying\path)
+  Select audioplayer::getPlayer()
+    Case audioplayer::#AVAudioPlayer
+      CocoaMessage(0,audioplayer::getPlayerID(),"setDelegate:",AVPdelegate)
+      If timeoutTime <> #defaultTimeout
+        timeoutTime = #defaultTimeout
+        debugLog("main","switching to default events timeout")
+      EndIf
+    Case audioplayer::#PBSoundLibrary
+      If timeoutTime <> #fastTimeout
+        timeoutTime = #fastTimeout
+        debugLog("main","switching to fast events timeout")
+      EndIf
+      fastTimeoutsRoutine = #True
+  EndSelect
+  audioplayer::play()
+  nowPlaying\durationSec = audioplayer::getDuration()/1000
   SetGadgetState(#nowPlayingProgress,0)
   lyricsThread = CreateThread(@lyrics(),0)
   loadAlbumArt()
+  PostEvent(#evPlayStart)
 EndMacro
 
 Macro doStop()
-  debugLog("playback","stopping")
-  If IsThread(playThread)
-    stopPlaying = #True
-    WaitThread(playThread)
+  debugLog("playback","stop")
+  If audioplayer::getPlayer()
+    audioplayer::stop()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1

@@ -7,6 +7,10 @@
 #stopSymbol = "■"
 #refreshSymbol = "♻"
 
+; workaround for the lack of events in PB sound library
+#defaultTimeout = 900
+#fastTimeout = 20
+
 Enumeration
   #wnd
   #playlist
@@ -32,8 +36,13 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evPlayStart
   #evPlayFinish
   #evLyricsFail
-  #evLyricsSuccess
+  #evLyricsSuccessGenius
+  #evLyricsSuccessFile
   #evUpdateNowPlaying
+  #evLastfmScrobbleSuccess
+  #evLastfmScrobbleError
+  #evLastfmUpdateSuccess
+  #evLastfmUpdateError
 EndEnumeration
 
 Enumeration columns
@@ -121,10 +130,10 @@ Structure nowPlaying
   album.s
   duration.s
   durationSec.i
+  currentTime.i
   details.s
   lyrics.s
   albumArt.s
-  currentTime.d
   isPaused.b
 EndStructure
 
