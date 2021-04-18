@@ -195,7 +195,7 @@ EndMacro
 Macro doPlay()
   debugLog("playback","play")
   If audioplayer::getPlayer()
-    audioplayer::stop()
+    audioplayer::free()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
@@ -228,7 +228,6 @@ Macro doPlay()
   audioplayer::load(nowPlaying\path)
   Select audioplayer::getPlayer()
     Case audioplayer::#AVAudioPlayer
-      CocoaMessage(0,audioplayer::getPlayerID(),"setDelegate:",AVPdelegate)
       If timeoutTime <> #defaultTimeout
         timeoutTime = #defaultTimeout
         debugLog("main","switching to default events timeout")
@@ -238,8 +237,8 @@ Macro doPlay()
         timeoutTime = #fastTimeout
         debugLog("main","switching to fast events timeout")
       EndIf
-      fastTimeoutsRoutine = #True
   EndSelect
+  audioplayer::setFinishEvent(#evPlayFinish)
   audioplayer::play()
   nowPlaying\durationSec = audioplayer::getDuration()/1000
   SetGadgetState(#nowPlayingProgress,0)
@@ -251,7 +250,7 @@ EndMacro
 Macro doStop()
   debugLog("playback","stop")
   If audioplayer::getPlayer()
-    audioplayer::stop()
+    audioplayer::free()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1

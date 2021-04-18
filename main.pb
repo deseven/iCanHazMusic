@@ -33,8 +33,6 @@ Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 
-
-
 ; nowplaying update stuff
 Define currentTimeSec.i
 Define durationSec.i
@@ -121,14 +119,9 @@ nowPlaying\ID = -1
 
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
-Define AVPdelegateClass = objc_allocateClassPair_(objc_getClass_("NSObject"),"myDelegateClass",0)
-class_addMethod_(AVPdelegateClass,sel_registerName_("audioPlayerDidFinishPlaying:successfully:"),@audioPlayerDidFinishPlaying(),"v@:@@")
-objc_registerClassPair_(AVPdelegateClass)
-Define AVPdelegate = class_createInstance_(AVPdelegateClass,0)
 debugLog("main","handlers registered")
 
 Define timeoutTime.i = #defaultTimeout
-Define fastTimeoutsRoutine = #False
 
 Repeat
   ev = WaitWindowEvent(timeoutTime)
@@ -141,10 +134,7 @@ Repeat
         PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
       EndIf
     EndIf
-    If fastTimeoutsRoutine And audioplayer::getPlayer() = audioplayer::#PBSoundLibrary And SoundStatus(audioplayer::getPlayerID()) = #PB_Sound_Stopped
-      fastTimeoutsRoutine = #False
-      PostEvent(#evPlayFinish)
-    EndIf
+    audioplayer::checkFinishRoutine()
   EndIf
   Select ev
     Case #PB_Event_CloseWindow

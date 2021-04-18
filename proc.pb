@@ -505,10 +505,6 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
 EndProcedure
 
-ProcedureC audioPlayerDidFinishPlaying()
-  PostEvent(#evPlayFinish)
-EndProcedure
-
 Procedure.b isParsingCompleted()
   Shared tagsParserThreads()
   ForEach tagsParserThreads()
