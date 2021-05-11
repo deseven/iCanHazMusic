@@ -1,22 +1,18 @@
 ﻿Procedure lastfmScrobble(dummy)
   Shared nowPlaying
-  Shared nowPlayingSemaphore
+  Shared lastfmLock
   Protected nowPlayingSafe.nowPlaying
+  LockMutex(lastfmLock)
   CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-  SignalSemaphore(nowPlayingSemaphore)
   
   Shared lastfmSession
   Shared lastfmScrobbleError.s
-  Protected NewList args.s()
   Protected error.s
   Protected unixtimeUTC.s
   Protected api_sig.s
   Protected request.i
   
-  AddElement(args()) : args() = "-u"
-  AddElement(args()) : args() = "+%s"
-  
-  unixtimeUTC = RunProgramNative("/bin/date",args())
+  unixtimeUTC = Str(unixtimeUTC())
   api_sig = StringFingerprint("api_key" + 
                               #lastfmAPIKey + 
                               "artist" + 
@@ -73,14 +69,15 @@
     lastfmScrobbleError = error
     PostEvent(#evLastfmScrobbleError)
   EndIf
+  UnlockMutex(lastfmLock)
 EndProcedure
 
 Procedure lastfmUpdateNowPlaying(dummy)
   Shared nowPlaying
-  Shared nowPlayingSemaphore
+  Shared lastfmLock
   Protected nowPlayingSafe.nowPlaying
+  LockMutex(lastfmLock)
   CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-  SignalSemaphore(nowPlayingSemaphore)
   
   Shared lastfmSession
   Shared lastfmUpdateError.s
@@ -130,6 +127,7 @@ Procedure lastfmUpdateNowPlaying(dummy)
     lastfmUpdateError = error
     PostEvent(#evLastfmUpdateError)
   EndIf
+  UnlockMutex(lastfmLock)
 EndProcedure
 
 Procedure lastfmAuth(lastfmAuthStep.b)
@@ -317,14 +315,26 @@ EndProcedure
 
 Procedure saveSettings()
   Shared dataDir.s
-  Shared nowPlaying
   Shared lastfmSession.s,lastfmUser.s
+  Shared lastPlayedID
   Protected json.i = CreateJSON(#PB_Any)
   Protected object.i = SetJSONObject(JSONValue(json))
-  SetJSONInteger(AddJSONMember(object,"last_played_track_id"),nowPlaying\ID)
-  SetJSONString(AddJSONMember(object,"lastfm_session"),lastfmSession)
-  SetJSONString(AddJSONMember(object,"lastfm_user"),lastfmUser)
+  SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
+  Protected objectLastfm = SetJSONObject(AddJSONMember(object,"lastfm"))
+  SetJSONString(AddJSONMember(objectLastfm,"session"),lastfmSession)
+  SetJSONString(AddJSONMember(objectLastfm,"user"),lastfmUser)
+  Protected objectWindow = SetJSONObject(AddJSONMember(object,"window"))
+  SetJSONInteger(AddJSONMember(objectWindow,"x"),WindowX(#wnd))
+  SetJSONInteger(AddJSONMember(objectWindow,"y"),WindowY(#wnd))
+  SetJSONInteger(AddJSONMember(objectWindow,"width"),WindowWidth(#wnd))
+  SetJSONInteger(AddJSONMember(objectWindow,"height"),WindowHeight(#wnd))
+  If IsWindowFullscreen(#wnd)
+    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#True)
+  Else
+    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#False)
+  EndIf
   WriteFileFast(dataDir + "/settings.json",ComposeJSON(json,#PB_JSON_PrettyPrint))
+  ;Debug ComposeJSON(json,#PB_JSON_PrettyPrint)
   FreeJSON(json)
   debugLog("main","settings saved")
 EndProcedure
@@ -332,15 +342,23 @@ EndProcedure
 Procedure loadSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
+  Shared lastPlayedID
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
   Protected settings.settings
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings)
     FreeJSON(json)
-    lastfmSession = settings\lastfm_session
-    lastfmUser = settings\lastfm_user
+    lastfmSession = settings\lastfm\session
+    lastfmUser = settings\lastfm\user
+    lastPlayedID = settings\last_played_track_id
     SetGadgetState(#playlist,settings\last_played_track_id)
+    If settings\window\x And settings\window\y And settings\window\width And settings\window\height
+      ResizeWindow(#wnd,settings\window\x,settings\window\y,settings\window\width,settings\window\height)
+    EndIf
+    If settings\window\fullscreen
+      EnterWindowFullscreen(#wnd)
+    EndIf
   EndIf
   debugLog("main","settings loaded")
 EndProcedure
@@ -360,6 +378,9 @@ Procedure saveState()
     SetJSONString(AddJSONMember(elem,"artist"),GetGadgetItemText(#playlist,i,#artist))
     SetJSONString(AddJSONMember(elem,"track"),GetGadgetItemText(#playlist,i,#track))
     SetJSONString(AddJSONMember(elem,"file"),GetGadgetItemText(#playlist,i,#file))
+    If GetGadgetItemData(#playlist,i)
+      SetJSONString(AddJSONMember(elem,"isAlbum"),"yes")
+    EndIf
   Next
   Protected state.s = ComposeJSON(1,#PB_JSON_PrettyPrint)
   FreeJSON(1)
@@ -384,6 +405,7 @@ Procedure loadState()
   If FileSize(dataDir + "/current_state.json") > 0
     json = ReadFileFast(dataDir + "/current_state.json")
     If ParseJSON(1,json)
+      CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
       For i = 0 To JSONArraySize(JSONValue(1)) - 1
         ExtractJSONMap(GetJSONElement(JSONValue(1),i),values())
         AddGadgetItem(#playlist,i,#sep + 
@@ -394,7 +416,12 @@ Procedure loadState()
                                   values("duration") + #sep + 
                                   values("album") + #sep + 
                                   values("details"))
+        If values("isAlbum") = "yes"
+          SetGadgetItemData(#playlist,i,#True)
+          SetGadgetItemText(#playlist,i,#albumSymbol,#status)
+        EndIf
       Next
+      CocoaMessage(0,GadgetID(#playlist),"endUpdates")
       FreeJSON(1)
       debugLog("main","state loaded")
     EndIf
@@ -505,7 +532,7 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
 EndProcedure
 
-Procedure.b isParsingCompleted()
+Procedure isParsingCompleted()
   Shared tagsParserThreads()
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads())
@@ -530,4 +557,138 @@ Procedure updateNowPlaying(currentTime.i,duration.i)
   If part > 0
     SetGadgetState(#nowPlayingProgress,currentTime / part)
   EndIf
+EndProcedure
+
+Procedure queueClear()
+  Shared playQueue()
+  Shared nowPlaying
+  ForEach playQueue()
+    If playQueue() <> nowPlaying\ID
+      SetGadgetItemText(#playlist,playQueue(),"",#status)
+    EndIf
+  Next
+  ClearList(playQueue())
+EndProcedure
+
+Procedure isQueued(id.i)
+  Shared playQueue()
+  If GetGadgetItemData(#playlist,id)
+    Protected album.s = GetGadgetItemText(#playlist,id,#album)
+    Protected i.i
+    For i = id + 1 To CountGadgetItems(#playlist) - 1
+      If GetGadgetItemText(#playlist,i,#album) = album
+        If isQueued(i)
+          ProcedureReturn #True
+        EndIf
+      Else
+        Break
+      EndIf
+    Next
+  Else
+    ForEach playQueue()
+      If playQueue() = id
+        ProcedureReturn #True
+      EndIf
+    Next
+  EndIf
+EndProcedure
+
+Procedure queueAdd(id.i)
+  Shared playQueue()
+  Shared nowPlaying
+  If Not isQueued(id)
+    If GetGadgetItemData(#playlist,id)
+      Protected album.s = GetGadgetItemText(#playlist,id,#album)
+      Protected i.i
+      For i = id + 1 To CountGadgetItems(#playlist) - 1
+        If GetGadgetItemText(#playlist,i,#album) = album
+          queueAdd(i)
+        Else
+          Break
+        EndIf
+      Next
+    Else
+      If id <> nowPlaying\ID
+        AddElement(playQueue())
+        playQueue() = id
+        SetGadgetItemText(#playlist,playQueue(),"[" + Str(ListSize(playQueue())) + "]",#status)
+      EndIf
+    EndIf
+  EndIf
+EndProcedure
+
+Procedure queueRemove(id.i)
+  Shared playQueue()
+  Shared nowPlaying
+  If GetGadgetItemData(#playlist,id)
+    Protected album.s = GetGadgetItemText(#playlist,id,#album)
+    Protected i.i
+    Protected NewList idsToRemove.i()
+    For i = id + 1 To CountGadgetItems(#playlist) - 1
+      If GetGadgetItemText(#playlist,i,#album) = album
+        AddElement(idsToRemove())
+        idsToRemove() = i
+      Else
+        Break
+      EndIf
+      CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
+      ForEach idsToRemove()
+        queueRemove(idsToRemove())
+      Next
+      CocoaMessage(0,GadgetID(#playlist),"endUpdates")
+    Next
+  Else
+    ForEach playQueue()
+      If playQueue() = id
+        If id <> nowPlaying\ID
+          SetGadgetItemText(#playlist,playQueue(),"",#status)
+        EndIf
+        DeleteElement(playQueue())
+        Break
+      EndIf
+    Next
+  EndIf
+  ForEach playQueue()
+    SetGadgetItemText(#playlist,playQueue(),"[" + Str(ListIndex(playQueue()) + 1) + "]",#status)
+  Next
+EndProcedure
+
+Procedure queueNext()
+  Shared playQueue()
+  Protected id.i
+  If ListSize(playQueue())
+    SelectElement(playQueue(),0)
+    id = playQueue()
+    queueRemove(id)
+  Else
+    id = -1
+  EndIf
+  ProcedureReturn id
+EndProcedure
+
+Procedure setAlbums(startFrom = 0)
+  Protected currentAlbum.s
+  Protected newAlbum.s
+  Protected color.i
+  Protected i.i
+  For i = startFrom To CountGadgetItems(#playlist) - 1
+    newAlbum = GetGadgetItemText(#playlist,i,#album)
+    If newAlbum <> currentAlbum
+      currentAlbum = newAlbum
+      If Not GetGadgetItemData(#playlist,i)
+        AddGadgetItem(#playlist,i,#albumSymbol + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#artist) + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#album))
+        SetGadgetItemData(#playlist,i,#True)
+      EndIf
+    EndIf
+  Next
+EndProcedure
+
+ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
+  Protected Gadget, IsGroupRow.I
+  
+  Gadget = CocoaMessage(0, TableView, "tag")
+  
+  IsGroupRow = GetGadgetItemData(Gadget, Row)
+  
+  ProcedureReturn IsGroupRow
 EndProcedure

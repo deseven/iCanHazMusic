@@ -23,7 +23,7 @@ die() {
 
 if [ -f "$pb/compilers/pbcompiler" ]; then
 	echo -ne $greenColor"compiling $shortName..."$noColor
-	"$pb/compilers/pbcompiler" -u -d -t -e "$loc/$name.app" "$loc/../main.pb" > /dev/null || die "failed to build $shortName"
+	"$pb/compilers/pbcompiler" -u -t -e "$loc/$name.app" "$loc/../main.pb" > /dev/null || die "failed to build $shortName"
 	if [ -d "$loc/$name.app" ]; then
 		echo -ne $greenColor"\ninjecting resources..."$noColor
 		cd ..

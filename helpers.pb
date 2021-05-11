@@ -1,5 +1,9 @@
 ﻿Macro debugLog(type,message)
-  Debug "[" + FormatDate("%dd.%mm.%yyyy %hh:%ii:%ss",Date()) + "] [" + UCase(type) + "] " + message
+  Define logMessage.s = "[" + UCase(type) + "] " + message
+  If #PB_Compiler_Debugger
+    Debug "[" + FormatDate("%dd.%mm.%yyyy %hh:%ii:%ss",Date()) + "] " + logMessage
+  EndIf
+  NSLog(logMessage)
 EndMacro
 
 ; taken from http://forums.purebasic.com/english/viewtopic.php?p=346952#p346952
@@ -81,7 +85,7 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
   EndIf
   
   If Not _IsMainScope
-    Protected Pool = CocoaMessage(0, 0, "NSAutoreleasePool new")
+    Protected Pool = CocoaMessage(0,0,"NSAutoreleasePool new")
   EndIf
   
   If ListSize(args())
@@ -138,10 +142,67 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
   CocoaMessage(0,task,"release")
   
   If Pool
-    CocoaMessage(0, Pool, "release")
+    CocoaMessage(0,Pool,"release")
   EndIf
   
   ProcedureReturn stdout
+EndProcedure
+
+Procedure.i unixtimeUTC()
+  If Not _IsMainScope
+    Protected Pool = CocoaMessage(0,0,"NSAutoreleasePool new")
+  EndIf
+  
+  Protected NSDate = CocoaMessage(0,0,"NSDate date")
+  Protected NSTimeInterval.d
+  CocoaMessage(@NSTimeInterval,NSDate,"timeIntervalSince1970")
+  CocoaMessage(0,NSDate,"dealloc")
+  
+  If Pool
+    CocoaMessage(0,Pool,"release")
+  EndIf
+  
+  ProcedureReturn NSTimeInterval
+EndProcedure
+
+; based on wilbert's code (http://www.purebasic.fr/english/viewtopic.php?p=469232#p469232)
+Procedure ListIconGadgetHideColumn(gadget.i,index.i,state.b)
+  Protected column = CocoaMessage(0,CocoaMessage(0,GadgetID(gadget),"tableColumns"),"objectAtIndex:",index)
+  If column
+    If state
+      CocoaMessage(0,column,"setHidden:",#YES)
+    Else
+      CocoaMessage(0,column,"setHidden:",#NO)
+    EndIf
+  EndIf
+EndProcedure
+
+; code by Shardik (http://www.purebasic.fr/english/viewtopic.php?p=393256#p393256)
+Procedure SetListIconColumnJustification(ListIconID.I,ColumnIndex.I,Alignment.I)
+  Protected ColumnHeaderCell.I
+  Protected ColumnObject.I
+  Protected ColumnObjectArray.I
+
+  ; ----- Justify text of column cells
+  CocoaMessage(@ColumnObjectArray, GadgetID(ListIconID), "tableColumns")
+  CocoaMessage(@ColumnObject, ColumnObjectArray, "objectAtIndex:", ColumnIndex)
+  CocoaMessage(0, CocoaMessage(0, ColumnObject, "dataCell"), "setAlignment:", Alignment)
+
+  ; ----- Justify text of column header
+  CocoaMessage(@ColumnHeaderCell, ColumnObject, "headerCell")
+  CocoaMessage(0, ColumnHeaderCell, "setAlignment:", Alignment)
+
+  ; ----- Redraw ListIcon contents to see change
+  CocoaMessage(0, GadgetID(ListIconID), "reloadData")
+EndProcedure
+
+Procedure IsWindowFullscreen(window)
+  #NSFullScreenWindowMask = 1 << 14
+  ProcedureReturn Bool( CocoaMessage(0, WindowID(window), "styleMask") & #NSFullScreenWindowMask )
+EndProcedure
+
+Procedure EnterWindowFullscreen(window)
+  CocoaMessage(0, WindowID(window), "enterFullScreenMode:")
 EndProcedure
 
 Procedure.s ReadFileFast(path.s)
@@ -165,8 +226,25 @@ Procedure WriteFileFast(path.s,string.s)
 EndProcedure
 
 Procedure DelayEvent(event.i)
-  Delay(3000)
+  Delay(1000)
   PostEvent(event)
+EndProcedure
+
+ImportC ""
+  NSLog2(Format, Arg) As "_NSLog"
+EndImport
+
+Procedure NSLog(Message.s)
+  Static Format.i
+  If Format = 0
+    CompilerIf #PB_Compiler_Unicode
+      Format = CocoaMessage(0, 0, "NSString stringWithString:$", @"%S")
+    CompilerElse
+      Format = CocoaMessage(0, 0, "NSString stringWithString:$", @"%s")
+    CompilerEndIf  
+    CocoaMessage(0, Format, "retain")
+  EndIf
+  NSLog2(Format, @Message)  
 EndProcedure
 
 Macro cleanUp()
@@ -193,7 +271,6 @@ Macro die()
 EndMacro
 
 Macro doPlay()
-  debugLog("playback","play")
   If audioplayer::getPlayer()
     audioplayer::free()
   EndIf
@@ -207,6 +284,7 @@ Macro doPlay()
   nowPlaying\title = GetGadgetItemText(#playlist,nowPlaying\ID,#title)
   nowPlaying\album = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
   nowPlaying\duration = GetGadgetItemText(#playlist,nowPlaying\ID,#duration)
+  debugLog("playback","play " + nowPlaying\path)
   If Len(nowPlaying\duration) > 5
     nowPlaying\durationSec = ParseDate("%hh:%ii:%ss",nowPlaying\duration)
   Else
@@ -215,6 +293,7 @@ Macro doPlay()
   nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
   nowPlaying\lyrics = ""
   nowPlaying\isPaused = #False
+  lastPlayedID = nowPlaying\ID
   SetGadgetText(#toolbarPlayPause,#pauseSymbol)
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
   SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
@@ -294,4 +373,18 @@ Macro updateLastfmStatus()
     SetMenuItemText(#menu,#lastfmUser,"Not logged in")
     DisableMenuItem(#menu,#lastfmUser,#False)
   EndIf
+EndMacro
+
+Macro sizeGadgets()
+  ResizeGadget(#playlist,#PB_Ignore,#PB_Ignore,WindowWidth(#wnd)-500,WindowHeight(#wnd))
+  ResizeGadget(#albumArt,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#nowPlaying,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#toolbarPrevious,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#toolbarPlayPause,WindowWidth(#wnd)-445,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#toolbarNext,WindowWidth(#wnd)-395,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#toolbarStop,WindowWidth(#wnd)-345,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
+  ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
 EndMacro

@@ -8,6 +8,7 @@ IncludeFile "helpers.pb"
 IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
 
 NewList tagsToGet.track_info()
+NewList playQueue.i()
 Define ev.i
 Define playlist.s,directory.s,file.s
 NewList filesInDirectory.s()
@@ -24,7 +25,7 @@ If systemThreads > 4 : systemThreads = 4 : EndIf ; more than enough
 Define numThreads.b
 Define lastfmUpdateNowPlayingThread
 Define lastfmScrobbleThread
-Define nowPlayingSemaphore = CreateSemaphore()
+Define lastfmLock.i = CreateMutex()
 Define tagsToGetLock.i = CreateMutex()
 Define lastfmToken.s,lastfmSession.s,lastfmUser.s
 Define lastfmTokenResponse.s,lastfmSessionResponse.s
@@ -32,6 +33,8 @@ Define lastfmScrobbleError.s,lastfmUpdateError.s
 Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
+Define lastPlayedID.i
+Define nextID.i
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -59,8 +62,8 @@ EndIf
 IncludeFile "proc.pb"
 
 ExamineDesktops()
-OpenWindow(#wnd,0,0,DesktopWidth(0),DesktopHeight(0),#myName,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget)
-WindowBounds(#wnd,800,720,#PB_Ignore,#PB_Ignore)
+OpenWindow(#wnd,0,0,1280,720,#myName,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget|#PB_Window_ScreenCentered)
+WindowBounds(#wnd,1280,720,#PB_Ignore,#PB_Ignore)
 
 CreateMenu(#menu,WindowID(#wnd))
 MenuTitle("File")
@@ -76,18 +79,27 @@ MenuItem(#lastfmUser,"")
 DisableMenuItem(#menu,#lastfmUser,#True)
 
 CreatePopupMenu(#playlistMenu)
+MenuItem(#playlistQueue,"Queue")
 MenuItem(#playlistReloadTags,"Reload tags")
 MenuItem(#playlistRemove,"Remove from playlist")
-MenuItem(#playlistRemoveAlbum,"Remove album from playlist")
 
-ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",20)
+ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",35)
 AddGadgetColumn(#playlist,#file,"File",200)
-AddGadgetColumn(#playlist,#track,"#",30)
-AddGadgetColumn(#playlist,#artist,"Artist",300)
-AddGadgetColumn(#playlist,#title,"Title",300)
+AddGadgetColumn(#playlist,#track,"#",25)
+AddGadgetColumn(#playlist,#artist,"Artist",200)
+AddGadgetColumn(#playlist,#title,"Title",380)
 AddGadgetColumn(#playlist,#duration,"Duration",65)
 AddGadgetColumn(#playlist,#album,"Album",250)
 AddGadgetColumn(#playlist,#details,"Details",150)
+
+ListIconGadgetHideColumn(#playlist,#file,#True)
+SetListIconColumnJustification(#playlist,#status,#justifyCenter)
+SetListIconColumnJustification(#playlist,#track,#justifyRight)
+SetListIconColumnJustification(#playlist,#duration,#justifyCenter)
+SetListIconColumnJustification(#playlist,#details,#justifyRight)
+;CocoaMessage(0,GadgetID(#playlist),"setGridStyleMask:",1)
+;CocoaMessage(0, GadgetID(#playlist), "setUsesAlternatingRowBackgroundColors:", #YES)
+;CocoaMessage(0, GadgetID(#playlist), "setUsesAutomaticRowHeights:", #YES)
 
 CreateImage(#defaultAlbumArt,500,500)
 StartDrawing(ImageOutput(#defaultAlbumArt))
@@ -110,16 +122,20 @@ EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Ed
 
 debugLog("main","interface loaded")
 
-loadState()
-loadSettings()
-
-updateLastfmStatus()
-
-nowPlaying\ID = -1
-
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
 CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
+class_addMethod_(delegateClass,sel_registerName_("tableView:isGroupRow:"),@IsGroupRow(),"v@:@@")
+CocoaMessage(0,GadgetID(#playlist),"setDelegate:",appDelegate)
 debugLog("main","handlers registered")
+
+loadSettings()
+sizeGadgets()
+loadState()
+updateLastfmStatus()
+loadSettings() ; temporary hack to redraw the playlist
+
+nowPlaying\ID = -1
+debugLog("main","ready to play")
 
 Define timeoutTime.i = #defaultTimeout
 
@@ -147,6 +163,7 @@ Repeat
             If FileSize(playlist) > 0 And ReadFile(0,playlist)
               cleanUp()
               i = 0
+              CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
               While Eof(0) = 0
                 playlistString = ReadString(0)
                 If Left(playlistString,1) = "#"
@@ -156,10 +173,11 @@ Repeat
                   AddElement(tagsToGet())
                   tagsToGet()\id = i
                   tagsToGet()\path = playlistString
-                  AddGadgetItem(#playlist,-1,#sep + tagsToGet()\path)
+                  AddGadgetItem(#playlist,-1,#processingSymbol + #sep + tagsToGet()\path)
                   i + 1
                 EndIf
               Wend
+              CocoaMessage(0,GadgetID(#playlist),"endUpdates")
               CloseFile(0)
               doTags()
             Else
@@ -186,15 +204,17 @@ Repeat
               If ListSize(filesInDirectory())
                 SortList(filesInDirectory(),#PB_Sort_Ascending|#PB_Sort_NoCase)
                 i = CountGadgetItems(#playlist)
+                CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
                 ForEach filesInDirectory()
                   If audioplayer::isSupportedFile(filesInDirectory())
                     AddElement(tagsToGet())
                     tagsToGet()\id = i
                     tagsToGet()\path = filesInDirectory()
-                    AddGadgetItem(#playlist,-1,#sep + filesInDirectory())
+                    AddGadgetItem(#playlist,-1,#processingSymbol + #sep + filesInDirectory())
                     i + 1
                   EndIf
                 Next
+                CocoaMessage(0,GadgetID(#playlist),"endUpdates")
                 doTags()
               EndIf
             EndIf
@@ -210,7 +230,7 @@ Repeat
                 AddElement(tagsToGet())
                 tagsToGet()\id = i
                 tagsToGet()\path = file
-                AddGadgetItem(#playlist,-1,#sep + file)
+                AddGadgetItem(#playlist,-1,#processingSymbol + #sep + file)
                 i + 1
               EndIf
               file = NextSelectedFileName()
@@ -219,35 +239,49 @@ Repeat
           Else
             MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
           EndIf
+        Case #playlistQueue
+          If isQueued(GetGadgetState(#playlist))
+            queueRemove(GetGadgetState(#playlist))
+          Else
+            queueAdd(GetGadgetState(#playlist))
+          EndIf
         Case #playlistReloadTags
           If isParsingCompleted()
-            AddElement(tagsToGet())
-            tagsToGet()\id = GetGadgetState(#playlist)
-            tagsToGet()\path = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#file)
+            If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+              Define albumToTagReload.s = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#album)
+              For i = GetGadgetState(#playlist) + 1 To CountGadgetItems(#playlist)-1
+                If GetGadgetItemText(#playlist,i,#album) <> albumToTagReload
+                  Break
+                EndIf
+                SetGadgetItemText(#playlist,i,#processingSymbol,#status)
+                AddElement(tagsToGet())
+                tagsToGet()\id = i
+                tagsToGet()\path = GetGadgetItemText(#playlist,i,#file)
+              Next
+            Else
+              SetGadgetItemText(#playlist,GetGadgetState(#playlist),#processingSymbol,#status)
+              AddElement(tagsToGet())
+              tagsToGet()\id = GetGadgetState(#playlist)
+              tagsToGet()\path = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#file)
+            EndIf
             doTags()
           Else
             MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
           EndIf
         Case #playlistRemove
-          RemoveGadgetItem(#playlist,GetGadgetState(#playlist))
-          saveState()
-        Case #playlistRemoveAlbum
-          Define albumToRemove.s = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#album)
-          For i = GetGadgetState(#playlist) + 1 To CountGadgetItems(#playlist)-1
-            If GetGadgetItemText(#playlist,i,#album) <> albumToRemove
-              Debug GetGadgetItemText(#playlist,i,#album)
-              Debug albumToRemove
-              Break
-            EndIf
-            RemoveGadgetItem(#playlist,i)
-            i - 1 ; because we removed an item and the next one is having the same id now
-          Next
-          For i = GetGadgetState(#playlist) To 0 Step -1
-            If GetGadgetItemText(#playlist,i,#album) <> albumToRemove
-              Break
-            EndIf
-            RemoveGadgetItem(#playlist,i)
-          Next
+          If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+            Define albumToRemove.s = GetGadgetItemText(#playlist,GetGadgetState(#playlist),#album)
+            For i = GetGadgetState(#playlist) To CountGadgetItems(#playlist)-1
+              If GetGadgetItemText(#playlist,i,#album) <> albumToRemove
+                Break
+              EndIf
+              RemoveGadgetItem(#playlist,i)
+              i - 1 ; because we removed an item and the next one is having the same id now
+            Next
+          Else
+            RemoveGadgetItem(#playlist,GetGadgetState(#playlist))
+          EndIf
+          setAlbums()
           saveState()
         Case #lastfmState
           If lastfmSession
@@ -298,16 +332,29 @@ Repeat
           Select EventType()
             Case #PB_EventType_LeftDoubleClick
               If GetGadgetState(#playlist) > -1
+                If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+                  SetGadgetState(#playlist,GetGadgetState(#playlist) + 1)
+                EndIf
+                queueClear()
                 doPlay()
                 saveSettings()
               EndIf
             Case #PB_EventType_RightClick
               If GetGadgetState(#playlist) <> -1
+                If isQueued(GetGadgetState(#playlist))
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Remove from queue")
+                Else
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Add to queue")
+                EndIf
                 DisplayPopupMenu(#playlistMenu,WindowID(#wnd))
               EndIf
           EndSelect
         Case #toolbarPlayPause
           If nowPlaying\ID = -1
+            nextID = queueNext()
+            If nextID > -1 And nextID < CountGadgetItems(#playlist)
+              SetGadgetState(#playlist,nextID)
+            EndIf
             If GetGadgetState(#playlist) > -1
               doPlay()
               saveSettings()
@@ -332,19 +379,36 @@ Repeat
         Case #toolbarNext
           debugLog("playback","next")
           If nowPlaying\ID <> - 1
-            If nowPlaying\ID < CountGadgetItems(#playlist) - 1
-              SetGadgetState(#playlist,nowPlaying\ID + 1)
+            nextID = queueNext()
+            If nextID > -1 And nextID < CountGadgetItems(#playlist)
+              SetGadgetState(#playlist,nextID)
               doPlay()
               saveSettings()
             Else
-              doStop()
-              SetGadgetState(#playlist,-1)
+              If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+                If GetGadgetItemData(#playlist,nowPlaying\ID + 1)
+                  SetGadgetState(#playlist,nowPlaying\ID + 2)
+                Else
+                  SetGadgetState(#playlist,nowPlaying\ID + 1)
+                EndIf
+                doPlay()
+                saveSettings()
+              Else
+                doStop()
+                SetGadgetState(#playlist,-1)
+              EndIf
             EndIf
           EndIf
         Case #toolbarPrevious
           If nowPlaying\ID <> - 1
             If nowPlaying\ID > 0
-              SetGadgetState(#playlist,nowPlaying\ID - 1)
+              If GetGadgetItemData(#playlist,nowPlaying\ID - 1)
+                If nowPlaying\ID - 2 >= 0
+                  SetGadgetState(#playlist,nowPlaying\ID - 2)
+                EndIf
+              Else
+                SetGadgetState(#playlist,nowPlaying\ID - 1)
+              EndIf
               doPlay()
               saveSettings()
             Else
@@ -354,20 +418,17 @@ Repeat
           EndIf
       EndSelect
     Case #PB_Event_SizeWindow
-      ResizeGadget(#playlist,#PB_Ignore,#PB_Ignore,WindowWidth(#wnd)-500,WindowHeight(#wnd))
-      ResizeGadget(#albumArt,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#nowPlaying,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarPrevious,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarPlayPause,WindowWidth(#wnd)-445,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarNext,WindowWidth(#wnd)-395,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarStop,WindowWidth(#wnd)-345,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-      ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
-      ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
+      sizeGadgets()
+      saveSettings()
+    Case #PB_Event_MoveWindow
+      saveSettings()
     Case #evTagGetSuccess
       *elem = EventData()
       With *elem
+        If CountString(\tags\track,"/")
+          \tags\track = StringField(\tags\track,1,"/")
+        EndIf
+        \tags\track = LTrim(\tags\track,"0")
         SetGadgetItemText(#playlist,\id,#sep + 
                                         \path + #sep + 
                                         \tags\track + #sep +
@@ -389,20 +450,19 @@ Repeat
         EndIf
       EndIf
     Case #evTagGetSaveState
+      setAlbums()
       saveState()
       ClearList(tagsToGet())
     Case #evPlayStart
       If lastfmSession
         debugLog("lastfm","updating nowplaying " + Str(nowPlaying\ID))
         lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
-        WaitSemaphore(nowPlayingSemaphore)
       EndIf
     Case #evPlayFinish
       debugLog("playback","track ended")
       If lastfmSession
         debugLog("lastfm","scrobbling " + Str(nowPlaying\ID))
         lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
-        WaitSemaphore(nowPlayingSemaphore)
       EndIf
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail

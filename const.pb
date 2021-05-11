@@ -1,11 +1,19 @@
 ﻿#myName = "iCanHazMusic"
 
+#geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
+
+#lastfmEndpoint = "https://ws.audioscrobbler.com/"
+#lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
+#lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
+
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
 #nextSymbol = "▶▶"
 #previousSymbol = "◀◀"
 #stopSymbol = "■"
 #refreshSymbol = "♻"
+#processingSymbol = "◔"
+#albumSymbol = "⭘"
 
 ; workaround for the lack of events in PB sound library
 #defaultTimeout = 900
@@ -65,9 +73,9 @@ Enumeration menu
   #lastfmState
   #lastfmUser
   #playlistMenu
+  #playlistQueue
   #playlistReloadTags
   #playlistRemove
-  #playlistRemoveAlbum
   #dockMenu
   #dockArtist
   #dockTitle
@@ -137,16 +145,27 @@ Structure nowPlaying
   isPaused.b
 EndStructure
 
+Structure settingsLastfm
+  session.s
+  user.s
+EndStructure
+
+Structure settingsWindow
+  x.i
+  y.i
+  width.i
+  height.i
+  fullscreen.b
+EndStructure
+
 Structure settings
   last_played_track_id.i
-  lastfm_session.s
-  lastfm_user.s
+  lastfm.settingsLastfm
+  window.settingsWindow
 EndStructure
 
 #sep = Chr(10)
 
-#geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
-
-#lastfmEndpoint = "https://ws.audioscrobbler.com/"
-#lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
-#lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
+#justifyLeft = 0
+#justifyRight = 1
+#justifyCenter = 2
