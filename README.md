@@ -1,5 +1,4 @@
 # iCanHazMusic
-![iCHM logo](https://raw.githubusercontent.com/deseven/iCanHazMusic/master/build/icon.png)
 A music player for macOS 10.12 or higher. Currently in active development, early preview version can be download on [the releases page](https://github.com/deseven/iCanHazMusic/releases).
 
 ![iCHM screenshot](https://d7.wtf/s/GollySuspectfulNonrealization.png)
