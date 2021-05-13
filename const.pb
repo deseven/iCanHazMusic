@@ -74,6 +74,7 @@ Enumeration menu
   #lastfmUser
   #playlistMenu
   #playlistQueue
+  #playlistPlay
   #playlistReloadTags
   #playlistRemove
   #dockMenu

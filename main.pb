@@ -80,8 +80,9 @@ DisableMenuItem(#menu,#lastfmUser,#True)
 
 CreatePopupMenu(#playlistMenu)
 MenuItem(#playlistQueue,"Queue")
-MenuItem(#playlistReloadTags,"Reload tags")
-MenuItem(#playlistRemove,"Remove from playlist")
+MenuItem(#playlistPlay,"Play" + Chr(9) + "⏎")
+MenuItem(#playlistReloadTags,"Reload tags" + Chr(9) + "R")
+MenuItem(#playlistRemove,"Remove from playlist" + Chr(9) + "⌫")
 
 ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",35)
 AddGadgetColumn(#playlist,#file,"File",200)
@@ -100,6 +101,7 @@ SetListIconColumnJustification(#playlist,#details,#justifyRight)
 ;CocoaMessage(0,GadgetID(#playlist),"setGridStyleMask:",1)
 ;CocoaMessage(0, GadgetID(#playlist), "setUsesAlternatingRowBackgroundColors:", #YES)
 ;CocoaMessage(0, GadgetID(#playlist), "setUsesAutomaticRowHeights:", #YES)
+CocoaMessage(0,GadgetID(#playlist),"setAllowsTypeSelect:",#NO)
 
 CreateImage(#defaultAlbumArt,500,500)
 StartDrawing(ImageOutput(#defaultAlbumArt))
@@ -133,6 +135,12 @@ sizeGadgets()
 loadState()
 updateLastfmStatus()
 loadSettings() ; temporary hack to redraw the playlist
+
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Q,#playlistQueue)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
 
 nowPlaying\ID = -1
 debugLog("main","ready to play")
@@ -239,6 +247,8 @@ Repeat
           Else
             MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
           EndIf
+        Case #playlistPlay
+          PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
         Case #playlistQueue
           If isQueued(GetGadgetState(#playlist))
             queueRemove(GetGadgetState(#playlist))
@@ -342,9 +352,9 @@ Repeat
             Case #PB_EventType_RightClick
               If GetGadgetState(#playlist) <> -1
                 If isQueued(GetGadgetState(#playlist))
-                  SetMenuItemText(#playlistMenu,#playlistQueue,"Remove from queue")
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Remove from queue" + Chr(9) + "Q")
                 Else
-                  SetMenuItemText(#playlistMenu,#playlistQueue,"Add to queue")
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Add to queue" + Chr(9) + "Q")
                 EndIf
                 DisplayPopupMenu(#playlistMenu,WindowID(#wnd))
               EndIf
@@ -443,7 +453,7 @@ Repeat
       SetGadgetItemText(#playlist,*elem\id,"[failed to get artist]",#artist)
       SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
     Case #evTagGetFinish
-      If isParsingCompleted()
+      If isParsingCompleted(#False)
         If ListSize(tagsParserThreads())
           ClearList(tagsParserThreads())
           CreateThread(@DelayEvent(),#evTagGetSaveState)

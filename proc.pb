@@ -532,13 +532,17 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
 EndProcedure
 
-Procedure isParsingCompleted()
+Procedure isParsingCompleted(checkTags.b = #True)
   Shared tagsParserThreads()
+  Shared tagsToGet()
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads())
       ProcedureReturn #False
     EndIf
   Next
+  If checkTags And ListSize(tagsToGet())
+    ProcedureReturn #False
+  EndIf
   ProcedureReturn #True
 EndProcedure
 
