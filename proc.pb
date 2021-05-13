@@ -187,6 +187,7 @@ Procedure getTags(start.i)
   Shared tagsToGet.track_info()
   Shared numThreads.b
   Shared tagsToGetLock.i
+  Shared ffprobe.s
   Protected metadata.ffprobe_answer
   Protected json.s
   Protected NewMap tags_lcase.s()
@@ -214,7 +215,7 @@ Procedure getTags(start.i)
     AddElement(args()) : args() = "-show_format"
     AddElement(args()) : args() = path
     
-    json = RunProgramNative("/usr/local/bin/ffprobe",args())
+    json = RunProgramNative(ffprobe,args())
     
     LockMutex(tagsToGetLock)
     SelectElement(tagsToGet(),i)
@@ -313,6 +314,18 @@ Procedure lyrics(dummy)
   PostEvent(#evLyricsFail)
 EndProcedure
 
+Procedure canLoadLyrics()
+  Protected NewList args.s()
+  AddElement(args()) : args() = "-u"
+  AddElement(args()) : args() = "-m"
+  AddElement(args()) : args() = "lyricsgenius"
+  AddElement(args()) : args() = "-h"
+  Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),"")
+  If FindString(res,"Download song lyrics from Genius.com")
+    ProcedureReturn #True
+  EndIf
+EndProcedure
+
 Procedure saveSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
@@ -328,6 +341,14 @@ Procedure saveSettings()
   SetJSONInteger(AddJSONMember(objectWindow,"y"),WindowY(#wnd))
   SetJSONInteger(AddJSONMember(objectWindow,"width"),WindowWidth(#wnd))
   SetJSONInteger(AddJSONMember(objectWindow,"height"),WindowHeight(#wnd))
+  Protected objectPlaylist = SetJSONObject(AddJSONMember(object,"playlist"))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"status_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#status))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"track_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#track))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"artist_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#artist))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"title_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#title))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"duration_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#duration))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"album_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#album))
+  SetJSONInteger(AddJSONMember(objectPlaylist,"details_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#details))
   If IsWindowFullscreen(#wnd)
     SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#True)
   Else
@@ -358,6 +379,27 @@ Procedure loadSettings()
     EndIf
     If settings\window\fullscreen
       EnterWindowFullscreen(#wnd)
+    EndIf
+    If settings\playlist\album_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\album_width,#album)
+    EndIf
+    If settings\playlist\artist_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\artist_width,#artist)
+    EndIf
+    If settings\playlist\details_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\details_width,#details)
+    EndIf
+    If settings\playlist\duration_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\duration_width,#duration)
+    EndIf
+    If settings\playlist\status_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\status_width,#status)
+    EndIf
+    If settings\playlist\title_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\title_width,#title)
+    EndIf
+    If settings\playlist\track_width
+      SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\track_width,#track)
     EndIf
   EndIf
   debugLog("main","settings loaded")
@@ -685,6 +727,121 @@ Procedure setAlbums(startFrom = 0)
       EndIf
     EndIf
   Next
+EndProcedure
+
+Procedure.s findffprobe()
+  Protected ffprobe.s
+  Protected NewList possibleLocations.s()
+  Shared ffprobeVer.s
+  Shared dataDir.s
+  AddElement(possibleLocations()) : possibleLocations() = dataDir + "/ffprobe"
+  AddElement(possibleLocations()) : possibleLocations() = "/usr/local/bin/ffprobe"
+  AddElement(possibleLocations()) : possibleLocations() = "/usr/bin/ffprobe"
+  AddElement(possibleLocations()) : possibleLocations() = "/bin/ffprobe"
+  ForEach possibleLocations()
+    If FileSize(possibleLocations()) > 0 And ((GetFileAttributes(possibleLocations()) & #PB_FileSystem_ExecAll) Or (GetFileAttributes(possibleLocations()) & #PB_FileSystem_ExecUser))
+      Protected NewList args.s()
+      AddElement(args()) : args() = "-version"
+      Protected ffprobeVerOutput.s = RunProgramNative(possibleLocations(),args())
+      If ffprobeVerOutput
+        Protected verRegExp = CreateRegularExpression(#PB_Any,"ffprobe version ([0-9.\-a-zA-Z]+) ")
+        If ExamineRegularExpression(verRegExp,ffprobeVerOutput)
+          While NextRegularExpressionMatch(verRegExp)
+            ffprobeVer = RegularExpressionGroup(verRegExp,1)
+          Wend
+        EndIf
+        FreeRegularExpression(verRegExp)
+        If ffprobeVer = ""
+          ffprobeVer = "unknown version"
+        EndIf
+        ffprobe = possibleLocations()
+        Break
+      EndIf
+    EndIf
+  Next
+  ProcedureReturn ffprobe
+EndProcedure
+
+Procedure installffprobe()
+  Shared dataDir.s
+  Shared ffprobe.s
+  Shared ffprobeVer.s
+  Protected ev.i
+  Protected size.i,part.i,download.i,progress.i,unpack.b
+  Protected pack.i
+  Enumeration
+    #info
+    #progress
+    #legal
+    #abort
+  EndEnumeration
+  
+  size = getHTTPSize(#ffprobeURL)
+  part = size/500
+  download = ReceiveHTTPFile(#ffprobeURL,dataDir + "/ffprobe.zip",#PB_HTTP_Asynchronous,#myUserAgent)
+  If part = 0 Or download = 0
+    MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
+    End
+  EndIf
+  
+  OpenWindow(#wnd,0,0,400,115,#myName + " ffprobe installation",#PB_Window_Tool|#PB_Window_ScreenCentered)
+  StickyWindow(#wnd,#True)
+  TextGadget(#info,10,10,380,40,"Downloading the latest ffprobe from " + #ffprobeURL)
+  ProgressBarGadget(#progress,10,50,380,20,0,500)
+  ButtonGadget(#legal,160,80,150,25,"Legal information")
+  ButtonGadget(#abort,310,80,80,25,"Abort")
+  
+  Repeat
+    ev = WaitWindowEvent(100)
+    If ev = #PB_Event_Gadget
+      Select EventGadget()
+        Case #legal
+          RunProgram("open",#ffprobeLegal,"")
+        Case #abort
+          End
+      EndSelect
+    EndIf
+    If download
+      progress = HTTPProgress(download)
+      Select progress
+        Case #PB_HTTP_Success
+          FinishHTTP(download)
+          download = 0
+          SetGadgetState(#progress,#PB_ProgressBar_Unknown)
+          SetGadgetText(#info,"Installing ffprobe...")
+          unpack = #True
+        Case #PB_HTTP_Failed,#PB_HTTP_Aborted
+          MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
+        Default
+          SetGadgetState(#progress,progress/part)
+      EndSelect
+    EndIf
+    If unpack
+      unpack = #False
+      pack = OpenPack(#PB_Any,dataDir + "/ffprobe.zip",#PB_PackerPlugin_Zip)
+      If pack
+        If ExaminePack(pack)
+          While NextPackEntry(pack)
+            If PackEntryName(pack) = "ffprobe"
+              If UncompressPackFile(pack,dataDir + "/ffprobe") > 0
+                SetFileAttributes(dataDir + "/ffprobe",511) ; magic number to do chmod 777
+                ffprobe = findffprobe()
+                If ffprobe
+                  debugLog("main","installed ffprobe " + ffprobeVer + " (" + ffprobe + ")")
+                  ClosePack(pack)
+                  DeleteFile(dataDir + "/ffprobe.zip",#PB_FileSystem_Force)
+                  CloseWindow(#wnd)
+                EndIf
+                ProcedureReturn
+              EndIf
+            EndIf
+          Wend
+        EndIf
+      EndIf
+      MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
+      End
+    EndIf
+  ForEver
 EndProcedure
 
 ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)

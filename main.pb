@@ -35,6 +35,10 @@ Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
 Define nextID.i
+Define ffprobe.s
+Define ffprobeVer.s
+Define lyricsAvailable.b
+Define dropCount.i
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -48,6 +52,7 @@ Global EXIT = #False
 UseMD5Fingerprint()
 UsePNGImageDecoder()
 UseJPEGImageDecoder()
+UseZipPacker()
 InitNetwork()
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
@@ -61,8 +66,21 @@ EndIf
 
 IncludeFile "proc.pb"
 
+ffprobe = findffprobe()
+If ffprobe
+  debugLog("main","found ffprobe " + ffprobeVer + " (" + ffprobe + ")")
+Else
+  If MessageRequester(#myName,#noffprobeMsg,#PB_MessageRequester_YesNo) = #PB_MessageRequester_Yes
+    installffprobe()
+  Else
+    End 1
+  EndIf
+EndIf
+
+lyricsAvailable = canLoadLyrics()
+
 ExamineDesktops()
-OpenWindow(#wnd,0,0,1280,720,#myName,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget|#PB_Window_ScreenCentered)
+OpenWindow(#wnd,0,0,1280,720,#myNameVer,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget|#PB_Window_ScreenCentered)
 WindowBounds(#wnd,1280,720,#PB_Ignore,#PB_Ignore)
 
 CreateMenu(#menu,WindowID(#wnd))
@@ -88,10 +106,10 @@ ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",35)
 AddGadgetColumn(#playlist,#file,"File",200)
 AddGadgetColumn(#playlist,#track,"#",25)
 AddGadgetColumn(#playlist,#artist,"Artist",200)
-AddGadgetColumn(#playlist,#title,"Title",380)
+AddGadgetColumn(#playlist,#title,"Title",200)
 AddGadgetColumn(#playlist,#duration,"Duration",65)
-AddGadgetColumn(#playlist,#album,"Album",250)
-AddGadgetColumn(#playlist,#details,"Details",150)
+AddGadgetColumn(#playlist,#album,"Album",150)
+AddGadgetColumn(#playlist,#details,"Details",80)
 
 ListIconGadgetHideColumn(#playlist,#file,#True)
 SetListIconColumnJustification(#playlist,#status,#justifyCenter)
@@ -121,6 +139,9 @@ ButtonGadget(#toolbarStop,WindowWidth(#wnd)-345,595,50,25,#stopSymbol)
 ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
+If Not lyricsAvailable
+  SetGadgetText(#lyrics,"[disabled]")
+EndIf
 
 debugLog("main","interface loaded")
 
@@ -142,8 +163,12 @@ AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
 
+EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
+
 nowPlaying\ID = -1
 debugLog("main","ready to play")
+
+MessageRequester(#myNameVer,#alphaWarning,#PB_MessageRequester_Warning)
 
 Define timeoutTime.i = #defaultTimeout
 
@@ -174,7 +199,7 @@ Repeat
               CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
               While Eof(0) = 0
                 playlistString = ReadString(0)
-                If Left(playlistString,1) = "#"
+                If Left(playlistString,1) = "#" Or Len(playlistString) < 2
                   Continue
                 EndIf
                 If audioplayer::isSupportedFile(playlistString) And FileSize(playlistString) > 0
@@ -197,7 +222,9 @@ Repeat
           If playlist
             playlistString = ~"#EXTM3U\n"
             For i = 0 To CountGadgetItems(#playlist)-1
-              playlistString + ~"\n" + GetGadgetItemText(#playlist,i,#file)
+              If Not GetGadgetItemData(#playlist,i)
+                playlistString + ~"\n" + GetGadgetItemText(#playlist,i,#file)
+              EndIf
             Next
             If Not WriteFileFast(playlist,playlistString)
               MessageRequester(#myName,"Failed to save current playlist to " + playlist,#PB_MessageRequester_Error)
@@ -342,12 +369,16 @@ Repeat
           Select EventType()
             Case #PB_EventType_LeftDoubleClick
               If GetGadgetState(#playlist) > -1
-                If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
-                  SetGadgetState(#playlist,GetGadgetState(#playlist) + 1)
+                If isParsingCompleted()
+                  If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+                    SetGadgetState(#playlist,GetGadgetState(#playlist) + 1)
+                  EndIf
+                  queueClear()
+                  doPlay()
+                  saveSettings()
+                Else
+                  MessageRequester(#myName,"Please wait until current parsing is completed",#PB_MessageRequester_Error)
                 EndIf
-                queueClear()
-                doPlay()
-                saveSettings()
               EndIf
             Case #PB_EventType_RightClick
               If GetGadgetState(#playlist) <> -1
@@ -366,8 +397,7 @@ Repeat
               SetGadgetState(#playlist,nextID)
             EndIf
             If GetGadgetState(#playlist) > -1
-              doPlay()
-              saveSettings()
+              PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
             EndIf
           ElseIf audioplayer::getPlayer()
             If nowPlaying\isPaused
@@ -427,6 +457,48 @@ Repeat
             EndIf
           EndIf
       EndSelect
+    Case #PB_Event_GadgetDrop
+      If EventGadget() = #playlist
+        Select dropCount
+          Case 0
+            MessageRequester(#myName,"Ouch... Drag'n'Drop is not supported yet, please don't drop stuff on me!",#PB_MessageRequester_Warning)
+          Case 1
+            MessageRequester(#myName,"Stop dropping stuff on me!",#PB_MessageRequester_Warning)
+          Case 2
+            MessageRequester(#myName,"Dude please... It's not going to work.",#PB_MessageRequester_Warning)
+          Case 3
+            MessageRequester(#myName,"...",#PB_MessageRequester_Warning)
+          Case 4
+            MessageRequester(#myName,"You're still doing this in hopes to find something cool? There's nothing.",#PB_MessageRequester_Warning)
+          Case 5,6,7
+            MessageRequester(#myName,"TODO: write more funny answers for drag'n'drop operations",#PB_MessageRequester_Info)
+          Case 8
+            MessageRequester(#myName,"You really got nothing to do, don't you?",#PB_MessageRequester_Warning)
+          Case 9
+            MessageRequester(#myName,"Come on...",#PB_MessageRequester_Warning)
+          Case 10 To 20
+            MessageRequester(#myName,"Maybe you simply love wasting your time?",#PB_MessageRequester_Warning)
+          Case 21
+            MessageRequester(#myName,"Oh sure you do...",#PB_MessageRequester_Warning)
+          Case 22
+            MessageRequester(#myName,"Are you also waiting for a conclusion of some sort?",#PB_MessageRequester_Warning)
+          Case 23
+            MessageRequester(#myName,"How about a story?",#PB_MessageRequester_Info)
+          Case 24
+            MessageRequester("🤬","I AM A FUCKING AUDIO PLAYER I DON'T TELL STORIES",#PB_MessageRequester_Error)
+          Case 25
+            MessageRequester("😡","")
+          Case 26
+            MessageRequester("😑","You know what... I'll just quit.")
+          Case 27
+            MessageRequester("😔","No, seriously, you do whatever you like, i'm out!")
+          Case 28
+            MessageRequester("👋","Bye.")
+            RunProgram("open","https://www.youtube.com/watch?v=cr6eFl7hCiA","")
+            Break
+        EndSelect
+        dropCount + 1
+      EndIf
     Case #PB_Event_SizeWindow
       sizeGadgets()
       saveSettings()
@@ -447,6 +519,7 @@ Repeat
                                         \duration + #sep +
                                         \tags\album + #sep + 
                                         UCase(\format) + " " + Str(\bitrate/1000) + "k")
+        ;debugLog("main","incoming tag for " + \path)
       EndWith
     Case #evTagGetFail
       *elem = EventData()
@@ -497,5 +570,6 @@ Repeat
   EndSelect
 ForEver
 
+saveSettings()
 die()
 debugLog("main","exiting")

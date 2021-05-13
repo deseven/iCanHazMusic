@@ -1,10 +1,51 @@
 ﻿#myName = "iCanHazMusic"
+#myVer = "0.1.0"
+#myNameVer = #myName + " " + #myVer
+#myUserAgent = #myName + "/" + #myVer
+#myURL = "https://github.com/deseven/iCanHazMusic"
 
 #geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
 
 #lastfmEndpoint = "https://ws.audioscrobbler.com/"
 #lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
 #lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
+
+#ffprobeURL = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+#ffprobeLegal = "https://www.ffmpeg.org/legal.html"
+#noffprobeMsg = "Hi! I need ffprobe in order to read tags and other audio metadata, and I've failed to find one in your system. You can install it manually with homebrew (see https://formulae.brew.sh/formula/ffmpeg) or I can download a static copy myself, the question is... should I?"
+#failedffprobeMsg = "Failed downloading ffprobe from " + #ffprobeURL + ~"\nPlease try again later or report it to the developer."
+
+#alphaWarning = "This is a very early version of " + #myName + 
+                ~", it may contain bugs and... Who am I kidding, it does indeed contain bugs!\n\n" + 
+                "Please share your feedback by creating an issue on GitHub (https://github.com/deseven/iCanHazMusic/issues) or by contacting me directly (https://d7.wtf/contact)." +
+                ~"\n\n" +
+                ~"What should work: \n" +
+                ~" - m4a, aac, mp3, wav, ogg, flac and aiff playback\n" +
+                ~" - last.fm scrobbling and now playing updates (enable it in the menu)\n" +
+                ~" - playback navigation and queue\n" +
+                ~" - grouping by albums\n" +
+                ~" - dock menu\n" +
+                ~" - big (10k+ entries) playlists\n" +
+                ~" - window size and position saving\n" +
+                ~" - album art from external files\n" +
+                ~" - lyrics loading from Genius (if you installed the lyricsgenius module, see the readme in the repo)\n" +
+                ~"\n" +
+                ~"What should work in the future: \n" +
+                ~" - global hotkeys for playback\n" +
+                ~" - album art from tags\n" +
+                ~" - playlist entries rearrangement\n" +
+                ~" - seekbar\n" +
+                ~" - volume control\n" +
+                ~" - shuffle\n" +
+                ~" - drag'n'drop operations\n" +
+                ~"\n" +
+                ~"What will never work: \n" +
+                ~" - gapless playback (well, maybe someday...)\n" +
+                ~" - CUE support\n" +
+                ~" - equalizer\n" +
+                ~" - tags editing\n" +
+                ~" - advanced foobar2000-level customization (i'm too dumb for that, sorry)\n"
+
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
@@ -159,10 +200,21 @@ Structure settingsWindow
   fullscreen.b
 EndStructure
 
+Structure settingsPlaylist
+  status_width.i
+  track_width.i
+  artist_width.i
+  title_width.i
+  duration_width.i
+  album_width.i
+  details_width.i
+EndStructure
+
 Structure settings
   last_played_track_id.i
   lastfm.settingsLastfm
   window.settingsWindow
+  playlist.settingsPlaylist
 EndStructure
 
 #sep = Chr(10)

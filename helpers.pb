@@ -134,6 +134,7 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
   EndIf
   
   Protected outputData = CocoaMessage(0,readHandle,"readDataToEndOfFile")
+  CocoaMessage(0,readHandle,"closeFile")
   If outputData
     Protected stdoutNative = CocoaMessage(0,CocoaMessage(0,0,"NSString alloc"),"initWithData:",outputData,"encoding:",#NSUTF8StringEncoding)
     stdout = PeekS(CocoaMessage(0,stdoutNative,"UTF8String"),-1,#PB_UTF8)
@@ -247,6 +248,46 @@ Procedure NSLog(Message.s)
   NSLog2(Format, @Message)  
 EndProcedure
 
+Procedure getHTTPSize(url.s,iteration.i = 1)
+  Protected size.i,httpCode.i,header.s,headers.s,i.i
+  If iteration >= 10 : ProcedureReturn : EndIf
+  headers = GetHTTPHeader(url)
+  httpCode = Val(StringField(StringField(headers,1,Chr(10)),2," "))
+  Select httpCode
+    Case 200:
+      For i = 1 To CountString(headers,Chr(10))+1
+        header = Trim(StringField(headers,i,Chr(10)),Chr(13))
+        If FindString(header,"Content-Length",1,#PB_String_NoCase) = 1
+          ProcedureReturn Val(StringField(header,2," "))
+        EndIf
+      Next
+    Default:
+      For i = 1 To CountString(headers,Chr(10))+1
+        header = Trim(StringField(headers,i,Chr(10)),Chr(13))
+        If FindString(header,"Location:",1,#PB_String_NoCase) = 1
+          If FindString(StringField(header,2," "),"://") = 1 ; normal redirect
+            ProcedureReturn getHTTPSize(StringField(header,2," "),iteration + 1)
+          EndIf
+          If Left(StringField(header,2," "),1) = "/" ; absolute redirect
+            If GetURLPart(url,#PB_URL_Port)
+              ProcedureReturn getHTTPSize(GetURLPart(url,#PB_URL_Protocol) + "://" + 
+                                          GetURLPart(url,#PB_URL_Site) + ":" +
+                                          GetURLPart(url,#PB_URL_Port) +
+                                          StringField(header,2," "),iteration + 1)
+            Else
+              ProcedureReturn getHTTPSize(GetURLPart(url,#PB_URL_Protocol) + "://" + 
+                                          GetURLPart(url,#PB_URL_Site) +
+                                          StringField(header,2," "),iteration + 1)
+            EndIf
+          Else ; relative redirect
+            ProcedureReturn getHTTPSize(url + StringField(header,2," "),iteration + 1)
+          EndIf
+        EndIf
+      Next
+      ProcedureReturn
+  EndSelect
+EndProcedure
+
 Macro cleanUp()
   debugLog("main","cleaning up")
   EXIT = #True
@@ -268,6 +309,9 @@ Macro die()
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next
+  If FileSize(dataDir + "/ffprobe.zip") > 0
+    DeleteFile(dataDir + "/ffprobe.zip",#PB_FileSystem_Force)
+  EndIf
 EndMacro
 
 Macro doPlay()
@@ -296,8 +340,7 @@ Macro doPlay()
   lastPlayedID = nowPlaying\ID
   SetGadgetText(#toolbarPlayPause,#pauseSymbol)
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
-  SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myName)
-  SetGadgetText(#lyrics,"[looking for lyrics...]")
+  SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myNameVer)
   SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
   If nowPlaying\durationSec >= 3600
     SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
@@ -321,7 +364,10 @@ Macro doPlay()
   audioplayer::play()
   nowPlaying\durationSec = audioplayer::getDuration()/1000
   SetGadgetState(#nowPlayingProgress,0)
-  lyricsThread = CreateThread(@lyrics(),0)
+  If lyricsAvailable
+    SetGadgetText(#lyrics,"[looking for lyrics...]")
+    lyricsThread = CreateThread(@lyrics(),0)
+  EndIf
   loadAlbumArt()
   PostEvent(#evPlayStart)
 EndMacro
@@ -338,11 +384,13 @@ Macro doStop()
   ClearStructure(@nowPlaying,nowPlaying)
   nowPlaying\ID = -1
   SetGadgetText(#toolbarPlayPause,#playSymbol)
-  SetWindowTitle(#wnd,#myName)
+  SetWindowTitle(#wnd,#myNameVer)
   SetGadgetText(#nowPlaying,"")
   SetGadgetText(#nowPlayingDuration,"[standby]")
   SetGadgetState(#nowPlayingProgress,0)
-  SetGadgetText(#lyrics,"")
+  If lyricsAvailable
+    SetGadgetText(#lyrics,"")
+  EndIf
   loadAlbumArt()
 EndMacro
 
