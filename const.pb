@@ -1,5 +1,5 @@
 ﻿#myName = "iCanHazMusic"
-#myVer = "0.1.0"
+#myVer = "0.2.0"
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
 #myURL = "https://github.com/deseven/iCanHazMusic"
@@ -88,10 +88,8 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evLyricsSuccessGenius
   #evLyricsSuccessFile
   #evUpdateNowPlaying
-  #evLastfmScrobbleSuccess
-  #evLastfmScrobbleError
-  #evLastfmUpdateSuccess
-  #evLastfmUpdateError
+  #evNowPlayingRequestFinished
+  #evScrobbleRequestFinished
 EndEnumeration
 
 Enumeration columns

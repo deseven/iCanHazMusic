@@ -1,133 +1,96 @@
-﻿Procedure lastfmScrobble(dummy)
+﻿Procedure lastfmScrobble()
   Shared nowPlaying
-  Shared lastfmLock
-  Protected nowPlayingSafe.nowPlaying
-  LockMutex(lastfmLock)
-  CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-  
   Shared lastfmSession
-  Shared lastfmScrobbleError.s
-  Protected error.s
-  Protected unixtimeUTC.s
-  Protected api_sig.s
-  Protected request.i
   
+  Protected api_sig.s
+  Protected requestPayload.s
+  Protected unixtimeUTC.s
+  Protected url.s
+  Protected request.HTTPRequestManager::request
+    
   unixtimeUTC = Str(unixtimeUTC())
+  
   api_sig = StringFingerprint("api_key" + 
                               #lastfmAPIKey + 
                               "artist" + 
-                              nowPlayingSafe\artist + 
+                              nowPlaying\artist + 
                               "duration" +
-                              Str(nowPlayingSafe\durationSec) +
+                              Str(nowPlaying\durationSec) +
                               "methodtrack.scrobblesk" + 
                               lastfmSession +
                               "timestamp" +
                               unixtimeUTC +
                               "track" + 
-                              nowPlayingSafe\title + 
+                              nowPlaying\title + 
                               #lastfmSecret,#PB_Cipher_MD5)
-  request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
-                        "method=track.scrobble&api_key=" + 
-                        #lastfmAPIKey + 
-                        "&artist=" +
-                        URLEncode(nowPlayingSafe\artist) +
-                        "&track=" +
-                        URLEncode(nowPlayingSafe\title) +
-                        "&duration=" +
-                        Str(nowPlayingSafe\durationSec) +
-                        "&timestamp=" +
-                        unixtimeUTC +
-                        "&sk=" +
-                        lastfmSession +
-                        "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
-  If request
-    Protected startTime.i = ElapsedMilliseconds()
-    While HTTPProgress(request) >= 0
-      Delay(50)
-      If ElapsedMilliseconds() > startTime + 10000
-        AbortHTTP(request)
-      EndIf
-    Wend
-    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
-    Protected response.s = HTTPInfo(request,#PB_HTTP_Response)
-    If status <> "200"
-      error = "scrobble failed with HTTP " + status + ~".\n" + response
-    Else
-      If FindString(response,~"\"accepted\":1")
-        PostEvent(#evLastfmScrobbleSuccess,0,0,0,nowPlayingSafe\ID)
-      ElseIf FindString(response,~"\"ignored\":1")
-        error = "ignored " + Str(nowPlayingSafe\ID) + ~" with\n" + response
-      Else
-        error = "scrobble " + Str(nowPlayingSafe\ID) + " failed with HTTP " + status + ~".\n" + response
-      EndIf
-    EndIf
-    FinishHTTP(request)
-  Else
-    error = "failed To make a request"
-  EndIf
-  If error
-    lastfmScrobbleError = error
-    PostEvent(#evLastfmScrobbleError)
-  EndIf
-  UnlockMutex(lastfmLock)
+  
+  url = #lastfmEndpoint + "/2.0/?format=json"
+  
+  requestPayload = "method=track.scrobble&api_key=" + 
+                   #lastfmAPIKey + 
+                   "&artist=" +
+                   URLEncode(nowPlaying\artist) +
+                   "&track=" +
+                   URLEncode(nowPlaying\title) +
+                   "&duration=" +
+                   Str(nowPlaying\durationSec) +
+                   "&timestamp=" +
+                   unixtimeUTC +
+                   "&sk=" +
+                   lastfmSession +
+                   "&api_sig=" + api_sig
+  
+  request\type = #PB_HTTP_Post
+  request\url = url
+  request\textData = requestPayload
+  request\finishEvent = #evScrobbleRequestFinished
+  request\comment = Str(nowPlaying\ID) + " scrobble"
+  
+  HTTPRequestManager::request(@request)
 EndProcedure
 
-Procedure lastfmUpdateNowPlaying(dummy)
+Procedure lastfmUpdateNowPlaying()
   Shared nowPlaying
-  Shared lastfmLock
-  Protected nowPlayingSafe.nowPlaying
-  LockMutex(lastfmLock)
-  CopyStructure(@nowPlaying,@nowPlayingSafe,nowPlaying)
-  
   Shared lastfmSession
-  Shared lastfmUpdateError.s
-  Protected error.s
+  
   Protected api_sig.s
-  Protected request.i
+  Protected requestPayload.s
+  Protected url.s
+  Protected request.HTTPRequestManager::request
+  
   api_sig = StringFingerprint("api_key" + 
                               #lastfmAPIKey + 
                               "artist" + 
-                              nowPlayingSafe\artist + 
+                              nowPlaying\artist + 
                               "duration" +
-                              Str(nowPlayingSafe\durationSec) +
+                              Str(nowPlaying\durationSec) +
                               "methodtrack.updateNowPlayingsk" + 
                               lastfmSession + 
                               "track" + 
-                              nowPlayingSafe\title + 
+                              nowPlaying\title + 
                               #lastfmSecret,#PB_Cipher_MD5)
-  request = HTTPRequest(#PB_HTTP_Post,#lastfmEndpoint + "/2.0/?format=json",
-                        "method=track.updateNowPlaying&api_key=" + 
-                        #lastfmAPIKey + 
-                        "&artist=" +
-                        URLEncode(nowPlayingSafe\artist) +
-                        "&track=" +
-                        URLEncode(nowPlayingSafe\title) +
-                        "&duration=" +
-                        Str(nowPlayingSafe\durationSec) +
-                        "&sk=" +
-                        lastfmSession +
-                        "&api_sig=" + api_sig,#PB_HTTP_Asynchronous)
-  If request
-    Protected startTime.i = ElapsedMilliseconds()
-    While HTTPProgress(request) >= 0
-      Delay(50)
-      If ElapsedMilliseconds() > startTime + 10000
-        AbortHTTP(request)
-      EndIf
-    Wend
-    Protected status.s = HTTPInfo(request,#PB_HTTP_StatusCode)
-    If status <> "200"
-      error = "nowplaying update " + Str(nowPlayingSafe\ID) + " failed with HTTP " + status + ~".\n" + HTTPInfo(request,#PB_HTTP_Response)
-    Else
-      PostEvent(#evLastfmUpdateSuccess,0,0,0,nowPlayingSafe\ID)
-    EndIf
-    FinishHTTP(request)
-  EndIf
-  If error
-    lastfmUpdateError = error
-    PostEvent(#evLastfmUpdateError)
-  EndIf
-  UnlockMutex(lastfmLock)
+  
+  url = #lastfmEndpoint + "/2.0/?format=json"
+  
+  requestPayload = "method=track.updateNowPlaying&api_key=" + 
+                   #lastfmAPIKey + 
+                   "&artist=" +
+                   URLEncode(nowPlaying\artist) +
+                   "&track=" +
+                   URLEncode(nowPlaying\title) +
+                   "&duration=" +
+                   Str(nowPlaying\durationSec) +
+                   "&sk=" +
+                   lastfmSession +
+                   "&api_sig=" + api_sig
+  
+  request\type = #PB_HTTP_Post
+  request\url = url
+  request\textData = requestPayload
+  request\finishEvent = #evNowPlayingRequestFinished
+  request\comment = Str(nowPlaying\ID) + " nowplaying update"
+  
+  HTTPRequestManager::request(@request)
 EndProcedure
 
 Procedure lastfmAuth(lastfmAuthStep.b)

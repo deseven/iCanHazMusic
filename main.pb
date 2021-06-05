@@ -6,6 +6,7 @@ _IsMainScope = #True
 IncludeFile "const.pb"
 IncludeFile "helpers.pb"
 IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
+IncludeFile "../pb-httprequest-manager/httprequest-manager.pbi"
 
 NewList tagsToGet.track_info()
 NewList playQueue.i()
@@ -23,13 +24,9 @@ Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Suppor
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
 If systemThreads > 4 : systemThreads = 4 : EndIf ; more than enough
 Define numThreads.b
-Define lastfmUpdateNowPlayingThread
-Define lastfmScrobbleThread
-Define lastfmLock.i = CreateMutex()
 Define tagsToGetLock.i = CreateMutex()
 Define lastfmToken.s,lastfmSession.s,lastfmUser.s
 Define lastfmTokenResponse.s,lastfmSessionResponse.s
-Define lastfmScrobbleError.s,lastfmUpdateError.s
 Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
@@ -39,6 +36,9 @@ Define ffprobe.s
 Define ffprobeVer.s
 Define lyricsAvailable.b
 Define dropCount.i
+Define *response.HTTPRequestManager::response
+Define responseResult.s
+Define lastHTTPRequestManagerProcess.i
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -54,6 +54,7 @@ UsePNGImageDecoder()
 UseJPEGImageDecoder()
 UseZipPacker()
 InitNetwork()
+HTTPRequestManager::init(3,30000,#myUserAgent)
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
@@ -174,6 +175,8 @@ Define timeoutTime.i = #defaultTimeout
 
 Repeat
   ev = WaitWindowEvent(timeoutTime)
+  
+  ; audioplayer routine
   If audioplayer::getPlayer() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
     If lastDurationUpdate + 900 <= ElapsedMilliseconds()
       lastDurationUpdate = ElapsedMilliseconds()
@@ -185,9 +188,20 @@ Repeat
     EndIf
     audioplayer::checkFinishRoutine()
   EndIf
+  
+  ; HTTPRequestManager routine
+  If lastHTTPRequestManagerProcess + 900 <= ElapsedMilliseconds()
+    HTTPRequestManager::process()
+    lastHTTPRequestManagerProcess = ElapsedMilliseconds()
+  EndIf
+  
+  ; event processing
   Select ev
+      
     Case #PB_Event_CloseWindow
       Break
+      
+    ; menu events
     Case #PB_Event_Menu
       Select EventMenu()
         Case #openPlaylist
@@ -363,6 +377,8 @@ Repeat
         Case #PB_Menu_Quit
           Break
       EndSelect
+      
+    ; gadget events
     Case #PB_Event_Gadget
       Select EventGadget()
         Case #playlist
@@ -457,6 +473,8 @@ Repeat
             EndIf
           EndIf
       EndSelect
+      
+    ; drag'n'drop processing
     Case #PB_Event_GadgetDrop
       If EventGadget() = #playlist
         Select dropCount
@@ -499,11 +517,15 @@ Repeat
         EndSelect
         dropCount + 1
       EndIf
+      
+    ; window events
     Case #PB_Event_SizeWindow
       sizeGadgets()
       saveSettings()
     Case #PB_Event_MoveWindow
       saveSettings()
+      
+    ; custom events
     Case #evTagGetSuccess
       *elem = EventData()
       With *elem
@@ -539,13 +561,13 @@ Repeat
     Case #evPlayStart
       If lastfmSession
         debugLog("lastfm","updating nowplaying " + Str(nowPlaying\ID))
-        lastfmUpdateNowPlayingThread = CreateThread(@lastfmUpdateNowPlaying(),0)
+        lastfmUpdateNowPlaying()
       EndIf
     Case #evPlayFinish
       debugLog("playback","track ended")
       If lastfmSession
         debugLog("lastfm","scrobbling " + Str(nowPlaying\ID))
-        lastfmScrobbleThread = CreateThread(@lastfmScrobble(),0)
+        lastfmScrobble()
       EndIf
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
@@ -557,17 +579,40 @@ Repeat
       Else
         debugLog("lyrics","successfully loaded from Genius")
       EndIf
-    Case #evLastfmScrobbleSuccess
-      debugLog("lastfm","scrobbled " + Str(EventData()))
-    Case #evLastfmScrobbleError
-      debugLog("lastfm",lastfmScrobbleError)
-    Case #evLastfmUpdateSuccess
-      debugLog("lastfm","updated nowplaying " + Str(EventData()))
-    Case #evLastfmUpdateError
-      debugLog("lastfm",lastfmUpdateError)
+    Case #evNowPlayingRequestFinished,#evScrobbleRequestFinished
+      *response = HTTPRequestManager::getResponse(EventData())
+      If *response
+        responseResult = HTTPRequestManager::getComment(EventData())
+        Select HTTPRequestManager::getStatus(EventData())
+          Case HTTPRequestManager::#TimedOut
+            responseResult + " timed out"
+          Case HTTPRequestManager::#Failed
+            responseResult + " failed with error: " + *response\error
+          Case HTTPRequestManager::#Success
+            If *response\statusCode = 200
+              If ev = #evNowPlayingRequestFinished
+                responseResult + " was successfull"
+              ElseIf ev = #evScrobbleRequestFinished
+                If FindString(*response\response,~"\"accepted\":1")
+                  responseResult + " was successfull"
+                ElseIf FindString(*response\response,~"\"ignored\":1")
+                  responseResult + " was ignored"
+                Else
+                  responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\response
+                EndIf
+              EndIf
+            Else
+              responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\response
+            EndIf
+        EndSelect
+        debugLog("lastfm",responseResult)
+      Else
+        debugLog("lastfm","got answer for " + Str(EventData()) + " with no response")
+      EndIf
     Case #evUpdateNowPlaying
       updateNowPlaying(EventType(),EventData())
   EndSelect
+  
 ForEver
 
 saveSettings()

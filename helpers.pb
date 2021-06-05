@@ -304,8 +304,6 @@ EndMacro
 
 Macro die()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If IsThread(lastfmUpdateNowPlayingThread) : KillThread(lastfmUpdateNowPlayingThread) : EndIf
-  If IsThread(lastfmScrobbleThread) : KillThread(lastfmScrobbleThread) : EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next
