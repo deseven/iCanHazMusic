@@ -293,9 +293,11 @@ Procedure saveSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
+  Shared alphaAlertShownFor.s
   Protected json.i = CreateJSON(#PB_Any)
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
+  SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
   Protected objectLastfm = SetJSONObject(AddJSONMember(object,"lastfm"))
   SetJSONString(AddJSONMember(objectLastfm,"session"),lastfmSession)
   SetJSONString(AddJSONMember(objectLastfm,"user"),lastfmUser)
@@ -327,6 +329,7 @@ Procedure loadSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
+  Shared alphaAlertShownFor.s
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
   Protected settings.settings
@@ -336,6 +339,7 @@ Procedure loadSettings()
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
     lastPlayedID = settings\last_played_track_id
+    alphaAlertShownFor = settings\alpha_alert_shown_for
     SetGadgetState(#playlist,settings\last_played_track_id)
     If settings\window\x And settings\window\y And settings\window\width And settings\window\height
       ResizeWindow(#wnd,settings\window\x,settings\window\y,settings\window\width,settings\window\height)

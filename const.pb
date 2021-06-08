@@ -210,6 +210,7 @@ EndStructure
 
 Structure settings
   last_played_track_id.i
+  alpha_alert_shown_for.s
   lastfm.settingsLastfm
   window.settingsWindow
   playlist.settingsPlaylist

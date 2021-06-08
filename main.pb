@@ -31,6 +31,7 @@ Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
+Define alphaAlertShownFor.s
 Define nextID.i
 Define ffprobe.s
 Define ffprobeVer.s
@@ -54,7 +55,7 @@ UsePNGImageDecoder()
 UseJPEGImageDecoder()
 UseZipPacker()
 InitNetwork()
-HTTPRequestManager::init(3,30000,#myUserAgent)
+HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
 
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
@@ -139,6 +140,11 @@ ButtonGadget(#toolbarNext,WindowWidth(#wnd)-395,595,50,25,#nextSymbol)
 ButtonGadget(#toolbarStop,WindowWidth(#wnd)-345,595,50,25,#stopSymbol)
 ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
 
+GadgetToolTip(#toolbarPrevious,"Previous track")
+GadgetToolTip(#toolbarPlayPause,"Play/Pause")
+GadgetToolTip(#toolbarNext,"Next Track")
+GadgetToolTip(#toolbarStop,"Stop")
+
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
 If Not lyricsAvailable
   SetGadgetText(#lyrics,"[disabled]")
@@ -169,7 +175,10 @@ EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_L
 nowPlaying\ID = -1
 debugLog("main","ready to play")
 
-MessageRequester(#myNameVer,#alphaWarning,#PB_MessageRequester_Warning)
+If alphaAlertShownFor <> #myVer
+  MessageRequester(#myNameVer,#alphaWarning,#PB_MessageRequester_Warning)
+EndIf
+alphaAlertShownFor = #myVer
 
 Define timeoutTime.i = #defaultTimeout
 
