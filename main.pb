@@ -47,6 +47,15 @@ Define durationSec.i
 Define oldCurrent.i
 Define newCurrent.i
 Define lastDurationUpdate.i
+Define currentAlbum.s
+Define numAlbums.i
+
+; playback params stuff
+Define cursorFollowsPlayback.b
+Define playbackFollowsCursor.b
+Define playbackOrder.b
+Define stopAtQueueEnd.b
+Define queueEnded.b
 
 Global EXIT = #False
 
@@ -86,12 +95,25 @@ OpenWindow(#wnd,0,0,1280,720,#myNameVer,#PB_Window_SizeGadget|#PB_Window_SizeGad
 WindowBounds(#wnd,1280,720,#PB_Ignore,#PB_Ignore)
 
 CreateMenu(#menu,WindowID(#wnd))
+
 MenuTitle("File")
 MenuItem(#openPlaylist,"Open Playlist...")
 MenuItem(#savePlaylist,"Save Playlist...")
 MenuBar()
 MenuItem(#addDirectory,"Add Diectory...")
 MenuItem(#addFile,"Add File(s)...")
+
+MenuTitle("Playback")
+MenuItem(#playbackCursorFollowsPlayback,"Cursor follows playback")
+MenuItem(#playbackPlaybackFollowsCursor,"Playback follows cursor")
+OpenSubMenu("Order")
+MenuItem(#playbackOrderDefault,"Default")
+MenuItem(#playbackOrderShuffleTracks,"Shuffle (tracks)")
+MenuItem(#playbackOrderShuffleAlbums,"Shuffle (albums)")
+CloseSubMenu()
+MenuBar()
+MenuItem(#playbackStopAtQueueEnd,"Stop at queue end")
+
 MenuTitle("Last.fm")
 MenuItem(#lastfmState,"")
 MenuBar()
@@ -144,11 +166,14 @@ GadgetToolTip(#toolbarPrevious,"Previous track")
 GadgetToolTip(#toolbarPlayPause,"Play/Pause")
 GadgetToolTip(#toolbarNext,"Next Track")
 GadgetToolTip(#toolbarStop,"Stop")
+GadgetToolTip(#toolbarLyricsReloadWeb,"Reload lyrics from Genius")
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
 If Not lyricsAvailable
-  SetGadgetText(#lyrics,"[disabled]")
+  SetGadgetText(#lyrics,"[lyrics disabled]")
+  HideGadget(#lyrics,#True)
 EndIf
+HideGadget(#toolbarLyricsReloadWeb,#True)
 
 debugLog("main","interface loaded")
 
@@ -171,6 +196,9 @@ AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
 
 EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
+
+MenuItem(#PB_Menu_Preferences,"")
+MenuItem(#PB_Menu_About,"")
 
 nowPlaying\ID = -1
 debugLog("main","ready to play")
@@ -208,13 +236,20 @@ Repeat
   Select ev
       
     Case #PB_Event_CloseWindow
-      Break
+      Select EventWindow()
+        Case #wnd
+          Break
+        Case #wndPrefs
+          saveSettings()
+      EndSelect
+      CloseWindow(EventWindow())
       
     ; menu events
     Case #PB_Event_Menu
       Select EventMenu()
         Case #openPlaylist
-          If CountGadgetItems(#playlist) = 0 Or (CountGadgetItems(#playlist) And MessageRequester(#myName,"Your current playlist will be cleared, are sure you want to continue?",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes)
+          If CountGadgetItems(#playlist) = 0 Or 
+             (CountGadgetItems(#playlist) And MessageRequester(#myName,"Your current playlist will be cleared, are sure you want to continue?",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes)
             playlist = OpenFileRequester("Select playlist","","",0)
             If FileSize(playlist) > 0 And ReadFile(0,playlist)
               cleanUp()
@@ -343,6 +378,36 @@ Repeat
           EndIf
           setAlbums()
           saveState()
+        Case #playbackCursorFollowsPlayback
+          cursorFollowsPlayback = 1-cursorFollowsPlayback
+          SetMenuItemState(#menu,#playbackCursorFollowsPlayback,cursorFollowsPlayback)
+          saveSettings()
+        Case #playbackPlaybackFollowsCursor
+          playbackFollowsCursor = 1-playbackFollowsCursor
+          SetMenuItemState(#menu,#playbackPlaybackFollowsCursor,playbackFollowsCursor)
+          saveSettings()
+        Case #playbackStopAtQueueEnd
+          stopAtQueueEnd = 1-stopAtQueueEnd
+          SetMenuItemState(#menu,#playbackStopAtQueueEnd,stopAtQueueEnd)
+          saveSettings()
+        Case #playbackOrderDefault
+          SetMenuItemState(#menu,#playbackOrderDefault,#True)
+          SetMenuItemState(#menu,#playbackOrderShuffleTracks,#False)
+          SetMenuItemState(#menu,#playbackOrderShuffleAlbums,#False)
+          playbackOrder = #orderDefault
+          saveSettings()
+        Case #playbackOrderShuffleTracks
+          SetMenuItemState(#menu,#playbackOrderDefault,#False)
+          SetMenuItemState(#menu,#playbackOrderShuffleTracks,#True)
+          SetMenuItemState(#menu,#playbackOrderShuffleAlbums,#False)
+          playbackOrder = #orderShuffleTracks
+          saveSettings()
+        Case #playbackOrderShuffleAlbums
+          SetMenuItemState(#menu,#playbackOrderDefault,#False)
+          SetMenuItemState(#menu,#playbackOrderShuffleTracks,#False)
+          SetMenuItemState(#menu,#playbackOrderShuffleAlbums,#True)
+          playbackOrder = #orderShuffleAlbums
+          saveSettings()
         Case #lastfmState
           If lastfmSession
             If MessageRequester(#myName,"Do you really want to log out of Last.fm? Scrobbling will be disabled.",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes
@@ -385,6 +450,10 @@ Repeat
           PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
         Case #PB_Menu_Quit
           Break
+        Case #PB_Menu_Preferences
+          prefs()
+        Case #PB_Menu_About
+          MessageRequester(#myNameVer,~"written by deseven, 2021\n\nLicense: UNLICENSE\nURL: " + #myURL)
       EndSelect
       
     ; gadget events
@@ -399,6 +468,9 @@ Repeat
                     SetGadgetState(#playlist,GetGadgetState(#playlist) + 1)
                   EndIf
                   queueClear()
+                  queueEnded = #False
+                  nextID = GetGadgetState(#playlist)
+                  currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
                   doPlay()
                   saveSettings()
                 Else
@@ -415,11 +487,20 @@ Repeat
                 DisplayPopupMenu(#playlistMenu,WindowID(#wnd))
               EndIf
           EndSelect
+        Case #toolbarLyricsReloadWeb
+          If lyricsAvailable
+            If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
+            HideGadget(#toolbarLyricsReloadWeb,#True)
+            SetGadgetText(#lyrics,"[looking for lyrics...]")
+            lyricsThread = CreateThread(@lyrics(),#True)
+          EndIf
         Case #toolbarPlayPause
           If nowPlaying\ID = -1
             nextID = queueNext()
             If nextID > -1 And nextID < CountGadgetItems(#playlist)
-              SetGadgetState(#playlist,nextID)
+              If cursorFollowsPlayback
+                SetGadgetState(#playlist,nextID)
+              EndIf
             EndIf
             If GetGadgetState(#playlist) > -1
               PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
@@ -445,22 +526,71 @@ Repeat
           debugLog("playback","next")
           If nowPlaying\ID <> - 1
             nextID = queueNext()
-            If nextID > -1 And nextID < CountGadgetItems(#playlist)
-              SetGadgetState(#playlist,nextID)
+            If nextID > -1 And nextID < CountGadgetItems(#playlist) ; if we have somethin queued
+              If cursorFollowsPlayback
+                SetGadgetState(#playlist,nextID)
+              EndIf
               doPlay()
               saveSettings()
-            Else
-              If nowPlaying\ID < CountGadgetItems(#playlist) - 1
-                If GetGadgetItemData(#playlist,nowPlaying\ID + 1)
-                  SetGadgetState(#playlist,nowPlaying\ID + 2)
-                Else
-                  SetGadgetState(#playlist,nowPlaying\ID + 1)
-                EndIf
+            Else ; nothing is queued
+              If queueEnded And stopAtQueueEnd
+                queueEnded = #False
+                doStop()
+              ElseIf playbackFollowsCursor And GetGadgetState(#playlist) > -1 And (cursorFollowsPlayback = #False Or GetGadgetState(#playlist) <> nowPlaying\ID)
+                nextID = GetGadgetState(#playlist)
                 doPlay()
                 saveSettings()
               Else
-                doStop()
-                SetGadgetState(#playlist,-1)
+                Select playbackOrder
+                  Case #orderShuffleTracks
+                    nextID = Random(CountGadgetItems(#playlist)-1,0)
+                    If GetGadgetItemData(#playlist,nextID)
+                      nextID + 1
+                    EndIf
+                  Case #orderShuffleAlbums
+                    If nowPlaying\ID < CountGadgetItems(#playlist) - 1 And GetGadgetItemText(#playlist,nowPlaying\ID + 1,#album) <> currentAlbum
+                      numAlbums = 0
+                      For i = 0 To CountGadgetItems(#playlist) - 1
+                        If GetGadgetItemData(#playlist,i)
+                          numAlbums + 1
+                        EndIf
+                      Next
+                      Define randomAlbum.i = Random(numAlbums,1)
+                      Define album.i = 0
+                      For i = 0 To CountGadgetItems(#playlist) - 1
+                        If GetGadgetItemData(#playlist,i)
+                          album + 1
+                          If album = randomAlbum
+                            Debug "found needed album"
+                            nextID = i + 1
+                            currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
+                            Break
+                          EndIf
+                        EndIf
+                      Next
+                    Else
+                      nextID = nowPlaying\ID + 1
+                    EndIf
+                  Default
+                    If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+                      If GetGadgetItemData(#playlist,nowPlaying\ID + 1)
+                        nextID = nowPlaying\ID + 2
+                      Else
+                        nextID = nowPlaying\ID + 1
+                      EndIf
+                    Else
+                      nextID = -1
+                    EndIf
+                EndSelect
+                If nextID <> -1
+                  doPlay()
+                  saveSettings()
+                Else
+                  doStop()
+                EndIf
+              EndIf
+              If cursorFollowsPlayback
+                SetGadgetState(#playlist,nextID)
               EndIf
             EndIf
           EndIf
@@ -469,16 +599,25 @@ Repeat
             If nowPlaying\ID > 0
               If GetGadgetItemData(#playlist,nowPlaying\ID - 1)
                 If nowPlaying\ID - 2 >= 0
-                  SetGadgetState(#playlist,nowPlaying\ID - 2)
+                  If cursorFollowsPlayback
+                    SetGadgetState(#playlist,nowPlaying\ID - 2)
+                  EndIf
+                  nextID = nowPlaying\ID - 2
                 EndIf
               Else
-                SetGadgetState(#playlist,nowPlaying\ID - 1)
+                If cursorFollowsPlayback
+                  SetGadgetState(#playlist,nowPlaying\ID - 1)
+                EndIf
+                nextID = nowPlaying\ID - 1
               EndIf
+              currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
               doPlay()
               saveSettings()
             Else
               doStop()
-              SetGadgetState(#playlist,-1)
+              If cursorFollowsPlayback
+                SetGadgetState(#playlist,-1)
+              EndIf
             EndIf
           EndIf
       EndSelect
@@ -581,8 +720,10 @@ Repeat
       PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
+      HideGadget(#toolbarLyricsReloadWeb,#False)
     Case #evLyricsSuccessGenius,#evLyricsSuccessFile
       SetGadgetText(#lyrics,nowPlaying\lyrics)
+      HideGadget(#toolbarLyricsReloadWeb,#False)
       If ev = #evLyricsSuccessFile
         debugLog("lyrics","successfully loaded from file")
       Else

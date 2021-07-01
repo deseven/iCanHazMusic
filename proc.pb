@@ -233,13 +233,13 @@ Procedure getTags(start.i)
   PostEvent(#evTagGetFinish)
 EndProcedure
 
-Procedure lyrics(dummy)
+Procedure lyrics(forceGenius)
   Shared nowPlaying,dataDir
   Protected lyricsHash.s = StringFingerprint(nowPlaying\artist + " - " + nowPlaying\title,#PB_Cipher_MD5)
   Protected NewList args.s()
   Protected json.s
   
-  If FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
+  If forceGenius = #False And FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
     nowPlaying\lyrics = ReadFileFast(dataDir + "/lyrics/" + lyricsHash + ".txt")
     PostEvent(#evLyricsSuccessFile)
     ProcedureReturn
@@ -294,18 +294,28 @@ Procedure saveSettings()
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
+  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
   Protected json.i = CreateJSON(#PB_Any)
+  
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
   SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
+  
   Protected objectLastfm = SetJSONObject(AddJSONMember(object,"lastfm"))
   SetJSONString(AddJSONMember(objectLastfm,"session"),lastfmSession)
   SetJSONString(AddJSONMember(objectLastfm,"user"),lastfmUser)
+  
   Protected objectWindow = SetJSONObject(AddJSONMember(object,"window"))
   SetJSONInteger(AddJSONMember(objectWindow,"x"),WindowX(#wnd))
   SetJSONInteger(AddJSONMember(objectWindow,"y"),WindowY(#wnd))
   SetJSONInteger(AddJSONMember(objectWindow,"width"),WindowWidth(#wnd))
   SetJSONInteger(AddJSONMember(objectWindow,"height"),WindowHeight(#wnd))
+  If IsWindowFullscreen(#wnd)
+    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#True)
+  Else
+    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#False)
+  EndIf
+  
   Protected objectPlaylist = SetJSONObject(AddJSONMember(object,"playlist"))
   SetJSONInteger(AddJSONMember(objectPlaylist,"status_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#status))
   SetJSONInteger(AddJSONMember(objectPlaylist,"track_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#track))
@@ -314,11 +324,32 @@ Procedure saveSettings()
   SetJSONInteger(AddJSONMember(objectPlaylist,"duration_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#duration))
   SetJSONInteger(AddJSONMember(objectPlaylist,"album_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#album))
   SetJSONInteger(AddJSONMember(objectPlaylist,"details_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#details))
-  If IsWindowFullscreen(#wnd)
-    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#True)
+  
+  Protected objectPlayback = SetJSONObject(AddJSONMember(object,"playback"))
+  If cursorFollowsPlayback
+    SetJSONBoolean(AddJSONMember(objectPlayback,"cursor_follows_playback"),#True)
   Else
-    SetJSONBoolean(AddJSONMember(objectWindow,"fullscreen"),#False)
+    SetJSONBoolean(AddJSONMember(objectPlayback,"cursor_follows_playback"),#False)
   EndIf
+  If playbackFollowsCursor
+    SetJSONBoolean(AddJSONMember(objectPlayback,"playback_follows_cursor"),#True)
+  Else
+    SetJSONBoolean(AddJSONMember(objectPlayback,"playback_follows_cursor"),#False)
+  EndIf
+  If stopAtQueueEnd
+    SetJSONBoolean(AddJSONMember(objectPlayback,"stop_at_queue_end"),#True)
+  Else
+    SetJSONBoolean(AddJSONMember(objectPlayback,"stop_at_queue_end"),#False)
+  EndIf
+  Select playbackOrder
+    Case #orderShuffleTracks
+      SetJSONString(AddJSONMember(objectPlayback,"playback_order"),"shuffle_tracks")
+    Case #orderShuffleAlbums
+      SetJSONString(AddJSONMember(objectPlayback,"playback_order"),"shuffle_albums")
+    Default
+      SetJSONString(AddJSONMember(objectPlayback,"playback_order"),"default")
+  EndSelect
+  
   WriteFileFast(dataDir + "/settings.json",ComposeJSON(json,#PB_JSON_PrettyPrint))
   ;Debug ComposeJSON(json,#PB_JSON_PrettyPrint)
   FreeJSON(json)
@@ -330,23 +361,33 @@ Procedure loadSettings()
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
+  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
   Protected settings.settings
+  
+  ; defaults
+  settings\playback\cursor_follows_playback = #True
+  settings\playback\playback_follows_cursor = #False
+  settings\playback\stop_at_queue_end = #False
+  settings\playback\playback_order = "default"
+  
   If json
-    ExtractJSONStructure(JSONValue(json),@settings,settings)
+    ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
     lastPlayedID = settings\last_played_track_id
     alphaAlertShownFor = settings\alpha_alert_shown_for
     SetGadgetState(#playlist,settings\last_played_track_id)
-    If settings\window\x And settings\window\y And settings\window\width And settings\window\height
+    
+    If settings\window\x Or settings\window\y Or settings\window\width Or settings\window\height
       ResizeWindow(#wnd,settings\window\x,settings\window\y,settings\window\width,settings\window\height)
     EndIf
     If settings\window\fullscreen
       EnterWindowFullscreen(#wnd)
     EndIf
+    
     If settings\playlist\album_width
       SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\album_width,#album)
     EndIf
@@ -368,6 +409,30 @@ Procedure loadSettings()
     If settings\playlist\track_width
       SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\track_width,#track)
     EndIf
+    
+    If settings\playback\cursor_follows_playback
+      cursorFollowsPlayback = #True
+      SetMenuItemState(#menu,#playbackCursorFollowsPlayback,#True)
+    EndIf
+    If settings\playback\playback_follows_cursor
+      playbackFollowsCursor = #True
+      SetMenuItemState(#menu,#playbackPlaybackFollowsCursor,#True)
+    EndIf
+    If settings\playback\stop_at_queue_end
+      stopAtQueueEnd = #True
+      SetMenuItemState(#menu,#playbackStopAtQueueEnd,#True)
+    EndIf
+    Select settings\playback\playback_order
+      Case "shuffle_tracks"
+        playbackOrder = #orderShuffleTracks
+        SetMenuItemState(#menu,#playbackOrderShuffleTracks,#True)
+      Case "shuffle_albums"
+        playbackOrder = #orderShuffleAlbums
+        SetMenuItemState(#menu,#playbackOrderShuffleAlbums,#True)
+      Default
+        playbackOrder = #orderDefault
+        SetMenuItemState(#menu,#playbackOrderDefault,#True)
+    EndSelect
   EndIf
   debugLog("main","settings loaded")
 EndProcedure
@@ -668,10 +733,14 @@ EndProcedure
 
 Procedure queueNext()
   Shared playQueue()
+  Shared queueEnded.b
   Protected id.i
   If ListSize(playQueue())
     SelectElement(playQueue(),0)
     id = playQueue()
+    If ListSize(playQueue()) = 1
+      queueEnded = #True
+    EndIf
     queueRemove(id)
   Else
     id = -1

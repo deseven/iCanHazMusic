@@ -320,7 +320,7 @@ Macro doPlay()
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
   EndIf
-  nowPlaying\ID = GetGadgetState(#playlist)
+  nowPlaying\ID = nextID
   nowPlaying\path = GetGadgetItemText(#playlist,nowPlaying\ID,#file)
   nowPlaying\artist = GetGadgetItemText(#playlist,nowPlaying\ID,#artist)
   nowPlaying\title = GetGadgetItemText(#playlist,nowPlaying\ID,#title)
@@ -363,8 +363,9 @@ Macro doPlay()
   nowPlaying\durationSec = audioplayer::getDuration()/1000
   SetGadgetState(#nowPlayingProgress,0)
   If lyricsAvailable
+    HideGadget(#toolbarLyricsReloadWeb,#True)
     SetGadgetText(#lyrics,"[looking for lyrics...]")
-    lyricsThread = CreateThread(@lyrics(),0)
+    lyricsThread = CreateThread(@lyrics(),#False)
   EndIf
   loadAlbumArt()
   PostEvent(#evPlayStart)
@@ -433,4 +434,9 @@ Macro sizeGadgets()
   ResizeGadget(#toolbarStop,WindowWidth(#wnd)-345,#PB_Ignore,#PB_Ignore,#PB_Ignore)
   ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
   ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
+EndMacro
+
+Macro prefs()
+  OpenWindow(#wndPrefs,0,0,400,300,#myName + " Preferences",#PB_Window_SystemMenu|#PB_Window_Tool,WindowID(#wnd))
+  StickyWindow(#wndPrefs,#True)
 EndMacro

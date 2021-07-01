@@ -62,6 +62,8 @@
 
 Enumeration
   #wnd
+  #wndPrefs
+  #wndAction
   #playlist
   #albumArt
   #nowPlaying
@@ -109,6 +111,12 @@ Enumeration menu
   #savePlaylist
   #addDirectory
   #addFile
+  #playbackCursorFollowsPlayback
+  #playbackPlaybackFollowsCursor
+  #playbackOrderDefault
+  #playbackOrderShuffleTracks
+  #playbackOrderShuffleAlbums
+  #playbackStopAtQueueEnd
   #lastfmState
   #lastfmUser
   #playlistMenu
@@ -123,6 +131,12 @@ Enumeration menu
   #dockNext
   #dockPrevious
   #dockStop
+EndEnumeration
+
+Enumeration playbackOrder
+  #orderDefault
+  #orderShuffleTracks
+  #orderShuffleAlbums
 EndEnumeration
 
 Enumeration albumArt
@@ -208,12 +222,20 @@ Structure settingsPlaylist
   details_width.i
 EndStructure
 
+Structure settingsPlayback
+  cursor_follows_playback.b
+  playback_follows_cursor.b
+  stop_at_queue_end.b
+  playback_order.s
+EndStructure
+
 Structure settings
   last_played_track_id.i
   alpha_alert_shown_for.s
   lastfm.settingsLastfm
   window.settingsWindow
   playlist.settingsPlaylist
+  playback.settingsPlayback
 EndStructure
 
 #sep = Chr(10)
