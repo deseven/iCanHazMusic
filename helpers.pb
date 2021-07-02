@@ -368,6 +368,11 @@ Macro doPlay()
     lyricsThread = CreateThread(@lyrics(),#False)
   EndIf
   loadAlbumArt()
+  LastElement(history()) : AddElement(history()) : history() = nowPlaying\ID
+  If ListSize(history()) > 1000
+    FirstElement(history())
+    DeleteElement(history())
+  EndIf
   PostEvent(#evPlayStart)
 EndMacro
 

@@ -50,12 +50,14 @@ Define lastDurationUpdate.i
 Define currentAlbum.s
 Define numAlbums.i
 
-; playback params stuff
+; playback stuff
 Define cursorFollowsPlayback.b
 Define playbackFollowsCursor.b
 Define playbackOrder.b
 Define stopAtQueueEnd.b
 Define queueEnded.b
+NewList history.i()
+Define historyEnabled.b
 
 Global EXIT = #False
 
@@ -471,6 +473,7 @@ Repeat
                   queueEnded = #False
                   nextID = GetGadgetState(#playlist)
                   currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
+                  historyEnabled = #True
                   doPlay()
                   saveSettings()
                 Else
@@ -522,103 +525,22 @@ Repeat
           If nowPlaying\ID <> -1
             doStop()
           EndIf
-        Case #toolbarNext
-          debugLog("playback","next")
-          If nowPlaying\ID <> - 1
-            nextID = queueNext()
-            If nextID > -1 And nextID < CountGadgetItems(#playlist) ; if we have somethin queued
-              If cursorFollowsPlayback
-                SetGadgetState(#playlist,nextID)
-              EndIf
-              doPlay()
-              saveSettings()
-            Else ; nothing is queued
-              If queueEnded And stopAtQueueEnd
-                queueEnded = #False
-                doStop()
-              ElseIf playbackFollowsCursor And GetGadgetState(#playlist) > -1 And (cursorFollowsPlayback = #False Or GetGadgetState(#playlist) <> nowPlaying\ID)
-                nextID = GetGadgetState(#playlist)
-                doPlay()
-                saveSettings()
-              Else
-                Select playbackOrder
-                  Case #orderShuffleTracks
-                    nextID = Random(CountGadgetItems(#playlist)-1,0)
-                    If GetGadgetItemData(#playlist,nextID)
-                      nextID + 1
-                    EndIf
-                  Case #orderShuffleAlbums
-                    If nowPlaying\ID < CountGadgetItems(#playlist) - 1 And GetGadgetItemText(#playlist,nowPlaying\ID + 1,#album) <> currentAlbum
-                      numAlbums = 0
-                      For i = 0 To CountGadgetItems(#playlist) - 1
-                        If GetGadgetItemData(#playlist,i)
-                          numAlbums + 1
-                        EndIf
-                      Next
-                      Define randomAlbum.i = Random(numAlbums,1)
-                      Define album.i = 0
-                      For i = 0 To CountGadgetItems(#playlist) - 1
-                        If GetGadgetItemData(#playlist,i)
-                          album + 1
-                          If album = randomAlbum
-                            Debug "found needed album"
-                            nextID = i + 1
-                            currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
-                            Break
-                          EndIf
-                        EndIf
-                      Next
-                    Else
-                      nextID = nowPlaying\ID + 1
-                    EndIf
-                  Default
-                    If nowPlaying\ID < CountGadgetItems(#playlist) - 1
-                      If GetGadgetItemData(#playlist,nowPlaying\ID + 1)
-                        nextID = nowPlaying\ID + 2
-                      Else
-                        nextID = nowPlaying\ID + 1
-                      EndIf
-                    Else
-                      nextID = -1
-                    EndIf
-                EndSelect
-                If nextID <> -1
-                  doPlay()
-                  saveSettings()
-                Else
-                  doStop()
-                EndIf
-              EndIf
-              If cursorFollowsPlayback
-                SetGadgetState(#playlist,nextID)
-              EndIf
-            EndIf
+        Case #toolbarNext,#toolbarPrevious
+          If EventGadget() = #toolbarNext
+            debugLog("playback","next")
+            nextID = getNextTrack()
+          Else
+            debugLog("playback","previous")
+            nextID = getPreviousTrack()
           EndIf
-        Case #toolbarPrevious
-          If nowPlaying\ID <> - 1
-            If nowPlaying\ID > 0
-              If GetGadgetItemData(#playlist,nowPlaying\ID - 1)
-                If nowPlaying\ID - 2 >= 0
-                  If cursorFollowsPlayback
-                    SetGadgetState(#playlist,nowPlaying\ID - 2)
-                  EndIf
-                  nextID = nowPlaying\ID - 2
-                EndIf
-              Else
-                If cursorFollowsPlayback
-                  SetGadgetState(#playlist,nowPlaying\ID - 1)
-                EndIf
-                nextID = nowPlaying\ID - 1
-              EndIf
-              currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
-              doPlay()
-              saveSettings()
-            Else
-              doStop()
-              If cursorFollowsPlayback
-                SetGadgetState(#playlist,-1)
-              EndIf
-            EndIf
+          If cursorFollowsPlayback
+            SetGadgetState(#playlist,nextID)
+          EndIf
+          If nextID <> -1
+            doPlay()
+            saveSettings()
+          Else
+            doStop()
           EndIf
       EndSelect
       

@@ -765,6 +765,98 @@ Procedure setAlbums(startFrom = 0)
   Next
 EndProcedure
 
+Procedure getNextTrack()
+  Protected nextID.i = -1
+  Protected randomAlbum,album,i
+  Shared nowPlaying
+  Shared cursorFollowsPlayback,playbackFollowsCursor,stopAtQueueEnd,playbackOrder
+  Shared numAlbums,currentAlbum,queueEnded
+  Shared historyEnabled
+  If nowPlaying\ID <> - 1
+    nextID = queueNext()
+    If nextID = -1 Or nextID >= CountGadgetItems(#playlist) ; if we don't have anything queued
+      If queueEnded And stopAtQueueEnd
+        queueEnded = #False
+        nextID = -1
+      ElseIf playbackFollowsCursor And GetGadgetState(#playlist) > -1 And (cursorFollowsPlayback = #False Or GetGadgetState(#playlist) <> nowPlaying\ID)
+        nextID = GetGadgetState(#playlist)
+      Else
+        Select playbackOrder
+          Case #orderShuffleTracks
+            nextID = Random(CountGadgetItems(#playlist)-1,0)
+            If GetGadgetItemData(#playlist,nextID)
+              nextID + 1
+            EndIf
+          Case #orderShuffleAlbums
+            If nowPlaying\ID < CountGadgetItems(#playlist) - 1 And GetGadgetItemText(#playlist,nowPlaying\ID + 1,#album) <> currentAlbum
+              numAlbums = 0
+              For i = 0 To CountGadgetItems(#playlist) - 1
+                If GetGadgetItemData(#playlist,i)
+                  numAlbums + 1
+                EndIf
+              Next
+              randomAlbum = Random(numAlbums,1)
+              album = 0
+              For i = 0 To CountGadgetItems(#playlist) - 1
+                If GetGadgetItemData(#playlist,i)
+                  album + 1
+                  If album = randomAlbum
+                    nextID = i + 1
+                    currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
+                    Break
+                  EndIf
+                EndIf
+              Next
+            Else
+              nextID = nowPlaying\ID + 1
+            EndIf
+          Default
+            If nowPlaying\ID < CountGadgetItems(#playlist) - 1
+              If GetGadgetItemData(#playlist,nowPlaying\ID + 1)
+                nextID = nowPlaying\ID + 2
+              Else
+                nextID = nowPlaying\ID + 1
+              EndIf
+            Else
+              nextID = -1
+            EndIf
+        EndSelect
+      EndIf
+    EndIf
+  EndIf
+  historyEnabled = #True
+  ProcedureReturn nextID
+EndProcedure
+
+Procedure getPreviousTrack()
+  Shared nowPlaying
+  Shared history()
+  Shared currentAlbum
+  Shared historyEnabled
+  Protected nextID.i = -1
+  If ListSize(history()) >= 2
+    LastElement(history())
+    DeleteElement(history())
+    LastElement(history())
+    nextID = history()
+    DeleteElement(history())
+  Else
+    historyEnabled = #False
+    ClearList(history())
+  EndIf
+  If nowPlaying\ID > 0 And historyEnabled = #False
+    If GetGadgetItemData(#playlist,nowPlaying\ID - 1)
+      If nowPlaying\ID - 2 >= 0
+        nextID = nowPlaying\ID - 2
+      EndIf
+    Else
+      nextID = nowPlaying\ID - 1
+    EndIf
+    currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
+  EndIf
+  ProcedureReturn nextID
+EndProcedure
+
 Procedure.s findffprobe()
   Protected ffprobe.s
   Protected NewList possibleLocations.s()
