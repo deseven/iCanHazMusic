@@ -51,6 +51,8 @@
 #pauseSymbol = "❚ ❚"
 #nextSymbol = "▶▶"
 #previousSymbol = "◀◀"
+#nextAlbumSymbol = "▶❚"
+#previousAlbumSymbol = "❚◀"
 #stopSymbol = "■"
 #refreshSymbol = "♻"
 #processingSymbol = "◔"
@@ -73,6 +75,8 @@ Enumeration
   #toolbarPlayPause
   #toolbarNext
   #toolbarPrevious
+  #toolbarNextAlbum
+  #toolbarPreviousAlbum
   #toolbarStop
   #toolbarLyricsEdit
   #toolbarLyricsReload
@@ -130,6 +134,8 @@ Enumeration menu
   #dockPlayPause
   #dockNext
   #dockPrevious
+  #dockNextAlbum
+  #dockPreviousAlbum
   #dockStop
 EndEnumeration
 

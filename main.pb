@@ -158,15 +158,19 @@ TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
 TextGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,559,500,16,"[standby]",#PB_Text_Center)
 ProgressBarGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,575,490,20,0,100)
 
-ButtonGadget(#toolbarPrevious,WindowWidth(#wnd)-495,595,50,25,#previousSymbol)
-ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-445,595,50,25,#playSymbol)
-ButtonGadget(#toolbarNext,WindowWidth(#wnd)-395,595,50,25,#nextSymbol)
-ButtonGadget(#toolbarStop,WindowWidth(#wnd)-345,595,50,25,#stopSymbol)
+ButtonGadget(#toolbarPreviousAlbum,WindowWidth(#wnd)-495,595,50,25,#previousAlbumSymbol)
+ButtonGadget(#toolbarPrevious,WindowWidth(#wnd)-445,595,50,25,#previousSymbol)
+ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-395,595,50,25,#playSymbol)
+ButtonGadget(#toolbarNext,WindowWidth(#wnd)-345,595,50,25,#nextSymbol)
+ButtonGadget(#toolbarNextAlbum,WindowWidth(#wnd)-295,595,50,25,#nextAlbumSymbol)
+ButtonGadget(#toolbarStop,WindowWidth(#wnd)-245,595,50,25,#stopSymbol)
 ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
 
-GadgetToolTip(#toolbarPrevious,"Previous track")
+GadgetToolTip(#toolbarPreviousAlbum,"Previous Album")
+GadgetToolTip(#toolbarPrevious,"Previous Track")
 GadgetToolTip(#toolbarPlayPause,"Play/Pause")
 GadgetToolTip(#toolbarNext,"Next Track")
+GadgetToolTip(#toolbarNextAlbum,"Next Album")
 GadgetToolTip(#toolbarStop,"Stop")
 GadgetToolTip(#toolbarLyricsReloadWeb,"Reload lyrics from Genius")
 
@@ -193,6 +197,7 @@ loadSettings() ; temporary hack to redraw the playlist
 
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Q,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Space,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
@@ -448,8 +453,12 @@ Repeat
           PostEvent(#PB_Event_Gadget,#wnd,#toolbarStop)
         Case #dockNext
           PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
+        Case #dockNextAlbum
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarNextAlbum)
         Case #dockPrevious
           PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
+        Case #dockPreviousAlbum
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)  
         Case #PB_Menu_Quit
           Break
         Case #PB_Menu_Preferences
@@ -483,9 +492,9 @@ Repeat
             Case #PB_EventType_RightClick
               If GetGadgetState(#playlist) <> -1
                 If isQueued(GetGadgetState(#playlist))
-                  SetMenuItemText(#playlistMenu,#playlistQueue,"Remove from queue" + Chr(9) + "Q")
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Remove from queue" + Chr(9) + "␣")
                 Else
-                  SetMenuItemText(#playlistMenu,#playlistQueue,"Add to queue" + Chr(9) + "Q")
+                  SetMenuItemText(#playlistMenu,#playlistQueue,"Add to queue" + Chr(9) + "␣")
                 EndIf
                 DisplayPopupMenu(#playlistMenu,WindowID(#wnd))
               EndIf
@@ -525,14 +534,23 @@ Repeat
           If nowPlaying\ID <> -1
             doStop()
           EndIf
-        Case #toolbarNext,#toolbarPrevious
-          If EventGadget() = #toolbarNext
-            debugLog("playback","next")
-            nextID = getNextTrack()
-          Else
-            debugLog("playback","previous")
-            nextID = getPreviousTrack()
-          EndIf
+        Case #toolbarNext,#toolbarPrevious,#toolbarNextAlbum,#toolbarPreviousAlbum
+          Select EventGadget()
+            Case #toolbarNext
+              debugLog("playback","next track")
+              nextID = getNextTrack()
+            Case #toolbarNextAlbum
+              debugLog("playback","next album")
+              queueClear() ; todo - make queue support for that
+              nextID = getNextAlbum()
+            Case #toolbarPrevious
+              debugLog("playback","previous track")
+              nextID = getPreviousTrack()
+            Case #toolbarPreviousAlbum
+              debugLog("playback","previous album")
+              ClearList(history()) ; todo - make history support for that
+              nextID = getPreviousAlbum()
+          EndSelect
           If cursorFollowsPlayback
             SetGadgetState(#playlist,nextID)
           EndIf

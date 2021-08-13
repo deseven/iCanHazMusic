@@ -509,7 +509,10 @@ Procedure loadAlbumArt()
   
   If nowPlaying\ID = -1
     nowPlaying\albumArt= ""
-    If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
+    If IsImage(#currentAlbumArt)
+      SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))  
+      FreeImage(#currentAlbumArt)
+    EndIf
     SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     ProcedureReturn
   EndIf
@@ -565,7 +568,10 @@ Procedure loadAlbumArt()
   
   If nowPlaying\albumArt <> albumArt
     If albumArt
-      If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
+      If IsImage(#currentAlbumArt)
+        SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
+        FreeImage(#currentAlbumArt)
+      EndIf
       debugLog ("albumart","loading " + albumArt)
       If LoadImage(#currentAlbumArt,albumArt)
         ResizeImage(#currentAlbumArt,500,500,#PB_Image_Smooth)
@@ -601,6 +607,8 @@ ProcedureC dockMenuHandler(object.i,selector.i,sender.i)
   If nowPlaying\ID <> -1
     MenuItem(#dockNext,"Next Track")
     MenuItem(#dockPrevious,"Previous Track")
+    MenuItem(#dockNextAlbum,"Next Album")
+    MenuItem(#dockPreviousAlbum,"Previous Album")
     MenuItem(#dockStop,"Stop")
   EndIf
   ProcedureReturn CocoaMessage(0,MenuID(#dockMenu),"objectAtIndex:",0)
@@ -765,12 +773,76 @@ Procedure setAlbums(startFrom = 0)
   Next
 EndProcedure
 
-Procedure getNextTrack()
+Procedure getNextAlbum()
   Protected nextID.i = -1
   Protected randomAlbum,album,i
+  Shared playbackOrder
+  Shared currentAlbum,numAlbums
+  Shared nowPlaying
+  Select playbackOrder
+    Case #orderShuffleAlbums
+      numAlbums = 0
+      For i = 0 To CountGadgetItems(#playlist) - 1
+        If GetGadgetItemData(#playlist,i)
+          numAlbums + 1
+        EndIf
+      Next
+      randomAlbum = Random(numAlbums,1)
+      album = 0
+      For i = 0 To CountGadgetItems(#playlist) - 1
+        If GetGadgetItemData(#playlist,i)
+          album + 1
+          If album = randomAlbum
+            nextID = i + 1
+            currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
+            Break
+          EndIf
+        EndIf
+      Next
+    Default
+      If nowPlaying\ID <> -1
+        For i = nowPlaying\ID To CountGadgetItems(#playlist)-1
+          If Not GetGadgetItemData(#playlist,i)
+            If currentAlbum <> GetGadgetItemText(#playlist,i,#album)
+              currentAlbum = GetGadgetItemText(#playlist,i,#album)
+              nextID = i
+              Break
+            EndIf
+          EndIf
+        Next
+      EndIf
+  EndSelect
+  ProcedureReturn nextID
+EndProcedure
+
+Procedure getPreviousAlbum()
+  Protected nextID.i = -1
+  Protected i,j
+  Shared currentAlbum
+  Shared nowPlaying
+  If nowPlaying\ID <> - 1
+    currentAlbum = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
+    For i = nowPlaying\ID To 0 Step -1
+      If GetGadgetItemData(#playlist,i) = #False And currentAlbum <> GetGadgetItemText(#playlist,i,#album)
+        currentAlbum = GetGadgetItemText(#playlist,i,#album)
+        For j = i To 0 Step -1
+          If GetGadgetItemData(#playlist,j)
+            nextID = j + 1
+            Break 2
+          EndIf
+        Next
+      EndIf
+    Next
+  EndIf
+  ProcedureReturn nextID
+EndProcedure
+
+Procedure getNextTrack()
+  Protected nextID.i = -1
+  Protected i
   Shared nowPlaying
   Shared cursorFollowsPlayback,playbackFollowsCursor,stopAtQueueEnd,playbackOrder
-  Shared numAlbums,currentAlbum,queueEnded
+  Shared currentAlbum,queueEnded
   Shared historyEnabled
   If nowPlaying\ID <> - 1
     nextID = queueNext()
@@ -789,24 +861,7 @@ Procedure getNextTrack()
             EndIf
           Case #orderShuffleAlbums
             If nowPlaying\ID < CountGadgetItems(#playlist) - 1 And GetGadgetItemText(#playlist,nowPlaying\ID + 1,#album) <> currentAlbum
-              numAlbums = 0
-              For i = 0 To CountGadgetItems(#playlist) - 1
-                If GetGadgetItemData(#playlist,i)
-                  numAlbums + 1
-                EndIf
-              Next
-              randomAlbum = Random(numAlbums,1)
-              album = 0
-              For i = 0 To CountGadgetItems(#playlist) - 1
-                If GetGadgetItemData(#playlist,i)
-                  album + 1
-                  If album = randomAlbum
-                    nextID = i + 1
-                    currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
-                    Break
-                  EndIf
-                EndIf
-              Next
+              nextID = getNextAlbum()
             Else
               nextID = nowPlaying\ID + 1
             EndIf
