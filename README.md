@@ -25,6 +25,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - window size and position saving
  - album art from external files
  - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
+ - queue, playback orders
 
 #### What should work in the future 
  - global hotkeys for playback
@@ -32,11 +33,10 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - playlist entries rearrangement
  - seekbar
  - volume control
- - shuffle
  - drag'n'drop operations
  - playlist search
 
-#### What NOT to expect
+#### What is not planned
  - gapless playback (well, maybe someday...)
  - CUE support
  - equalizer
