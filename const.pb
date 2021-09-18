@@ -29,6 +29,7 @@
                 ~" - window size and position saving\n" +
                 ~" - album art from external files\n" +
                 ~" - lyrics loading from Genius (if you installed the lyricsgenius module, see the readme in the repo)\n" +
+                ~" - queue, playback orders\n" +
                 ~"\n" +
                 ~"What should work in the future: \n" +
                 ~" - global hotkeys for playback\n" +
@@ -36,16 +37,14 @@
                 ~" - playlist entries rearrangement\n" +
                 ~" - seekbar\n" +
                 ~" - volume control\n" +
-                ~" - shuffle\n" +
                 ~" - drag'n'drop operations\n" +
                 ~"\n" +
-                ~"What will never work: \n" +
+                ~"What is not planned: \n" +
                 ~" - gapless playback (well, maybe someday...)\n" +
                 ~" - CUE support\n" +
                 ~" - equalizer\n" +
                 ~" - tags editing\n" +
                 ~" - advanced foobar2000-level customization (i'm too dumb for that, sorry)\n"
-
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
