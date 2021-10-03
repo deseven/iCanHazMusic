@@ -26,6 +26,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - album art from external files
  - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
  - queue, playback orders
+ - simble web interface and api
 
 #### What should work in the future 
  - global hotkeys for playback

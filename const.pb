@@ -95,6 +95,13 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evUpdateNowPlaying
   #evNowPlayingRequestFinished
   #evScrobbleRequestFinished
+  #evFCGIFailed
+  #evFCGIStarted
+  #evFCGIUpdateNowPlaying
+  #evFCGIGetAlbumArt
+  #evHiawathaStarted
+  #evHiawathaFailedToStart
+  #evHiawathaDied
 EndEnumeration
 
 Enumeration columns
@@ -234,9 +241,18 @@ Structure settingsPlayback
   playback_order.s
 EndStructure
 
+Structure settingsWeb
+  use_web_server.b
+  web_server_address.s
+  web_server_port.l
+  fcgi_port.l
+  password.s
+EndStructure
+
 Structure settings
   last_played_track_id.i
   alpha_alert_shown_for.s
+  web.settingsWeb
   lastfm.settingsLastfm
   window.settingsWindow
   playlist.settingsPlaylist

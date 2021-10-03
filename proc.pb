@@ -295,11 +295,19 @@ Procedure saveSettings()
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
+  Shared fcgiEnabled.b,fcgiPassword.s,hiawathaInterface.s,hiawathaPort.l,fcgiPort.l
   Protected json.i = CreateJSON(#PB_Any)
   
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
   SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
+  
+  Protected objectWeb = SetJSONObject(AddJSONMember(object,"web"))
+  SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),fcgiEnabled)
+  SetJSONString(AddJSONMember(objectWeb,"web_server_address"),hiawathaInterface)
+  SetJSONInteger(AddJSONMember(objectWeb,"web_server_port"),hiawathaPort)
+  SetJSONInteger(AddJSONMember(objectWeb,"fcgi_port"),fcgiPort)
+  SetJSONString(AddJSONMember(objectWeb,"password"),fcgiPassword)
   
   Protected objectLastfm = SetJSONObject(AddJSONMember(object,"lastfm"))
   SetJSONString(AddJSONMember(objectLastfm,"session"),lastfmSession)
@@ -362,6 +370,7 @@ Procedure loadSettings()
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
+  Shared fcgiEnabled.b,fcgiPassword.s,hiawathaInterface.s,hiawathaPort.l,fcgiPort.l
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
   Protected settings.settings
@@ -371,10 +380,30 @@ Procedure loadSettings()
   settings\playback\playback_follows_cursor = #False
   settings\playback\stop_at_queue_end = #False
   settings\playback\playback_order = "default"
+  settings\web\use_web_server = #False
+  settings\web\fcgi_port = 50007
+  settings\web\web_server_address = "0.0.0.0"
+  settings\web\web_server_port = 8080
+  settings\web\password = "ichm"
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
+    
+    If settings\web\use_web_server
+      fcgiEnabled = #True
+    EndIf
+    If settings\web\fcgi_port > 1024
+      fcgiPort = settings\web\fcgi_port
+    EndIf
+    If Len(settings\web\web_server_address)
+      hiawathaInterface = settings\web\web_server_address
+    EndIf
+    If settings\web\web_server_port > 1024
+      hiawathaPort = settings\web\web_server_port
+    EndIf
+    fcgiPassword = settings\web\password
+    
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
     lastPlayedID = settings\last_played_track_id
@@ -582,6 +611,7 @@ Procedure loadAlbumArt()
     Else
       debugLog ("albumart","failed to load")
       SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
+      If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
     EndIf
     nowPlaying\albumArt = albumArt
   EndIf
@@ -1035,4 +1065,163 @@ ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
   IsGroupRow = GetGadgetItemData(Gadget, Row)
   
   ProcedureReturn IsGroupRow
+EndProcedure
+
+Procedure fcgiHandler(port)
+  If Not InitFastCGI(port)
+    PostEvent(#evFCGIFailed)
+    ProcedureReturn
+  Else
+    PostEvent(#evFCGIStarted)
+  EndIf
+  
+  Shared fcgiProcessed.b
+  Shared fcgiPassword.s
+  Shared *fcgiAlbumArt
+  Shared nowPlayingFCGI.nowPlaying
+  Protected json.i
+  Protected i.i
+  
+  While WaitFastCGIRequest()
+    Protected fcgiAuthOK = #False
+    If ReadCGI()
+      
+      If CountCGICookies() > 0
+        For i = 0 To CountCGICookies()-1
+          ;Debug CGICookieName(i)
+          ;Debug CGICookieValue(CGICookieName(i))
+          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = fcgiPassword
+            fcgiAuthOK = #True
+            Break
+          EndIf
+        Next
+      EndIf
+      If Not fcgiAuthOK
+        WriteCGIHeader(#PB_CGI_HeaderStatus,"401 Unauthorized")
+        WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
+        WriteCGIString("Authorization is required. Set cookie ichm-auth with your password.")
+        Continue
+      EndIf
+      
+      If CountCGIParameters() = 0
+        WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
+        WriteCGIString("Available methods: playpause, next, previous, nextAlbum, previousAlbum, stop, nowplaying, albumart")
+      Else
+        Select LCase(CGIParameterName(0))
+          Case "playpause","next","previous","nextalbum","previousalbum","stop"
+            Select LCase(CGIParameterName(0))
+              Case "playpause"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPlayPause)
+              Case "next"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
+              Case "previous"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
+              Case "nextalbum"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarNextAlbum)
+              Case "previousalbum"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)
+              Case "stop"
+                PostEvent(#PB_Event_Gadget,#wnd,#toolbarStop)
+            EndSelect
+            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
+            WriteCGIString(~"{\"success\": true}")
+          Case "albumart"
+            PostEvent(#evFCGIGetAlbumArt)
+            While Not fcgiProcessed
+              Delay (10)
+            Wend
+            fcgiProcessed = #False
+            If *fcgiAlbumArt
+              WriteCGIHeader(#PB_CGI_HeaderContentType,"image/jpeg",#PB_CGI_LastHeader)
+              WriteCGIData(*fcgiAlbumArt,MemorySize(*fcgiAlbumArt))
+              FreeMemory(*fcgiAlbumArt)
+              *fcgiAlbumArt = 0
+            EndIf
+          Case "play"
+            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
+            WriteCGIString("{}")
+          Case "nowplaying"
+            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
+            PostEvent(#evFCGIUpdateNowPlaying)
+            While Not fcgiProcessed
+              Delay (10)
+            Wend
+            fcgiProcessed = #False
+            json = CreateJSON(#PB_Any)
+            nowPlayingFCGI\lyrics = "not available in api mode"
+            InsertJSONStructure(JSONValue(json),@nowPlayingFCGI,nowPlaying)
+            WriteCGIString(ComposeJSON(json,#PB_JSON_PrettyPrint))
+            FreeJSON(json)
+          Default
+            WriteCGIHeader(#PB_CGI_HeaderStatus,"404 Not found")
+            WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
+            WriteCGIString("No such method.")
+        EndSelect
+      EndIf
+    EndIf
+  Wend
+EndProcedure
+
+Procedure hiawathaWatcher(dummy)
+  Shared myDir.s,fcgiStop.b
+  Shared hiawathaInterface.s,hiawathaPort.l,fcgiPort.l,hiawathaBinary.s,hiawathaRoot.s,hiawathaLogDir.s,hiawathaCfgDir.s,hiawathaPIDFile.s
+  Protected hiawathaConfigTemplate = ReadFile(#PB_Any,myDir + "/Web/Server/hiawatha.conf")
+  Protected hiawathaConfig = CreateFile(#PB_Any,hiawathaCfgDir + "/hiawatha.conf")
+  Protected line.s
+  
+  If (Not IsFile(hiawathaConfigTemplate)) Or (Not IsFile(hiawathaConfig))
+    PostEvent(#evHiawathaFailedToStart)
+    ProcedureReturn
+  EndIf
+  
+  WriteStringN(hiawathaConfig,"# ATTENTION: This file is automatically generated on each start of iCHM")
+  WriteStringN(hiawathaConfig,"set ROOT = " + hiawathaRoot)
+  WriteStringN(hiawathaConfig,"set LOGDIR = " + hiawathaLogDir)
+  WriteStringN(hiawathaConfig,"set INTERFACE = " + hiawathaInterface)
+  WriteStringN(hiawathaConfig,"set HIAWATHA_PORT = " + hiawathaPort)
+  WriteStringN(hiawathaConfig,"set ICHM_PORT = " + fcgiPort)
+  WriteStringN(hiawathaConfig,"set PIDFILE = " + hiawathaPIDFile)
+  WriteStringN(hiawathaConfig,"")
+  
+  ;Debug myDir + "/Web/Server/hiawatha.conf"
+  
+  While Eof(hiawathaConfigTemplate) = 0
+    line = ReadString(hiawathaConfigTemplate)
+    WriteStringN(hiawathaConfig,line)
+  Wend
+  
+  CloseFile(hiawathaConfigTemplate)
+  CloseFile(hiawathaConfig)
+  
+  Protected hiawatha = RunProgram(hiawathaBinary,~"-d -c \"" + hiawathaCfgDir + ~"\"",hiawathaCfgDir,#PB_Program_Open)
+  ;Debug hiawathaBinary
+  ;Debug "-d -c " + hiawathaCfgDir
+  If IsProgram(hiawatha)
+    Protected hiawathaPID = ProgramID(hiawatha)
+    PostEvent(#evHiawathaStarted)
+    Repeat
+      Delay(50)
+      If fcgiStop
+        RunProgram("/bin/kill",Str(hiawathaPID),"") ; send sigterm first
+        If Not WaitProgram(hiawatha,1000)
+          KillProgram(hiawatha)
+        EndIf
+        CloseProgram(hiawatha)
+        ProcedureReturn
+      EndIf
+      If Not ProgramRunning(hiawatha)
+        CloseProgram(hiawatha)
+        PostEvent(#evHiawathaDied)
+        hiawatha = RunProgram(hiawathaBinary,"-d -c " + hiawathaCfgDir,hiawathaCfgDir,#PB_Program_Open)
+        If Not IsProgram(hiawatha)
+          PostEvent(#evHiawathaFailedToStart)
+          Break
+        Else
+          PostEvent(#evHiawathaStarted)
+        EndIf
+      EndIf
+    ForEver
+  Else
+    PostEvent(#evHiawathaFailedToStart)
+  EndIf
 EndProcedure

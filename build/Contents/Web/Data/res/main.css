@@ -1,0 +1,117 @@
+body {
+    background: #333333;
+    color: #eeeeee;
+}
+
+h1, p {
+    padding:0;
+    margin:0;
+}
+
+a:link {
+  color: #999;
+}
+
+a:visited {
+  color: #999;
+}
+
+a:active {
+  color: #444;
+}
+
+a:hover {
+  color: #444;
+  text-decoration: underline;
+}
+
+#albumArt {
+    margin: 0;
+    padding: 0;
+}
+
+#content {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+    white-space: nowrap;
+    justify-content: center;
+}   
+
+#nowPlaying {
+    text-align: center;
+    overflow: hidden;
+    font-family: monospace;
+    font-size: 16px;
+}
+
+#toolbar {
+    display: flex;
+    width: 300px;
+    text-align: center;
+    justify-content: center;
+}
+
+button {
+    margin: 0 3px;
+    padding: 0;
+    border: none;
+    cursor: pointer;
+    background-size: cover !important;
+    width: 48px;
+    height: 48px;
+    filter: invert(80%);
+}
+
+#footer {
+    font-family: monospace;
+    font-size: 12px;
+    margin: 100px auto;
+}
+
+.marquee {
+    display: inline-block;
+    position: relative;
+    top: 0;
+    left: 0;
+    white-space: nowrap;
+    animation: bounce 4s linear infinite alternate;
+}
+
+@keyframes bounce {
+    0% {
+        transform: translateX(0%)
+    }
+    100% {
+        transform: translateX(calc(300px - 100%))
+    }
+}
+
+#previousAlbum {
+    background: url(icon/previous_album.png) no-repeat;
+}
+
+#previous {
+    background: url(icon/previous.png) no-repeat;
+}
+
+.play {
+    background: url(icon/play.png) no-repeat;
+}
+
+.pause {
+    background: url(icon/pause.png) no-repeat;
+}
+
+#next {
+    background: url(icon/next.png) no-repeat;
+}
+
+#nextAlbum {
+    background: url(icon/next_album.png) no-repeat;
+}
+
+#stop {
+    background: url(icon/stop.png) no-repeat;
+}

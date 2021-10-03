@@ -15,12 +15,16 @@ Define playlist.s,directory.s,file.s
 NewList filesInDirectory.s()
 NewList tagsParserThreads.i()
 Define lyricsThread.i
+Define fcgiThread.i
+Define hiawathaWatcherThread.i
 Define i.i,j.i
 Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
+Define nowPlayingFCGI.nowPlaying
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
+Define myDir.s = GetPathPart(ProgramFilename()) + ".."
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
 If systemThreads > 4 : systemThreads = 4 : EndIf ; more than enough
 Define numThreads.b
@@ -40,6 +44,22 @@ Define dropCount.i
 Define *response.HTTPRequestManager::response
 Define responseResult.s
 Define lastHTTPRequestManagerProcess.i
+
+; hiawatha and fcgi stuff
+Define fcgiStop.b
+Define fcgiEnabled.b
+Define fcgiPassword.s
+Define fcgiPort.l
+Define fcgiProcessed.b
+Define *fcgiAlbumArt
+Define hiawathaInterface.s
+Define hiawathaPort.l
+Define hiawathaBinary.s = myDir + "/Web/Server/hiawatha-ichm"
+Define hiawathaRoot.s = myDir + "/Web/Data"
+Define hiawathaLogDir.s = dataDir + "/web/logs"
+Define hiawathaCfgDir.s = dataDir + "/web"
+Define hiawathaPIDFile.s = dataDir + "/web/hiawatha-ichm.pid"
+
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -64,12 +84,21 @@ Global EXIT = #False
 UseMD5Fingerprint()
 UsePNGImageDecoder()
 UseJPEGImageDecoder()
+UseJPEGImageEncoder()
 UseZipPacker()
 InitNetwork()
 HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
+InitCGI()
 
+If FileSize(hiawathaPIDFile) : RunProgram("/usr/bin/pkill",~"-KILL -F \"" + hiawathaPIDFile + ~"\"","") : EndIf
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
+If FileSize(hiawathaCfgDir) <> -2 : CreateDirectory(hiawathaCfgDir) : EndIf
+If FileSize(hiawathaLogDir) = -2 : DeleteDirectory(hiawathaLogDir,"*.*",#PB_FileSystem_Recursive|#PB_FileSystem_Force) : EndIf
+CreateDirectory(hiawathaLogDir)
+DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force)
+DeleteFile(hiawathaCfgDir + "/mimetype.conf",#PB_FileSystem_Force)
+CopyFile(myDir + "/Web/Server/mimetype.conf",hiawathaCfgDir + "/mimetype.conf")
 If FileSize(dataDir + "/tmp") <> -2
   CreateDirectory(dataDir + "/tmp")
 Else
@@ -147,11 +176,14 @@ SetListIconColumnJustification(#playlist,#details,#justifyRight)
 ;CocoaMessage(0, GadgetID(#playlist), "setUsesAutomaticRowHeights:", #YES)
 CocoaMessage(0,GadgetID(#playlist),"setAllowsTypeSelect:",#NO)
 
+LoadFont(1,"Menlo",24,#PB_Font_Bold)
 CreateImage(#defaultAlbumArt,500,500)
 StartDrawing(ImageOutput(#defaultAlbumArt))
+DrawingFont(FontID(1))
 Box(0,0,500,500,0)
 DrawText(500/2-TextWidth("[no album art]")/2,500/2-TextHeight("[no album art]")/2,"[no album art]",$CCCCCC,0)
 StopDrawing()
+FreeFont(1)
 ImageGadget(#albumArt,WindowWidth(#wnd)-500,0,500,500,ImageID(#defaultAlbumArt))
 
 TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
@@ -216,6 +248,11 @@ EndIf
 alphaAlertShownFor = #myVer
 
 Define timeoutTime.i = #defaultTimeout
+
+If fcgiEnabled
+  fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
+  hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),0)
+EndIf
 
 Repeat
   ev = WaitWindowEvent(timeoutTime)
@@ -701,6 +738,28 @@ Repeat
       EndIf
     Case #evUpdateNowPlaying
       updateNowPlaying(EventType(),EventData())
+    Case #evFCGIStarted
+      debugLog("web","fcgi started on port " + Str(fcgiPort))
+    Case #evFCGIFailed
+      debugLog("web","fcgi failed binding to port " + Str(fcgiPort))
+      MessageRequester(#myName,"FCGI init failed. Check that the port " + Str(fcgiPort) + " is free.",#PB_MessageRequester_Error)
+    Case #evFCGIUpdateNowPlaying
+      CopyStructure(@nowPlaying,@nowPlayingFCGI,nowPlaying)
+      fcgiProcessed = #True
+    Case #evFCGIGetAlbumArt
+      If IsImage(#currentAlbumArt)
+        *fcgiAlbumArt = EncodeImage(#currentAlbumArt,#PB_ImagePlugin_JPEG)
+      Else
+        *fcgiAlbumArt = EncodeImage(#defaultAlbumArt,#PB_ImagePlugin_JPEG)
+      EndIf
+      fcgiProcessed = #True
+    Case #evHiawathaStarted
+      debugLog("web","hiawatha started on port " + Str(hiawathaPort))
+    Case #evHiawathaFailedToStart
+      debugLog("web","hiawatha failed to start")
+      MessageRequester(#myName,"Web server failed to start. Check that the port " + Str(hiawathaPort) + " is free.",#PB_MessageRequester_Error)
+    Case #evHiawathaDied
+      debugLog("web","hiawatha died unexpectedly")
   EndSelect
   
 ForEver

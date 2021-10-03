@@ -6,3 +6,5 @@
 .DS_Store
 Thumbs.db
 project.cfg
+build/hiawatha
+build/Contents/Web/Server/hiawatha-ichm

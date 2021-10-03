@@ -304,6 +304,10 @@ EndMacro
 
 Macro die()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
+  If IsThread(fcgiThread) : KillThread(fcgiThread) : EndIf
+  fcgiStop = #True
+  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,1500) : EndIf
+  If IsThread(hiawathaWatcherThread) : KillThread(hiawathaWatcherThread) : EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next

@@ -7,12 +7,12 @@
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2021-08-25 20:20" user="deseven" host="de7mac.local"/>
+    <lastopen date="2021-09-25 19:55" user="deseven" host="de7mac.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="43dcaf276326c09f89cd4ac3f37c0aa2"/>
+      <fingerprint md5="d8335538fb6ae8f327866fc150acc861"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
