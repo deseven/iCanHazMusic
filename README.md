@@ -1,7 +1,11 @@
 # iCanHazMusic
 A music player for macOS 10.12 or higher. Currently in active development, early preview version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases).
 
-![iCHM screenshot](https://d7.wtf/s/GollySuspectfulNonrealization.png)
+Main app:  
+![iCHM screenshot](https://d7.wtf/s/ichm.png)
+
+Basic web interface:  
+![iCHM web screenshot](https://d7.wtf/s/ichm-web.png)
 
 ## Why
 I was a big fan of the legendary [foobar2000](https://www.foobar2000.org/) until I moved to macOS in 2010. Naturally, for some time I continued using foobar under Wine, but the experience was subpar and eventually I started jumping from player to player. Some notable examples in no particular order:
