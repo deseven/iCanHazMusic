@@ -176,6 +176,7 @@ Procedure getTags(start.i)
     AddElement(args()) : args() = "-print_format"
     AddElement(args()) : args() = "json"
     AddElement(args()) : args() = "-show_format"
+    AddElement(args()) : args() = "-show_streams"
     AddElement(args()) : args() = path
     
     json = RunProgramNative(ffprobe,args())
@@ -184,6 +185,7 @@ Procedure getTags(start.i)
     SelectElement(tagsToGet(),i)
     If ParseJSON(0,json)
       ExtractJSONStructure(JSONValue(0),@metadata.ffprobe_answer,ffprobe_answer)
+      
       ClearMap(tags_lcase())
       ForEach metadata\format\tags()
         tags_lcase(LCase(MapKey(metadata\format\tags()))) = metadata\format\tags()
@@ -220,6 +222,28 @@ Procedure getTags(start.i)
           \album + " (" + tags_lcase("year") + ")"
         EndIf
       EndWith
+      
+      ; last resort - look into streams
+      If tagsToGet()\tags\artist = "" Or tagsToGet()\tags\title = ""
+        ForEach metadata\streams()
+          ClearMap(tags_lcase())
+          ForEach metadata\streams()\tags()
+            tags_lcase(LCase(MapKey(metadata\streams()\tags()))) = metadata\streams()\tags()
+          Next
+          With tagsToGet()\tags
+            If tags_lcase("album") : \album = tags_lcase("album") : EndIf
+            If tags_lcase("artist") : \artist = tags_lcase("artist") : EndIf
+            If tags_lcase("title") : \title = tags_lcase("title") : EndIf
+            If tags_lcase("track") : \track = tags_lcase("track") : EndIf
+            
+            If tags_lcase("date")
+              \album + " (" + tags_lcase("date") + ")"
+            ElseIf tags_lcase("year")
+              \album + " (" + tags_lcase("year") + ")"
+            EndIf
+          EndWith
+        Next
+      EndIf
       
       FreeJSON(0)
       PostEvent(#evTagGetSuccess,#PB_Ignore,#PB_Ignore,#PB_Ignore,@tagsToGet())
@@ -295,7 +319,7 @@ Procedure saveSettings()
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
-  Shared fcgiEnabled.b,fcgiPassword.s,hiawathaInterface.s,hiawathaPort.l,fcgiPort.l
+  Shared settings.settings
   Protected json.i = CreateJSON(#PB_Any)
   
   Protected object.i = SetJSONObject(JSONValue(json))
@@ -303,11 +327,9 @@ Procedure saveSettings()
   SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
   
   Protected objectWeb = SetJSONObject(AddJSONMember(object,"web"))
-  SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),fcgiEnabled)
-  SetJSONString(AddJSONMember(objectWeb,"web_server_address"),hiawathaInterface)
-  SetJSONInteger(AddJSONMember(objectWeb,"web_server_port"),hiawathaPort)
-  SetJSONInteger(AddJSONMember(objectWeb,"fcgi_port"),fcgiPort)
-  SetJSONString(AddJSONMember(objectWeb,"password"),fcgiPassword)
+  SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),settings\web\use_web_server)
+  SetJSONInteger(AddJSONMember(objectWeb,"web_server_port"),settings\web\web_server_port)
+  SetJSONString(AddJSONMember(objectWeb,"api_key"),settings\web\api_key)
   
   Protected objectLastfm = SetJSONObject(AddJSONMember(object,"lastfm"))
   SetJSONString(AddJSONMember(objectLastfm,"session"),lastfmSession)
@@ -370,10 +392,9 @@ Procedure loadSettings()
   Shared lastPlayedID
   Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
-  Shared fcgiEnabled.b,fcgiPassword.s,hiawathaInterface.s,hiawathaPort.l,fcgiPort.l
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
-  Protected settings.settings
+  Shared settings.settings
   
   ; defaults
   settings\playback\cursor_follows_playback = #True
@@ -381,28 +402,12 @@ Procedure loadSettings()
   settings\playback\stop_at_queue_end = #False
   settings\playback\playback_order = "default"
   settings\web\use_web_server = #False
-  settings\web\fcgi_port = 50007
-  settings\web\web_server_address = "0.0.0.0"
-  settings\web\web_server_port = 8080
-  settings\web\password = "ichm"
+  settings\web\web_server_port = 8008
+  settings\web\api_key = StringFingerprint(Str(Date()),#PB_Cipher_MD5)
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
-    
-    If settings\web\use_web_server
-      fcgiEnabled = #True
-    EndIf
-    If settings\web\fcgi_port > 1024
-      fcgiPort = settings\web\fcgi_port
-    EndIf
-    If Len(settings\web\web_server_address)
-      hiawathaInterface = settings\web\web_server_address
-    EndIf
-    If settings\web\web_server_port > 1024
-      hiawathaPort = settings\web\web_server_port
-    EndIf
-    fcgiPassword = settings\web\password
     
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
@@ -942,121 +947,6 @@ Procedure getPreviousTrack()
   ProcedureReturn nextID
 EndProcedure
 
-Procedure.s findffprobe()
-  Protected ffprobe.s
-  Protected NewList possibleLocations.s()
-  Shared ffprobeVer.s
-  Shared dataDir.s
-  AddElement(possibleLocations()) : possibleLocations() = dataDir + "/ffprobe"
-  AddElement(possibleLocations()) : possibleLocations() = "/usr/local/bin/ffprobe"
-  AddElement(possibleLocations()) : possibleLocations() = "/usr/bin/ffprobe"
-  AddElement(possibleLocations()) : possibleLocations() = "/bin/ffprobe"
-  ForEach possibleLocations()
-    If FileSize(possibleLocations()) > 0 And ((GetFileAttributes(possibleLocations()) & #PB_FileSystem_ExecAll) Or (GetFileAttributes(possibleLocations()) & #PB_FileSystem_ExecUser))
-      Protected NewList args.s()
-      AddElement(args()) : args() = "-version"
-      Protected ffprobeVerOutput.s = RunProgramNative(possibleLocations(),args())
-      If ffprobeVerOutput
-        Protected verRegExp = CreateRegularExpression(#PB_Any,"ffprobe version ([0-9.\-a-zA-Z]+) ")
-        If ExamineRegularExpression(verRegExp,ffprobeVerOutput)
-          While NextRegularExpressionMatch(verRegExp)
-            ffprobeVer = RegularExpressionGroup(verRegExp,1)
-          Wend
-        EndIf
-        FreeRegularExpression(verRegExp)
-        If ffprobeVer = ""
-          ffprobeVer = "unknown version"
-        EndIf
-        ffprobe = possibleLocations()
-        Break
-      EndIf
-    EndIf
-  Next
-  ProcedureReturn ffprobe
-EndProcedure
-
-Procedure installffprobe()
-  Shared dataDir.s
-  Shared ffprobe.s
-  Shared ffprobeVer.s
-  Protected ev.i
-  Protected size.i,part.i,download.i,progress.i,unpack.b
-  Protected pack.i
-  Enumeration
-    #info
-    #progress
-    #legal
-    #abort
-  EndEnumeration
-  
-  size = getHTTPSize(#ffprobeURL)
-  part = size/500
-  download = ReceiveHTTPFile(#ffprobeURL,dataDir + "/ffprobe.zip",#PB_HTTP_Asynchronous,#myUserAgent)
-  If part = 0 Or download = 0
-    MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
-    End
-  EndIf
-  
-  OpenWindow(#wnd,0,0,400,115,#myName + " ffprobe installation",#PB_Window_Tool|#PB_Window_ScreenCentered)
-  StickyWindow(#wnd,#True)
-  TextGadget(#info,10,10,380,40,"Downloading the latest ffprobe from " + #ffprobeURL)
-  ProgressBarGadget(#progress,10,50,380,20,0,500)
-  ButtonGadget(#legal,160,80,150,25,"Legal information")
-  ButtonGadget(#abort,310,80,80,25,"Abort")
-  
-  Repeat
-    ev = WaitWindowEvent(100)
-    If ev = #PB_Event_Gadget
-      Select EventGadget()
-        Case #legal
-          RunProgram("open",#ffprobeLegal,"")
-        Case #abort
-          End
-      EndSelect
-    EndIf
-    If download
-      progress = HTTPProgress(download)
-      Select progress
-        Case #PB_HTTP_Success
-          FinishHTTP(download)
-          download = 0
-          SetGadgetState(#progress,#PB_ProgressBar_Unknown)
-          SetGadgetText(#info,"Installing ffprobe...")
-          unpack = #True
-        Case #PB_HTTP_Failed,#PB_HTTP_Aborted
-          MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
-        Default
-          SetGadgetState(#progress,progress/part)
-      EndSelect
-    EndIf
-    If unpack
-      unpack = #False
-      pack = OpenPack(#PB_Any,dataDir + "/ffprobe.zip",#PB_PackerPlugin_Zip)
-      If pack
-        If ExaminePack(pack)
-          While NextPackEntry(pack)
-            If PackEntryName(pack) = "ffprobe"
-              If UncompressPackFile(pack,dataDir + "/ffprobe") > 0
-                SetFileAttributes(dataDir + "/ffprobe",511) ; magic number to do chmod 777
-                ffprobe = findffprobe()
-                If ffprobe
-                  debugLog("main","installed ffprobe " + ffprobeVer + " (" + ffprobe + ")")
-                  ClosePack(pack)
-                  DeleteFile(dataDir + "/ffprobe.zip",#PB_FileSystem_Force)
-                  CloseWindow(#wnd)
-                EndIf
-                ProcedureReturn
-              EndIf
-            EndIf
-          Wend
-        EndIf
-      EndIf
-      MessageRequester(#myName,#failedffprobeMsg,#PB_MessageRequester_Error)
-      End
-    EndIf
-  ForEver
-EndProcedure
-
 ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
   Protected Gadget, IsGroupRow.I
   
@@ -1075,8 +965,9 @@ Procedure fcgiHandler(port)
     PostEvent(#evFCGIStarted)
   EndIf
   
+  Shared settings
   Shared fcgiProcessed.b
-  Shared fcgiPassword.s
+  Protected fcgiApiKey.s = settings\web\api_key
   Shared *fcgiAlbumArt
   Shared nowPlayingFCGI.nowPlaying
   Protected json.i
@@ -1090,7 +981,7 @@ Procedure fcgiHandler(port)
         For i = 0 To CountCGICookies()-1
           ;Debug CGICookieName(i)
           ;Debug CGICookieValue(CGICookieName(i))
-          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = fcgiPassword
+          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = fcgiApiKey
             fcgiAuthOK = #True
             Break
           EndIf
@@ -1162,10 +1053,14 @@ Procedure fcgiHandler(port)
   Wend
 EndProcedure
 
-Procedure hiawathaWatcher(dummy)
-  Shared myDir.s,fcgiStop.b
-  Shared hiawathaInterface.s,hiawathaPort.l,fcgiPort.l,hiawathaBinary.s,hiawathaRoot.s,hiawathaLogDir.s,hiawathaCfgDir.s,hiawathaPIDFile.s
+Procedure hiawathaWatcher(fcgiPort)
+  Shared myDir.s,hiawathaStop.b
+  Shared settings
+  Protected hiawathaInterface.s = "0.0.0.0"
+  Protected hiawathaPort.l = settings\web\web_server_port 
+  Shared hiawathaBinary.s,hiawathaRoot.s,hiawathaLogDir.s,hiawathaCfgDir.s,hiawathaPIDFile.s
   Protected hiawathaConfigTemplate = ReadFile(#PB_Any,myDir + "/Web/Server/hiawatha.conf")
+  If FileSize(hiawathaCfgDir + "/hiawatha.conf") >= 0 : Debug DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force) : EndIf
   Protected hiawathaConfig = CreateFile(#PB_Any,hiawathaCfgDir + "/hiawatha.conf")
   Protected line.s
   
@@ -1201,24 +1096,19 @@ Procedure hiawathaWatcher(dummy)
     PostEvent(#evHiawathaStarted)
     Repeat
       Delay(50)
-      If fcgiStop
+      If hiawathaStop
         RunProgram("/bin/kill",Str(hiawathaPID),"") ; send sigterm first
         If Not WaitProgram(hiawatha,1000)
           KillProgram(hiawatha)
         EndIf
         CloseProgram(hiawatha)
+        PostEvent(#evHiawathaStopped)
         ProcedureReturn
       EndIf
       If Not ProgramRunning(hiawatha)
         CloseProgram(hiawatha)
         PostEvent(#evHiawathaDied)
-        hiawatha = RunProgram(hiawathaBinary,"-d -c " + hiawathaCfgDir,hiawathaCfgDir,#PB_Program_Open)
-        If Not IsProgram(hiawatha)
-          PostEvent(#evHiawathaFailedToStart)
-          Break
-        Else
-          PostEvent(#evHiawathaStarted)
-        EndIf
+        ProcedureReturn
       EndIf
     ForEver
   Else

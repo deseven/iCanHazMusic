@@ -8,6 +8,7 @@ IncludeFile "helpers.pb"
 IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
 IncludeFile "../pb-httprequest-manager/httprequest-manager.pbi"
 
+Define settings.settings
 NewList tagsToGet.track_info()
 NewList playQueue.i()
 Define ev.i
@@ -37,8 +38,7 @@ Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
 Define alphaAlertShownFor.s
 Define nextID.i
-Define ffprobe.s
-Define ffprobeVer.s
+Define ffprobe.s = myDir + "/Tools/ffprobe-ichm"
 Define lyricsAvailable.b
 Define dropCount.i
 Define *response.HTTPRequestManager::response
@@ -46,20 +46,15 @@ Define responseResult.s
 Define lastHTTPRequestManagerProcess.i
 
 ; hiawatha and fcgi stuff
-Define fcgiStop.b
-Define fcgiEnabled.b
-Define fcgiPassword.s
 Define fcgiPort.l
 Define fcgiProcessed.b
 Define *fcgiAlbumArt
-Define hiawathaInterface.s
-Define hiawathaPort.l
+Define hiawathaStop.b
 Define hiawathaBinary.s = myDir + "/Web/Server/hiawatha-ichm"
 Define hiawathaRoot.s = myDir + "/Web/Data"
 Define hiawathaLogDir.s = dataDir + "/web/logs"
 Define hiawathaCfgDir.s = dataDir + "/web"
 Define hiawathaPIDFile.s = dataDir + "/web/hiawatha-ichm.pid"
-
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -88,6 +83,7 @@ UseJPEGImageEncoder()
 UseZipPacker()
 InitNetwork()
 HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
+audioplayer::setffmpegPath(myDir + "/Tools/ffmpeg-ichm")
 InitCGI()
 
 If FileSize(hiawathaPIDFile) : RunProgram("/usr/bin/pkill",~"-KILL -F \"" + hiawathaPIDFile + ~"\"","") : EndIf
@@ -108,23 +104,12 @@ EndIf
 
 IncludeFile "proc.pb"
 
-ffprobe = findffprobe()
-If ffprobe
-  debugLog("main","found ffprobe " + ffprobeVer + " (" + ffprobe + ")")
-Else
-  If MessageRequester(#myName,#noffprobeMsg,#PB_MessageRequester_YesNo) = #PB_MessageRequester_Yes
-    installffprobe()
-  Else
-    End 1
-  EndIf
-EndIf
-
 lyricsAvailable = canLoadLyrics()
 
 ExamineDesktops()
 OpenWindow(#wnd,0,0,1280,720,#myNameVer,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget|#PB_Window_ScreenCentered)
 WindowBounds(#wnd,1280,720,#PB_Ignore,#PB_Ignore)
-
+  
 CreateMenu(#menu,WindowID(#wnd))
 
 MenuTitle("File")
@@ -249,16 +234,11 @@ alphaAlertShownFor = #myVer
 
 Define timeoutTime.i = #defaultTimeout
 
-If fcgiEnabled
-  fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
-  hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),0)
-EndIf
-
 Repeat
   ev = WaitWindowEvent(timeoutTime)
   
   ; audioplayer routine
-  If audioplayer::getPlayer() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
+  If audioplayer::getPlayerID() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
     If lastDurationUpdate + 900 <= ElapsedMilliseconds()
       lastDurationUpdate = ElapsedMilliseconds()
       newCurrent = audioplayer::getCurrentTime()/1000
@@ -267,13 +247,42 @@ Repeat
         PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
       EndIf
     EndIf
-    audioplayer::checkFinishRoutine()
   EndIf
   
   ; HTTPRequestManager routine
   If lastHTTPRequestManagerProcess + 900 <= ElapsedMilliseconds()
     HTTPRequestManager::process()
     lastHTTPRequestManagerProcess = ElapsedMilliseconds()
+  EndIf
+  
+  If settings\web\use_web_server
+    If Not IsThread(fcgiThread)
+      For i = 50000 To 51000
+        If isPortAvailable(i)
+          fcgiPort = i
+          Break
+        EndIf
+      Next
+      fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
+    EndIf
+    If Not IsThread(hiawathaWatcherThread)
+      If isPortAvailable(settings\web\web_server_port)
+        hiawathaStop = #False
+        hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),fcgiPort)
+      Else
+        settings\web\use_web_server = #False
+        saveSettings()
+        PostEvent(#evHiawathaFailedToStart)
+      EndIf
+    EndIf
+  Else
+    If IsThread(fcgiThread)
+      KillThread(fcgiThread)
+      PostEvent(#evFCGIStopped)
+    EndIf
+    If IsThread(hiawathaWatcherThread)
+      hiawathaStop = #True
+    EndIf
   EndIf
   
   ; event processing
@@ -554,7 +563,7 @@ Repeat
             If GetGadgetState(#playlist) > -1
               PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
             EndIf
-          ElseIf audioplayer::getPlayer()
+          ElseIf audioplayer::getPlayerID()
             If nowPlaying\isPaused
               nowPlaying\isPaused = #False
               audioplayer::play()
@@ -740,9 +749,11 @@ Repeat
       updateNowPlaying(EventType(),EventData())
     Case #evFCGIStarted
       debugLog("web","fcgi started on port " + Str(fcgiPort))
+    Case #evFCGIStopped
+      debugLog("web","fcgi stopped")
     Case #evFCGIFailed
-      debugLog("web","fcgi failed binding to port " + Str(fcgiPort))
-      MessageRequester(#myName,"FCGI init failed. Check that the port " + Str(fcgiPort) + " is free.",#PB_MessageRequester_Error)
+      debugLog("web","fcgi failed binding to any port!")
+      MessageRequester(#myName,"FCGI init failed. Check that at least one of the ports in 50000:51000 range is free.",#PB_MessageRequester_Error)
     Case #evFCGIUpdateNowPlaying
       CopyStructure(@nowPlaying,@nowPlayingFCGI,nowPlaying)
       fcgiProcessed = #True
@@ -754,12 +765,14 @@ Repeat
       EndIf
       fcgiProcessed = #True
     Case #evHiawathaStarted
-      debugLog("web","hiawatha started on port " + Str(hiawathaPort))
+      debugLog("web","hiawatha started on port " + Str(settings\web\web_server_port))
     Case #evHiawathaFailedToStart
       debugLog("web","hiawatha failed to start")
-      MessageRequester(#myName,"Web server failed to start. Check that the port " + Str(hiawathaPort) + " is free.",#PB_MessageRequester_Error)
+      MessageRequester(#myName,"Web server failed to start. Check that the port " + Str(settings\web\web_server_port) + " is free.",#PB_MessageRequester_Error)
     Case #evHiawathaDied
       debugLog("web","hiawatha died unexpectedly")
+    Case #evHiawathaStopped
+      debugLog("web","hiawatha stopped")
   EndSelect
   
 ForEver

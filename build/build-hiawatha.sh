@@ -2,15 +2,15 @@
 
 set -e
 
-hiawatha_repo="https://gitlab.com/hsleisink/hiawatha.git"
-hiawatha_tag="v11.0"
+repo="https://gitlab.com/hsleisink/hiawatha.git"
+tag="v11.0"
 
 loc="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$loc"
 
 if [ ! -f hiawatha/build/hiawatha ] || [ "$1" == "-f" ]; then
     if [ ! -d hiawatha ] ; then
-        git clone --depth 1 --branch "${hiawatha_tag}" "${hiawatha_repo}"
+        git clone --depth 1 --branch "${tag}" "${repo}"
     fi
 
     cd hiawatha

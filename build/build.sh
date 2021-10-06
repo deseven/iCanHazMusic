@@ -29,6 +29,8 @@ if [ -f "$pb/compilers/pbcompiler" ]; then
 		cd ..
         echo -ne $greenColor"\ncompiling hiawatha..."$noColor
         build/build-hiawatha.sh
+        echo -ne $greenColor"\ncompiling ffmpeg..."$noColor
+        build/build-ffmpeg.sh
 		build/inject.sh "$loc/$name.app" || die "failed to inject $shortName"
 		echo -ne $greenColor"\nsigning bundle..."$noColor
 		if [ ! -z "$1" ]; then

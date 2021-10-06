@@ -10,11 +10,6 @@
 #lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
 #lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
 
-#ffprobeURL = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
-#ffprobeLegal = "https://www.ffmpeg.org/legal.html"
-#noffprobeMsg = "Hi! I need ffprobe in order to read tags and other audio metadata, and I've failed to find one in your system. You can install it manually with homebrew (see https://formulae.brew.sh/formula/ffmpeg) or I can download a static copy myself, the question is... should I?"
-#failedffprobeMsg = "Failed downloading ffprobe from " + #ffprobeURL + ~"\nPlease try again later or report it to the developer."
-
 #alphaWarning = "This is a very early version of " + #myName + 
                 ~", it may contain bugs and... Who am I kidding, it does indeed contain bugs!\n\n" + 
                 "Please share your feedback by creating an issue on GitHub (https://github.com/deseven/iCanHazMusic/issues) or by contacting me directly (https://d7.wtf/contact)." +
@@ -57,9 +52,7 @@
 #processingSymbol = "◔"
 #albumSymbol = "⭘"
 
-; workaround for the lack of events in PB sound library
 #defaultTimeout = 900
-#fastTimeout = 20
 
 Enumeration
   #wnd
@@ -97,11 +90,13 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evScrobbleRequestFinished
   #evFCGIFailed
   #evFCGIStarted
+  #evFCGIStopped
   #evFCGIUpdateNowPlaying
   #evFCGIGetAlbumArt
   #evHiawathaStarted
   #evHiawathaFailedToStart
   #evHiawathaDied
+  #evHiawathaStopped
 EndEnumeration
 
 Enumeration columns
@@ -163,21 +158,19 @@ Enumeration lastfmAuthSteps
 EndEnumeration
 
 Structure ffprobe_format
-  filename.s
-  nb_streams.l
-  nb_programs.l
   format_name.s
-  format_long_name.s
-  start_time.s
   duration.s
-  size.s
   bit_rate.s
-  probe_score.l
+  Map tags.s()
+EndStructure
+
+Structure ffprobe_stream
   Map tags.s()
 EndStructure
 
 Structure ffprobe_answer
   format.ffprobe_format
+  List streams.ffprobe_stream()
 EndStructure
 
 Structure tags
@@ -243,10 +236,8 @@ EndStructure
 
 Structure settingsWeb
   use_web_server.b
-  web_server_address.s
   web_server_port.l
-  fcgi_port.l
-  password.s
+  api_key.s
 EndStructure
 
 Structure settings

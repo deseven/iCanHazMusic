@@ -248,44 +248,15 @@ Procedure NSLog(Message.s)
   NSLog2(Format, @Message)  
 EndProcedure
 
-Procedure getHTTPSize(url.s,iteration.i = 1)
-  Protected size.i,httpCode.i,header.s,headers.s,i.i
-  If iteration >= 10 : ProcedureReturn : EndIf
-  headers = GetHTTPHeader(url)
-  httpCode = Val(StringField(StringField(headers,1,Chr(10)),2," "))
-  Select httpCode
-    Case 200:
-      For i = 1 To CountString(headers,Chr(10))+1
-        header = Trim(StringField(headers,i,Chr(10)),Chr(13))
-        If FindString(header,"Content-Length",1,#PB_String_NoCase) = 1
-          ProcedureReturn Val(StringField(header,2," "))
-        EndIf
-      Next
-    Default:
-      For i = 1 To CountString(headers,Chr(10))+1
-        header = Trim(StringField(headers,i,Chr(10)),Chr(13))
-        If FindString(header,"Location:",1,#PB_String_NoCase) = 1
-          If FindString(StringField(header,2," "),"://") = 1 ; normal redirect
-            ProcedureReturn getHTTPSize(StringField(header,2," "),iteration + 1)
-          EndIf
-          If Left(StringField(header,2," "),1) = "/" ; absolute redirect
-            If GetURLPart(url,#PB_URL_Port)
-              ProcedureReturn getHTTPSize(GetURLPart(url,#PB_URL_Protocol) + "://" + 
-                                          GetURLPart(url,#PB_URL_Site) + ":" +
-                                          GetURLPart(url,#PB_URL_Port) +
-                                          StringField(header,2," "),iteration + 1)
-            Else
-              ProcedureReturn getHTTPSize(GetURLPart(url,#PB_URL_Protocol) + "://" + 
-                                          GetURLPart(url,#PB_URL_Site) +
-                                          StringField(header,2," "),iteration + 1)
-            EndIf
-          Else ; relative redirect
-            ProcedureReturn getHTTPSize(url + StringField(header,2," "),iteration + 1)
-          EndIf
-        EndIf
-      Next
-      ProcedureReturn
-  EndSelect
+Procedure isPortAvailable(port.l,flags = 0)
+  If Not flags
+    flags = #PB_Network_TCP|#PB_Network_IPv4
+  EndIf
+  Protected server.i = CreateNetworkServer(#PB_Any,port,flags)
+  If server
+    CloseNetworkServer(server)
+    ProcedureReturn #True
+  EndIf
 EndProcedure
 
 Macro cleanUp()
@@ -303,10 +274,11 @@ Macro cleanUp()
 EndMacro
 
 Macro die()
+  doStop()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If IsThread(fcgiThread) : KillThread(fcgiThread) : EndIf
-  fcgiStop = #True
-  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,1500) : EndIf
+  hiawathaStop = #True
+  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,2000) : EndIf
   If IsThread(hiawathaWatcherThread) : KillThread(hiawathaWatcherThread) : EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
@@ -317,7 +289,7 @@ Macro die()
 EndMacro
 
 Macro doPlay()
-  If audioplayer::getPlayer()
+  If audioplayer::getPlayerID()
     audioplayer::free()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
@@ -330,7 +302,7 @@ Macro doPlay()
   nowPlaying\title = GetGadgetItemText(#playlist,nowPlaying\ID,#title)
   nowPlaying\album = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
   nowPlaying\duration = GetGadgetItemText(#playlist,nowPlaying\ID,#duration)
-  debugLog("playback","play " + nowPlaying\path)
+  debugLog("playback","loading " + nowPlaying\path)
   If Len(nowPlaying\duration) > 5
     nowPlaying\durationSec = ParseDate("%hh:%ii:%ss",nowPlaying\duration)
   Else
@@ -350,18 +322,6 @@ Macro doPlay()
     SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
   EndIf
   audioplayer::load(nowPlaying\path)
-  Select audioplayer::getPlayer()
-    Case audioplayer::#AVAudioPlayer
-      If timeoutTime <> #defaultTimeout
-        timeoutTime = #defaultTimeout
-        debugLog("main","switching to default events timeout")
-      EndIf
-    Case audioplayer::#PBSoundLibrary
-      If timeoutTime <> #fastTimeout
-        timeoutTime = #fastTimeout
-        debugLog("main","switching to fast events timeout")
-      EndIf
-  EndSelect
   audioplayer::setFinishEvent(#evPlayFinish)
   audioplayer::play()
   nowPlaying\durationSec = audioplayer::getDuration()/1000
@@ -377,12 +337,17 @@ Macro doPlay()
     FirstElement(history())
     DeleteElement(history())
   EndIf
+  If audioplayer::getTempPath()
+    debugLog("playback","playing (ffmpeg)")
+  Else
+    debugLog("playback","playing (native)")
+  EndIf
   PostEvent(#evPlayStart)
 EndMacro
 
 Macro doStop()
   debugLog("playback","stop")
-  If audioplayer::getPlayer()
+  If audioplayer::getPlayerID()
     audioplayer::free()
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
