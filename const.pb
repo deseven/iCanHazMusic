@@ -3,6 +3,10 @@
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
 #myURL = "https://github.com/deseven/iCanHazMusic"
+#myAbout = ~"written by deseven, 2021\n\nLicense: UNLICENSE\nURL: " + #myURL + 
+           ~"\n\n3rd-party components:\n" +
+           ~" - FFmpeg (https://ffmpeg.org)\n" +
+           ~" - Hiawatha (https://www.hiawatha-webserver.org)"
 
 #geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
 

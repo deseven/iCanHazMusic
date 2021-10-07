@@ -11,3 +11,5 @@ build/ffmpeg
 build/Contents/Web/Server/hiawatha-ichm
 build/Contents/Tools/ffmpeg-ichm
 build/Contents/Tools/ffprobe-ichm
+build/ffmpeg-test-files/*
+!build/ffmpeg-test-files/README

@@ -1,0 +1,7 @@
+iCanHazMusic uses FFmpeg (https://ffmpeg.org) to parse audio files tags and to play formats not supported natively by Apple.
+
+No source code was changed, you can download it here:
+https://git.ffmpeg.org/ffmpeg
+
+Compile parameters can be found here (under FFMPEG_CONFIGURE_FLAGS):
+https://github.com/deseven/iCanHazMusic/blob/master/build/build-ffmpeg.sh

@@ -94,57 +94,26 @@ tput bold ; echo ; echo ; echo '⚙️  ' Audio Builds ; tput sgr0
 #rm -fr /Volumes/RamDisk/compile/*
 
 #_ ogg
-LastVersion=$(wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/ogg/ -O- -q | grep -Eo 'libogg-[0-9\.]+\.tar.gz' | tail -1)
-tput bold ; echo ; echo '📍 ' "$LastVersion" ; tput sgr0 ; sleep 2
-cd ${CMPL}
-wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/ogg/"$LastVersion"
-tar -zxvf libogg-*
-cd libogg-*/
-./configure --prefix=${TARGET} --disable-shared --enable-static --disable-dependency-tracking
-make -j "$THREADS" && make install
-rm -fr /Volumes/RamDisk/compile/*
+#LastVersion=$(wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/ogg/ -O- -q | grep -Eo 'libogg-[0-9\.]+\.tar.gz' | tail -1)
+#tput bold ; echo ; echo '📍 ' "$LastVersion" ; tput sgr0 ; sleep 2
+#cd ${CMPL}
+#wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/ogg/"$LastVersion"
+#tar -zxvf libogg-*
+#cd libogg-*/
+#./configure --prefix=${TARGET} --disable-shared --enable-static --disable-dependency-tracking
+#make -j "$THREADS" && make install
+#rm -fr /Volumes/RamDisk/compile/*
 
 #_ vorbis
-LastVersion=$(wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/vorbis/ -O- -q | grep -Eo 'libvorbis-[0-9\.]+\.tar.gz' | tail -1)
-tput bold ; echo ; echo '📍 ' "$LastVersion" ; tput sgr0 ; sleep 2
-cd ${CMPL}
-wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/vorbis/"$LastVersion"
-tar -zxvf libvorbis-*
-cd libvorbis-*/
-./configure --prefix=${TARGET} --with-ogg-libraries=${TARGET}/lib --with-ogg-includes=/Volumes/RamDisk/sw/include/ --enable-static --disable-shared
-make -j "$THREADS" && make install
-rm -fr /Volumes/RamDisk/compile/*
-
-#_ lame git
-tput bold ; echo ; echo '📍 ' lame git ; tput sgr0 ; sleep 2
-cd ${CMPL}
-git clone --depth 1 --branch RELEASE__3_99_5 https://github.com/rbrito/lame.git
-cd lam*/
-./configure --prefix=${TARGET} --disable-shared --enable-static
-make -j "$THREADS" && make install
-rm -fr /Volumes/RamDisk/compile/*
-
-#_ TwoLame - optimised MPEG Audio Layer 2
-LastVersion=$(wget --no-check-certificate 'http://www.twolame.org' -O- -q | grep -Eo 'twolame-[0-9\.]+\.tar.gz' | tail -1)
-tput bold ; echo ; echo '📍 ' "$LastVersion" ; tput sgr0 ; sleep 2
-cd ${CMPL}
-wget --no-check-certificate 'http://downloads.sourceforge.net/twolame/'"$LastVersion"
-tar -zxvf twolame-*
-cd twolame-*/
-./configure --prefix=${TARGET} --enable-static --enable-shared=no
-make -j "$THREADS" && make install
-rm -fr /Volumes/RamDisk/compile/*
-
-#_ fdk-aac
-tput bold ; echo ; echo '📍 ' fdk-aac ; tput sgr0 ; sleep 2
-cd ${CMPL}
-wget --no-check-certificate "https://downloads.sourceforge.net/project/opencore-amr/fdk-aac/fdk-aac-2.0.1.tar.gz"
-tar -zxvf fdk-aac-*
-cd fdk*/
-./configure --disable-dependency-tracking --prefix=${TARGET} --enable-static --enable-shared=no
-make -j "$THREADS" && make install
-rm -fr /Volumes/RamDisk/compile/*
-
+#LastVersion=$(wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/vorbis/ -O- -q | grep -Eo 'libvorbis-[0-9\.]+\.tar.gz' | tail -1)
+#tput bold ; echo ; echo '📍 ' "$LastVersion" ; tput sgr0 ; sleep 2
+#cd ${CMPL}
+#wget --no-check-certificate https://ftp.osuosl.org/pub/xiph/releases/vorbis/"$LastVersion"
+#tar -zxvf libvorbis-*
+#cd libvorbis-*/
+#./configure --prefix=${TARGET} --with-ogg-libraries=${TARGET}/lib --with-ogg-includes=/Volumes/RamDisk/sw/include/ --enable-static --disable-shared
+#make -j "$THREADS" && make install
+#rm -fr /Volumes/RamDisk/compile/*
 
 #-> FFmpeg Check
 tput bold ; echo ; echo ; echo '⚙️  ' FFmpeg Build ; tput sgr0
@@ -211,51 +180,16 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-protocol=file
     --enable-protocol=pipe
 
-    --enable-demuxer=image2
     --enable-demuxer=aac
     --enable-demuxer=ac3
     --enable-demuxer=aiff
     --enable-demuxer=ape
-    --enable-demuxer=asf
-    --enable-demuxer=au
-    --enable-demuxer=avi
     --enable-demuxer=flac
-    --enable-demuxer=flv
-    --enable-demuxer=matroska
-    --enable-demuxer=mov
-    --enable-demuxer=m4v
-    --enable-demuxer=mp3
-    --enable-demuxer=mpc
-    --enable-demuxer=mpc8
     --enable-demuxer=ogg
-    --enable-demuxer=pcm_alaw
-    --enable-demuxer=pcm_mulaw
-    --enable-demuxer=pcm_f64be
-    --enable-demuxer=pcm_f64le
-    --enable-demuxer=pcm_f32be
-    --enable-demuxer=pcm_f32le
-    --enable-demuxer=pcm_s32be
-    --enable-demuxer=pcm_s32le
-    --enable-demuxer=pcm_s24be
-    --enable-demuxer=pcm_s24le
-    --enable-demuxer=pcm_s16be
-    --enable-demuxer=pcm_s16le
-    --enable-demuxer=pcm_s8
-    --enable-demuxer=pcm_u32be
-    --enable-demuxer=pcm_u32le
-    --enable-demuxer=pcm_u24be
-    --enable-demuxer=pcm_u24le
-    --enable-demuxer=pcm_u16be
-    --enable-demuxer=pcm_u16le
-    --enable-demuxer=pcm_u8
-    --enable-demuxer=rm
-    --enable-demuxer=shorten
-    --enable-demuxer=tak
-    --enable-demuxer=tta
-    --enable-demuxer=wav
     --enable-demuxer=wv
-    --enable-demuxer=xwma
     --enable-demuxer=dsf
+    --enable-demuxer=mp3
+    --enable-demuxer=mov
 
     --enable-muxer=pcm_f64be
     --enable-muxer=pcm_f64le
@@ -277,119 +211,21 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-muxer=pcm_u8
     --enable-muxer=wav
 
-    --enable-decoder=aac
-    --enable-decoder=aac_latm
-    --enable-decoder=ac3
-    --enable-decoder=alac
-    --enable-decoder=als
     --enable-decoder=ape
-    --enable-decoder=atrac1
-    --enable-decoder=atrac3
-    --enable-decoder=eac3
     --enable-decoder=flac
-    --enable-decoder=gsm
-    --enable-decoder=gsm_ms
-    --enable-decoder=mp1
-    --enable-decoder=mp1float
-    --enable-decoder=mp2
-    --enable-decoder=mp2float
-    --enable-decoder=mp3
-    --enable-decoder=mp3adu
-    --enable-decoder=mp3adufloat
-    --enable-decoder=mp3float
-    --enable-decoder=mp3on4
-    --enable-decoder=mp3on4float
-    --enable-decoder=mpc7
-    --enable-decoder=mpc8
-    --enable-decoder=opus
-    --enable-decoder=ra_144
-    --enable-decoder=ra_288
-    --enable-decoder=ralf
-    --enable-decoder=shorten
-    --enable-decoder=tak
-    --enable-decoder=tta
     --enable-decoder=vorbis
     --enable-decoder=wavpack
-    --enable-decoder=wmalossless
-    --enable-decoder=wmapro
-    --enable-decoder=wmav1
-    --enable-decoder=wmav2
-    --enable-decoder=wmavoice
-    --enable-decoder=pcm_alaw
-    --enable-decoder=pcm_bluray
-    --enable-decoder=pcm_dvd
-    --enable-decoder=pcm_f32be
-    --enable-decoder=pcm_f32le
-    --enable-decoder=pcm_f64be
-    --enable-decoder=pcm_f64le
-    --enable-decoder=pcm_lxf
-    --enable-decoder=pcm_mulaw
-    --enable-decoder=pcm_s8
-    --enable-decoder=pcm_s8_planar
-    --enable-decoder=pcm_s16be
-    --enable-decoder=pcm_s16be_planar
-    --enable-decoder=pcm_s16le
-    --enable-decoder=pcm_s16le_planar
-    --enable-decoder=pcm_s24be
-    --enable-decoder=pcm_s24daud
-    --enable-decoder=pcm_s24le
-    --enable-decoder=pcm_s24le_planar
-    --enable-decoder=pcm_s32be
-    --enable-decoder=pcm_s32le
-    --enable-decoder=pcm_s32le_planar
-    --enable-decoder=pcm_u8
-    --enable-decoder=pcm_u16be
-    --enable-decoder=pcm_u16le
-    --enable-decoder=pcm_u24be
-    --enable-decoder=pcm_u24le
-    --enable-decoder=pcm_u32be
-    --enable-decoder=pcm_u32le
-    --enable-decoder=pcm_zork
-    --enable-decoder=dsd_lsbf
-    --enable-decoder=dsd_msbf
-    --enable-decoder=dsd_lsbf_planar
-    --enable-decoder=dsd_msbf_planar
 
-    --enable-encoder=pcm_alaw
-    --enable-encoder=pcm_bluray
-    --enable-encoder=pcm_dvd
-    --enable-encoder=pcm_f32be
-    --enable-encoder=pcm_f32le
-    --enable-encoder=pcm_f64be
-    --enable-encoder=pcm_f64le
-    --enable-encoder=pcm_lxf
-    --enable-encoder=pcm_mulaw
-    --enable-encoder=pcm_s8
-    --enable-encoder=pcm_s8_planar
-    --enable-encoder=pcm_s16be
-    --enable-encoder=pcm_s16be_planar
     --enable-encoder=pcm_s16le
     --enable-encoder=pcm_s16le_planar
-    --enable-encoder=pcm_s24be
-    --enable-encoder=pcm_s24daud
     --enable-encoder=pcm_s24le
     --enable-encoder=pcm_s24le_planar
-    --enable-encoder=pcm_s32be
     --enable-encoder=pcm_s32le
     --enable-encoder=pcm_s32le_planar
     --enable-encoder=pcm_u8
-    --enable-encoder=pcm_u16be
     --enable-encoder=pcm_u16le
-    --enable-encoder=pcm_u24be
     --enable-encoder=pcm_u24le
-    --enable-encoder=pcm_u32be
     --enable-encoder=pcm_u32le
-
-    --enable-parser=aac
-    --enable-parser=aac_latm
-    --enable-parser=ac3
-    --enable-parser=cook
-    --enable-parser=dca
-    --enable-parser=flac
-    --enable-parser=gsm
-    --enable-parser=mpegaudio
-    --enable-parser=tak
-    --enable-parser=vorbis
 
     --extra-version="ichm"
     --extra-cflags="-fno-stack-check"
@@ -400,10 +236,6 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-runtime-cpudetect
     --pkg_config='pkg-config --static'
     --prefix=${TARGET}
-    --enable-libvorbis 
-    --enable-libmp3lame 
-    --enable-libfdk-aac 
-    --enable-libtwolame
 )
 
 cd ${CMPL}
@@ -415,8 +247,9 @@ make -j "$THREADS" && make install
 #_ Check Static
 tput bold ; echo ; echo '♻️  ' Check Static FFmpeg ; tput sgr0 ; sleep 2
 if otool -L /Volumes/RamDisk/sw/bin/ffmpeg | grep /usr/local
-then echo FFmpeg build Not Static, Please Report
+then echo FFmpeg build Not Static
 #open ~/Library/Logs/adam-FFmpeg-Static.log
+exit 1
 else echo FFmpeg build Static, Have Fun
 fi
 cp -f /Volumes/RamDisk/sw/bin/ffmpeg "$loc/ffmpeg/ffmpeg"
@@ -425,6 +258,9 @@ strip "$loc/ffmpeg/ffmpeg"
 strip "$loc/ffmpeg/ffprobe"
 cp -f "$loc/ffmpeg/ffmpeg" "$loc/Contents/Tools/ffmpeg-ichm"
 cp -f "$loc/ffmpeg/ffprobe" "$loc/Contents/Tools/ffprobe-ichm"
+
+#_ Tests
+"$loc/build-ffmpeg-test.sh"
 
 #_ End Time
 Time="$(echo 'obase=60;'$SECONDS | bc | sed 's/ /:/g' | cut -c 2-)"

@@ -510,7 +510,7 @@ Repeat
         Case #PB_Menu_Preferences
           prefs()
         Case #PB_Menu_About
-          MessageRequester(#myNameVer,~"written by deseven, 2021\n\nLicense: UNLICENSE\nURL: " + #myURL)
+          MessageRequester(#myNameVer,#myAbout)
       EndSelect
       
     ; gadget events

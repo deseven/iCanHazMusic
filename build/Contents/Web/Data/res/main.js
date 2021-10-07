@@ -62,6 +62,7 @@ window.onload = function() {
 
         var toolbarRequest = new XMLHttpRequest();
         toolbarRequest.open('GET','/api/?' + method);
+        toolbarRequest.timeout = 5000;
         toolbarRequest.send();
         toolbarRequest.onload = function() {
             if (toolbarRequest.status != 200) {
@@ -102,6 +103,7 @@ window.onload = function() {
         }
         npRequestCompleted = false;
         npRequest = new XMLHttpRequest();
+        npRequest.timeout = 5000;
         npRequest.onload = function() {
             npRequestCompleted = true;
             if (npRequest.status == 401) {
@@ -152,8 +154,11 @@ window.onload = function() {
                         }
                     } else {
                         track.innerHTML = '[stopped]';
+                        track.className = '';
                         album.innerHTML = '';
+                        album.className = '';
                         details.innerHTML = '';
+                        details.className = '';
                         currentTrack = '[stopped]';
                         currentAlbum = '';
                         currentDetails = '';
