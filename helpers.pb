@@ -252,6 +252,7 @@ Procedure isPortAvailable(port.l,flags = 0)
   If Not flags
     flags = #PB_Network_TCP|#PB_Network_IPv4
   EndIf
+  Debug "checking port " + Str(port)
   Protected server.i = CreateNetworkServer(#PB_Any,port,flags)
   If server
     CloseNetworkServer(server)
@@ -278,7 +279,7 @@ Macro die()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If IsThread(fcgiThread) : KillThread(fcgiThread) : EndIf
   hiawathaStop = #True
-  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,2000) : EndIf
+  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,11500) : EndIf
   If IsThread(hiawathaWatcherThread) : KillThread(hiawathaWatcherThread) : EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
@@ -412,7 +413,7 @@ Macro sizeGadgets()
   ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
 EndMacro
 
-Macro prefs()
-  OpenWindow(#wndPrefs,0,0,400,300,#myName + " Preferences",#PB_Window_SystemMenu|#PB_Window_Tool,WindowID(#wnd))
-  StickyWindow(#wndPrefs,#True)
+Macro flushSettings()
+  saveSettings()
+  loadSettings()
 EndMacro

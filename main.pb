@@ -84,7 +84,13 @@ UseZipPacker()
 InitNetwork()
 HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
 audioplayer::setffmpegPath(myDir + "/Tools/ffmpeg-ichm")
+audioplayer::addFFmpegFormat("flac")
+audioplayer::addFFmpegFormat("oga")
+audioplayer::addFFmpegFormat("ogg")
+audioplayer::addFFmpegFormat("wv")
+audioplayer::addFFmpegFormat("ape")
 InitCGI()
+ExamineDesktops()
 
 If FileSize(hiawathaPIDFile) : RunProgram("/usr/bin/pkill",~"-KILL -F \"" + hiawathaPIDFile + ~"\"","") : EndIf
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
@@ -106,98 +112,7 @@ IncludeFile "proc.pb"
 
 lyricsAvailable = canLoadLyrics()
 
-ExamineDesktops()
-OpenWindow(#wnd,0,0,1280,720,#myNameVer,#PB_Window_SizeGadget|#PB_Window_SizeGadget|#PB_Window_SystemMenu|#PB_Window_MinimizeGadget|#PB_Window_ScreenCentered)
-WindowBounds(#wnd,1280,720,#PB_Ignore,#PB_Ignore)
-  
-CreateMenu(#menu,WindowID(#wnd))
-
-MenuTitle("File")
-MenuItem(#openPlaylist,"Open Playlist...")
-MenuItem(#savePlaylist,"Save Playlist...")
-MenuBar()
-MenuItem(#addDirectory,"Add Diectory...")
-MenuItem(#addFile,"Add File(s)...")
-
-MenuTitle("Playback")
-MenuItem(#playbackCursorFollowsPlayback,"Cursor follows playback")
-MenuItem(#playbackPlaybackFollowsCursor,"Playback follows cursor")
-OpenSubMenu("Order")
-MenuItem(#playbackOrderDefault,"Default")
-MenuItem(#playbackOrderShuffleTracks,"Shuffle (tracks)")
-MenuItem(#playbackOrderShuffleAlbums,"Shuffle (albums)")
-CloseSubMenu()
-MenuBar()
-MenuItem(#playbackStopAtQueueEnd,"Stop at queue end")
-
-MenuTitle("Last.fm")
-MenuItem(#lastfmState,"")
-MenuBar()
-MenuItem(#lastfmUser,"")
-DisableMenuItem(#menu,#lastfmUser,#True)
-
-CreatePopupMenu(#playlistMenu)
-MenuItem(#playlistQueue,"Queue")
-MenuItem(#playlistPlay,"Play" + Chr(9) + "⏎")
-MenuItem(#playlistReloadTags,"Reload tags" + Chr(9) + "R")
-MenuItem(#playlistRemove,"Remove from playlist" + Chr(9) + "⌫")
-
-ListIconGadget(#playlist,0,0,WindowWidth(#wnd)-500,WindowHeight(#wnd),"",35)
-AddGadgetColumn(#playlist,#file,"File",200)
-AddGadgetColumn(#playlist,#track,"#",25)
-AddGadgetColumn(#playlist,#artist,"Artist",200)
-AddGadgetColumn(#playlist,#title,"Title",200)
-AddGadgetColumn(#playlist,#duration,"Duration",65)
-AddGadgetColumn(#playlist,#album,"Album",150)
-AddGadgetColumn(#playlist,#details,"Details",80)
-
-ListIconGadgetHideColumn(#playlist,#file,#True)
-SetListIconColumnJustification(#playlist,#status,#justifyCenter)
-SetListIconColumnJustification(#playlist,#track,#justifyRight)
-SetListIconColumnJustification(#playlist,#duration,#justifyCenter)
-SetListIconColumnJustification(#playlist,#details,#justifyRight)
-;CocoaMessage(0,GadgetID(#playlist),"setGridStyleMask:",1)
-;CocoaMessage(0, GadgetID(#playlist), "setUsesAlternatingRowBackgroundColors:", #YES)
-;CocoaMessage(0, GadgetID(#playlist), "setUsesAutomaticRowHeights:", #YES)
-CocoaMessage(0,GadgetID(#playlist),"setAllowsTypeSelect:",#NO)
-
-LoadFont(1,"Menlo",24,#PB_Font_Bold)
-CreateImage(#defaultAlbumArt,500,500)
-StartDrawing(ImageOutput(#defaultAlbumArt))
-DrawingFont(FontID(1))
-Box(0,0,500,500,0)
-DrawText(500/2-TextWidth("[no album art]")/2,500/2-TextHeight("[no album art]")/2,"[no album art]",$CCCCCC,0)
-StopDrawing()
-FreeFont(1)
-ImageGadget(#albumArt,WindowWidth(#wnd)-500,0,500,500,ImageID(#defaultAlbumArt))
-
-TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
-TextGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,559,500,16,"[standby]",#PB_Text_Center)
-ProgressBarGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,575,490,20,0,100)
-
-ButtonGadget(#toolbarPreviousAlbum,WindowWidth(#wnd)-495,595,50,25,#previousAlbumSymbol)
-ButtonGadget(#toolbarPrevious,WindowWidth(#wnd)-445,595,50,25,#previousSymbol)
-ButtonGadget(#toolbarPlayPause,WindowWidth(#wnd)-395,595,50,25,#playSymbol)
-ButtonGadget(#toolbarNext,WindowWidth(#wnd)-345,595,50,25,#nextSymbol)
-ButtonGadget(#toolbarNextAlbum,WindowWidth(#wnd)-295,595,50,25,#nextAlbumSymbol)
-ButtonGadget(#toolbarStop,WindowWidth(#wnd)-245,595,50,25,#stopSymbol)
-ButtonGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,595,50,25,#refreshSymbol)
-
-GadgetToolTip(#toolbarPreviousAlbum,"Previous Album")
-GadgetToolTip(#toolbarPrevious,"Previous Track")
-GadgetToolTip(#toolbarPlayPause,"Play/Pause")
-GadgetToolTip(#toolbarNext,"Next Track")
-GadgetToolTip(#toolbarNextAlbum,"Next Album")
-GadgetToolTip(#toolbarStop,"Stop")
-GadgetToolTip(#toolbarLyricsReloadWeb,"Reload lyrics from Genius")
-
-EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
-If Not lyricsAvailable
-  SetGadgetText(#lyrics,"[lyrics disabled]")
-  HideGadget(#lyrics,#True)
-EndIf
-HideGadget(#toolbarLyricsReloadWeb,#True)
-
+IncludeFile "interface.pb"
 debugLog("main","interface loaded")
 
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
@@ -237,54 +152,6 @@ Define timeoutTime.i = #defaultTimeout
 Repeat
   ev = WaitWindowEvent(timeoutTime)
   
-  ; audioplayer routine
-  If audioplayer::getPlayerID() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
-    If lastDurationUpdate + 900 <= ElapsedMilliseconds()
-      lastDurationUpdate = ElapsedMilliseconds()
-      newCurrent = audioplayer::getCurrentTime()/1000
-      If oldCurrent <> newCurrent
-        oldCurrent = newCurrent
-        PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
-      EndIf
-    EndIf
-  EndIf
-  
-  ; HTTPRequestManager routine
-  If lastHTTPRequestManagerProcess + 900 <= ElapsedMilliseconds()
-    HTTPRequestManager::process()
-    lastHTTPRequestManagerProcess = ElapsedMilliseconds()
-  EndIf
-  
-  If settings\web\use_web_server
-    If Not IsThread(fcgiThread)
-      For i = 50000 To 51000
-        If isPortAvailable(i)
-          fcgiPort = i
-          Break
-        EndIf
-      Next
-      fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
-    EndIf
-    If Not IsThread(hiawathaWatcherThread)
-      If isPortAvailable(settings\web\web_server_port)
-        hiawathaStop = #False
-        hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),fcgiPort)
-      Else
-        settings\web\use_web_server = #False
-        saveSettings()
-        PostEvent(#evHiawathaFailedToStart)
-      EndIf
-    EndIf
-  Else
-    If IsThread(fcgiThread)
-      KillThread(fcgiThread)
-      PostEvent(#evFCGIStopped)
-    EndIf
-    If IsThread(hiawathaWatcherThread)
-      hiawathaStop = #True
-    EndIf
-  EndIf
-  
   ; event processing
   Select ev
       
@@ -294,6 +161,7 @@ Repeat
           Break
         Case #wndPrefs
           saveSettings()
+          loadSettings()
       EndSelect
       CloseWindow(EventWindow())
       
@@ -508,7 +376,11 @@ Repeat
         Case #PB_Menu_Quit
           Break
         Case #PB_Menu_Preferences
-          prefs()
+          If Not IsWindow(#wndPrefs)
+            prefs()
+          Else
+            SetActiveWindow(#wndPrefs)
+          EndIf
         Case #PB_Menu_About
           MessageRequester(#myNameVer,#myAbout)
       EndSelect
@@ -606,6 +478,18 @@ Repeat
           Else
             doStop()
           EndIf
+        Case #prefsWebEnable
+          If GetGadgetState(#prefsWebEnable) = #PB_Checkbox_Checked
+            If Val(GetGadgetText(#prefsWebPort)) < 1025 Or Val(GetGadgetText(#prefsWebPort)) > 65534
+              MessageRequester(#myName,"Port number is incorrect. Please input a number between 1024 and 65535.",#PB_MessageRequester_Error)
+              SetGadgetState(#prefsWebPort,8008)
+              SetGadgetText(#prefsWebPort,"8008")
+              SetGadgetState(#prefsWebEnable,#PB_Checkbox_Unchecked)
+            EndIf
+          EndIf
+          flushSettings()
+        Case #prefsWebLink
+          RunProgram("open","http://0.0.0.0:" + Str(settings\web\web_server_port),"")
       EndSelect
       
     ; drag'n'drop processing
@@ -654,10 +538,14 @@ Repeat
       
     ; window events
     Case #PB_Event_SizeWindow
-      sizeGadgets()
-      saveSettings()
+      If EventWindow() = #wnd
+        sizeGadgets()
+        saveSettings()
+      EndIf
     Case #PB_Event_MoveWindow
-      saveSettings()
+      If EventWindow() = #wnd
+        saveSettings()
+      EndIf
       
     ; custom events
     Case #evTagGetSuccess
@@ -766,14 +654,74 @@ Repeat
       fcgiProcessed = #True
     Case #evHiawathaStarted
       debugLog("web","hiawatha started on port " + Str(settings\web\web_server_port))
-    Case #evHiawathaFailedToStart
-      debugLog("web","hiawatha failed to start")
-      MessageRequester(#myName,"Web server failed to start. Check that the port " + Str(settings\web\web_server_port) + " is free.",#PB_MessageRequester_Error)
+      If IsWindow(#wndPrefs)
+        HideGadget(#prefsWebLink,#False)
+        SetGadgetText(#prefsWebLink,"running on port " + Str(settings\web\web_server_port))
+      EndIf
+    Case #evHiawathaFailedToStart,#evHiawathaFailedBind
+      If IsWindow(#wndPrefs)
+        HideGadget(#prefsWebLink,#True)
+        SetGadgetState(#prefsWebEnable,#PB_Checkbox_Unchecked)
+      EndIf
+      flushSettings()
+      If ev = #evHiawathaFailedToStart
+        debugLog("web","hiawatha failed to start")
+        MessageRequester(#myName,"Web server failed to start and will be disabled. Try checking logs in `~/Library/Application Support/iCanHazMusic`.",#PB_MessageRequester_Error)
+      Else
+        debugLog("web","hiawatha failed to bind to port " + Str(settings\web\web_server_port))
+        MessageRequester(#myName,"Web server failed to bind to port " + Str(settings\web\web_server_port) + " and will be disabled. Free the port or change it in iCHM's preferences.",#PB_MessageRequester_Error)
+      EndIf
     Case #evHiawathaDied
       debugLog("web","hiawatha died unexpectedly")
     Case #evHiawathaStopped
+      If IsWindow(#wndPrefs) : HideGadget(#prefsWebLink,#True) : EndIf
       debugLog("web","hiawatha stopped")
   EndSelect
+  
+  ; audioplayer routine
+  If audioplayer::getPlayerID() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
+    If lastDurationUpdate + 900 <= ElapsedMilliseconds()
+      lastDurationUpdate = ElapsedMilliseconds()
+      newCurrent = audioplayer::getCurrentTime()/1000
+      If oldCurrent <> newCurrent
+        oldCurrent = newCurrent
+        PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
+      EndIf
+    EndIf
+  EndIf
+  
+  ; HTTPRequestManager routine
+  If lastHTTPRequestManagerProcess + 900 <= ElapsedMilliseconds()
+    HTTPRequestManager::process()
+    lastHTTPRequestManagerProcess = ElapsedMilliseconds()
+  EndIf
+  
+  If settings\web\use_web_server
+    If Not IsThread(fcgiThread)
+      For i = 50000 To 51000
+        If isPortAvailable(i)
+          fcgiPort = i
+          Break
+        EndIf
+      Next
+      debugLog("web","starting fcgi")
+      fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
+    EndIf
+    If Not IsThread(hiawathaWatcherThread)
+      debugLog("web","starting hiawatha")
+      hiawathaStop = #False
+      hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),fcgiPort)
+    EndIf
+  Else
+    If IsThread(fcgiThread)
+      KillThread(fcgiThread)
+      PostEvent(#evFCGIStopped)
+    EndIf
+    If IsThread(hiawathaWatcherThread)
+      hiawathaStop = #True
+      WaitThread(hiawathaWatcherThread)
+    EndIf
+  EndIf
   
 ForEver
 

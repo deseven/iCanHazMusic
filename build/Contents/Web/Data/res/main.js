@@ -103,7 +103,6 @@ window.onload = function() {
         }
         npRequestCompleted = false;
         npRequest = new XMLHttpRequest();
-        npRequest.timeout = 5000;
         npRequest.onload = function() {
             npRequestCompleted = true;
             if (npRequest.status == 401) {
@@ -175,8 +174,15 @@ window.onload = function() {
         };
         npRequest.onerror = function() {
             ichmUnavailable();
+            npRequestCompleted = true;
         };
         npRequest.open('GET','/api/?nowplaying');
+        npRequest.timeout = 5000;
+        npRequest.ontimeout = function(e) {
+            npRequestCompleted = true;
+            ichmUnavailable();
+            npRequest.abort();
+        }
         npRequest.send();
     }
 

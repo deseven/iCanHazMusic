@@ -7,24 +7,28 @@
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2021-09-25 19:55" user="deseven" host="de7mac.local"/>
+    <lastopen date="2021-10-07 23:51" user="deseven" host="de7mac.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="d8335538fb6ae8f327866fc150acc861"/>
+      <fingerprint md5="5219654014dedeb9b67d662f791c6a2a"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="7c90a5152e9e15d73cc840950d0d9a5c"/>
+      <fingerprint md5="e0750587b7a4aed4a6200cdbe9ac672d"/>
+    </file>
+    <file name="interface.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <fingerprint md5="ab21932108757d2d08e0863386da7588"/>
     </file>
     <file name="main.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="e61dd427b83dd9d51886354544e519fe"/>
+      <fingerprint md5="a3f0c051712855a2aafae667ab17aeae"/>
     </file>
     <file name="proc.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="ada4c0545f0797fc673a0dc89b6681d0"/>
+      <fingerprint md5="8e3ec2233ae32df1ef1783b2cda65e23"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
@@ -32,7 +36,7 @@
     </file>
     <file name="../pb-macos-audioplayer/audioplayer.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="620a7ea7b8f3037a07d0614d5dc68e0a"/>
+      <fingerprint md5="5eedf77e831f63b623b46e54d73a0727"/>
     </file>
   </section>
   <section name="targets">

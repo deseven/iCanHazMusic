@@ -322,6 +322,16 @@ Procedure saveSettings()
   Shared settings.settings
   Protected json.i = CreateJSON(#PB_Any)
   
+  If IsWindow(#wndPrefs)
+    settings\web\api_key = GetGadgetText(#prefsWebApiKey)
+    settings\web\web_server_port = Val(GetGadgetText(#prefsWebPort))
+    If GetGadgetState(#prefsWebEnable) = #PB_Checkbox_Checked
+      settings\web\use_web_server = #True
+    Else
+      settings\web\use_web_server = #False
+    EndIf
+  EndIf
+  
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
   SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
@@ -403,11 +413,31 @@ Procedure loadSettings()
   settings\playback\playback_order = "default"
   settings\web\use_web_server = #False
   settings\web\web_server_port = 8008
-  settings\web\api_key = StringFingerprint(Str(Date()),#PB_Cipher_MD5)
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
+    
+    If Len(settings\web\api_key) = 0 ; in case it exists but empty
+      settings\web\api_key = StringFingerprint(Str(Date()),#PB_Cipher_MD5)
+    EndIf
+    
+    If settings\web\web_server_port = 0
+      settings\web\web_server_port = 8008
+    EndIf
+    
+    If IsWindow(#wndPrefs)
+      SetGadgetText(#prefsWebPort,Str(settings\web\web_server_port))
+      SetGadgetState(#prefsWebPort,settings\web\web_server_port)
+      SetGadgetText(#prefsWebApiKey,settings\web\api_key)
+      If settings\web\use_web_server
+        SetGadgetState(#prefsWebEnable,#PB_Checkbox_Checked)
+        DisableGadget(#prefsWebPort,#True)
+      Else
+        SetGadgetState(#prefsWebEnable,#PB_Checkbox_Unchecked)
+        DisableGadget(#prefsWebPort,#False)
+      EndIf
+    EndIf
     
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
@@ -967,7 +997,6 @@ Procedure fcgiHandler(port)
   
   Shared settings
   Shared fcgiProcessed.b
-  Protected fcgiApiKey.s = settings\web\api_key
   Shared *fcgiAlbumArt
   Shared nowPlayingFCGI.nowPlaying
   Protected json.i
@@ -981,7 +1010,7 @@ Procedure fcgiHandler(port)
         For i = 0 To CountCGICookies()-1
           ;Debug CGICookieName(i)
           ;Debug CGICookieValue(CGICookieName(i))
-          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = fcgiApiKey
+          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = settings\web\api_key
             fcgiAuthOK = #True
             Break
           EndIf
@@ -1060,7 +1089,7 @@ Procedure hiawathaWatcher(fcgiPort)
   Protected hiawathaPort.l = settings\web\web_server_port 
   Shared hiawathaBinary.s,hiawathaRoot.s,hiawathaLogDir.s,hiawathaCfgDir.s,hiawathaPIDFile.s
   Protected hiawathaConfigTemplate = ReadFile(#PB_Any,myDir + "/Web/Server/hiawatha.conf")
-  If FileSize(hiawathaCfgDir + "/hiawatha.conf") >= 0 : Debug DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force) : EndIf
+  If FileSize(hiawathaCfgDir + "/hiawatha.conf") >= 0 : DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force) : EndIf
   Protected hiawathaConfig = CreateFile(#PB_Any,hiawathaCfgDir + "/hiawatha.conf")
   Protected line.s
   
@@ -1097,8 +1126,11 @@ Procedure hiawathaWatcher(fcgiPort)
     Repeat
       Delay(50)
       If hiawathaStop
+        ;Debug "stopping hiawatha"
         RunProgram("/bin/kill",Str(hiawathaPID),"") ; send sigterm first
-        If Not WaitProgram(hiawatha,1000)
+        WaitProgram(hiawatha,10000)
+        If ProgramRunning(hiawatha)
+          ;Debug "force killing hiawatha"
           KillProgram(hiawatha)
         EndIf
         CloseProgram(hiawatha)
@@ -1106,8 +1138,12 @@ Procedure hiawathaWatcher(fcgiPort)
         ProcedureReturn
       EndIf
       If Not ProgramRunning(hiawatha)
+        If ProgramExitCode(hiawatha) = 1
+          PostEvent(#evHiawathaFailedBind)
+        Else
+          PostEvent(#evHiawathaDied)
+        EndIf
         CloseProgram(hiawatha)
-        PostEvent(#evHiawathaDied)
         ProcedureReturn
       EndIf
     ForEver

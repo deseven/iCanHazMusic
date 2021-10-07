@@ -77,6 +77,13 @@ Enumeration
   #toolbarLyricsEdit
   #toolbarLyricsReload
   #toolbarLyricsReloadWeb
+  #prefsPanel
+  #prefsWebEnable
+  #prefsWebPort
+  #prefsWebPortLabel
+  #prefsWebApiKey
+  #prefsWebApiKeyLabel
+  #prefsWebLink
 EndEnumeration
 
 Enumeration globalEvents #PB_Event_FirstCustomValue
@@ -99,6 +106,8 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evFCGIGetAlbumArt
   #evHiawathaStarted
   #evHiawathaFailedToStart
+  #evDummy
+  #evHiawathaFailedBind
   #evHiawathaDied
   #evHiawathaStopped
 EndEnumeration
