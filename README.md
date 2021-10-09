@@ -1,5 +1,5 @@
 # iCanHazMusic
-A music player for macOS 10.12 or higher. Currently in active development, early preview version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases).
+A music player for macOS 10.12 or higher. Currently in development, beta version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases).
 
 Main app:  
 ![iCHM screenshot](https://d7.wtf/s/ichm.png)
