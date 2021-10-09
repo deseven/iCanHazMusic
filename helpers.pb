@@ -216,6 +216,19 @@ Procedure.s ReadFileFast(path.s)
   ProcedureReturn string
 EndProcedure
 
+Procedure ReadBinaryFileFast(path.s,*data)
+  Protected file = ReadFile(#PB_Any,path)
+  If file
+    If MemorySize(*data) >= Lof(file)
+      ReadData(file,*data,Lof(file))
+      CloseFile(file)
+      ProcedureReturn #True
+    Else
+      CloseFile(file)
+    EndIf
+  EndIf
+EndProcedure
+
 Procedure WriteFileFast(path.s,string.s)
   Protected file = CreateFile(#PB_Any,path)
   If file
@@ -223,7 +236,6 @@ Procedure WriteFileFast(path.s,string.s)
     CloseFile(file)
     ProcedureReturn #True
   EndIf
-  ProcedureReturn #False
 EndProcedure
 
 Procedure DelayEvent(event.i)
@@ -252,11 +264,38 @@ Procedure isPortAvailable(port.l,flags = 0)
   If Not flags
     flags = #PB_Network_TCP|#PB_Network_IPv4
   EndIf
-  Debug "checking port " + Str(port)
   Protected server.i = CreateNetworkServer(#PB_Any,port,flags)
   If server
     CloseNetworkServer(server)
     ProcedureReturn #True
+  EndIf
+EndProcedure
+
+; Author : Danilo
+; Date   : 25.03.2014
+; Link   : https://www.purebasic.fr/english/viewtopic.php?f=19&t=58828
+; Info   : NSActivityOptions is a 64bit typedef - use it with quads (.q) !!!
+
+#NSActivityIdleDisplaySleepDisabled             = 1 << 40
+#NSActivityIdleSystemSleepDisabled              = 1 << 20
+#NSActivitySuddenTerminationDisabled            = (1 << 14)
+#NSActivityAutomaticTerminationDisabled         = (1 << 15)
+#NSActivityUserInitiated                        = ($00FFFFFF | #NSActivityIdleSystemSleepDisabled)
+#NSActivityUserInitiatedAllowingIdleSystemSleep = (#NSActivityUserInitiated & ~#NSActivityIdleSystemSleepDisabled)
+#NSActivityBackground                           = $000000FF
+#NSActivityLatencyCritical                      = $FF00000000
+
+Procedure BeginWork(Option.q, Reason.s= "MyReason")
+  Protected NSProcessInfo = CocoaMessage(0,0,"NSProcessInfo processInfo")
+  If NSProcessInfo
+    ProcedureReturn CocoaMessage(0, NSProcessInfo, "beginActivityWithOptions:@", @Option, "reason:$", @Reason)
+  EndIf
+EndProcedure
+
+Procedure EndWork(Activity)
+  Protected NSProcessInfo = CocoaMessage(0, 0, "NSProcessInfo processInfo")
+  If NSProcessInfo
+    CocoaMessage(0, NSProcessInfo, "endActivity:", Activity)
   EndIf
 EndProcedure
 
@@ -277,10 +316,13 @@ EndMacro
 Macro die()
   doStop()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
-  If IsThread(fcgiThread) : KillThread(fcgiThread) : EndIf
-  hiawathaStop = #True
-  If IsThread(hiawathaWatcherThread) : WaitThread(hiawathaWatcherThread,11500) : EndIf
-  If IsThread(hiawathaWatcherThread) : KillThread(hiawathaWatcherThread) : EndIf
+  If IsThread(webThread)
+    debugLog("web","stopping web server")
+    webStop = #True
+    WaitThread(webThread,3000)
+    If IsThread(webThread) : KillThread(webThread) : EndIf
+    debugLog("web","web server stopped")
+  EndIf
   ForEach tagsParserThreads()
     If IsThread(tagsParserThreads()) : KillThread(tagsParserThreads()) : EndIf
   Next

@@ -317,7 +317,6 @@ Procedure saveSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
-  Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
   Shared settings.settings
   Protected json.i = CreateJSON(#PB_Any)
@@ -334,7 +333,6 @@ Procedure saveSettings()
   
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
-  SetJSONString(AddJSONMember(object,"alpha_alert_shown_for"),alphaAlertShownFor)
   
   Protected objectWeb = SetJSONObject(AddJSONMember(object,"web"))
   SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),settings\web\use_web_server)
@@ -400,7 +398,6 @@ Procedure loadSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
-  Shared alphaAlertShownFor.s
   Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
@@ -418,11 +415,11 @@ Procedure loadSettings()
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
     
-    If Len(settings\web\api_key) = 0 ; in case it exists but empty
+    If Len(Trim(settings\web\api_key)) = 0 ; in case it exists but empty
       settings\web\api_key = StringFingerprint(Str(Date()),#PB_Cipher_MD5)
     EndIf
     
-    If settings\web\web_server_port = 0
+    If settings\web\web_server_port < 1025 Or settings\web\web_server_port > 65534
       settings\web\web_server_port = 8008
     EndIf
     
@@ -442,7 +439,6 @@ Procedure loadSettings()
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
     lastPlayedID = settings\last_played_track_id
-    alphaAlertShownFor = settings\alpha_alert_shown_for
     SetGadgetState(#playlist,settings\last_played_track_id)
     
     If settings\window\x Or settings\window\y Or settings\window\width Or settings\window\height
@@ -987,167 +983,237 @@ ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
   ProcedureReturn IsGroupRow
 EndProcedure
 
-Procedure fcgiHandler(port)
-  If Not InitFastCGI(port)
-    PostEvent(#evFCGIFailed)
-    ProcedureReturn
-  Else
-    PostEvent(#evFCGIStarted)
-  EndIf
+Procedure webHandler(port.l)
+  Protected activity.i = BeginWork(#NSActivityBackground,"iCHM web server")
+  Protected webEvent.i
+  Protected webConnection.i
+  Protected webConnectionIP.i
+  Protected webConnectionPort.l
+  Protected *webBuffer
+  Protected *payloadBuffer
+  Protected webRequestRaw.s
+  Protected webRequest.s
+  Protected webRequestType.s
+  Protected webRequestQuery.s
+  Protected webRequestParams.s
+  Protected webRequestApiKey.s
+  Protected webResponse.s
+  Protected webPayload.s
+  Protected payloadIsBinary.b
+  Protected payloadIsAlbumArt.b
+  Protected webJSON.i
+  Protected apikeyStart.i,apikeyEnd.i
+  Shared myDir.s
+  Shared webStop.b
+  Shared webProcessed.b
+  Shared webNowPlaying.nowPlaying
+  Shared *webAlbumArt
+  Shared settings.settings
+  webProcessed = #False
   
-  Shared settings
-  Shared fcgiProcessed.b
-  Shared *fcgiAlbumArt
-  Shared nowPlayingFCGI.nowPlaying
-  Protected json.i
-  Protected i.i
+  Protected sleepTime.l = 50
+  Protected isSleeping = #False
+  Protected lastEvent.i
   
-  While WaitFastCGIRequest()
-    Protected fcgiAuthOK = #False
-    If ReadCGI()
-      
-      If CountCGICookies() > 0
-        For i = 0 To CountCGICookies()-1
-          ;Debug CGICookieName(i)
-          ;Debug CGICookieValue(CGICookieName(i))
-          If CGICookieName(i) = "ichm-auth" And CGICookieValue(CGICookieName(i)) = settings\web\api_key
-            fcgiAuthOK = #True
-            Break
-          EndIf
-        Next
-      EndIf
-      If Not fcgiAuthOK
-        WriteCGIHeader(#PB_CGI_HeaderStatus,"401 Unauthorized")
-        WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
-        WriteCGIString("Authorization is required. Set cookie ichm-auth with your password.")
-        Continue
-      EndIf
-      
-      If CountCGIParameters() = 0
-        WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
-        WriteCGIString("Available methods: playpause, next, previous, nextAlbum, previousAlbum, stop, nowplaying, albumart")
-      Else
-        Select LCase(CGIParameterName(0))
-          Case "playpause","next","previous","nextalbum","previousalbum","stop"
-            Select LCase(CGIParameterName(0))
-              Case "playpause"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPlayPause)
-              Case "next"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
-              Case "previous"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
-              Case "nextalbum"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarNextAlbum)
-              Case "previousalbum"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)
-              Case "stop"
-                PostEvent(#PB_Event_Gadget,#wnd,#toolbarStop)
-            EndSelect
-            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
-            WriteCGIString(~"{\"success\": true}")
-          Case "albumart"
-            PostEvent(#evFCGIGetAlbumArt)
-            While Not fcgiProcessed
-              Delay (10)
-            Wend
-            fcgiProcessed = #False
-            If *fcgiAlbumArt
-              WriteCGIHeader(#PB_CGI_HeaderContentType,"image/jpeg",#PB_CGI_LastHeader)
-              WriteCGIData(*fcgiAlbumArt,MemorySize(*fcgiAlbumArt))
-              FreeMemory(*fcgiAlbumArt)
-              *fcgiAlbumArt = 0
-            EndIf
-          Case "play"
-            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
-            WriteCGIString("{}")
-          Case "nowplaying"
-            WriteCGIHeader(#PB_CGI_HeaderContentType,"application/json",#PB_CGI_LastHeader)
-            PostEvent(#evFCGIUpdateNowPlaying)
-            While Not fcgiProcessed
-              Delay (10)
-            Wend
-            fcgiProcessed = #False
-            json = CreateJSON(#PB_Any)
-            nowPlayingFCGI\lyrics = "not available in api mode"
-            InsertJSONStructure(JSONValue(json),@nowPlayingFCGI,nowPlaying)
-            WriteCGIString(ComposeJSON(json,#PB_JSON_PrettyPrint))
-            FreeJSON(json)
-          Default
-            WriteCGIHeader(#PB_CGI_HeaderStatus,"404 Not found")
-            WriteCGIHeader(#PB_CGI_HeaderContentType,"text/html",#PB_CGI_LastHeader)
-            WriteCGIString("No such method.")
-        EndSelect
-      EndIf
-    EndIf
-  Wend
-EndProcedure
-
-Procedure hiawathaWatcher(fcgiPort)
-  Shared myDir.s,hiawathaStop.b
-  Shared settings
-  Protected hiawathaInterface.s = "0.0.0.0"
-  Protected hiawathaPort.l = settings\web\web_server_port 
-  Shared hiawathaBinary.s,hiawathaRoot.s,hiawathaLogDir.s,hiawathaCfgDir.s,hiawathaPIDFile.s
-  Protected hiawathaConfigTemplate = ReadFile(#PB_Any,myDir + "/Web/Server/hiawatha.conf")
-  If FileSize(hiawathaCfgDir + "/hiawatha.conf") >= 0 : DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force) : EndIf
-  Protected hiawathaConfig = CreateFile(#PB_Any,hiawathaCfgDir + "/hiawatha.conf")
-  Protected line.s
-  
-  If (Not IsFile(hiawathaConfigTemplate)) Or (Not IsFile(hiawathaConfig))
-    PostEvent(#evHiawathaFailedToStart)
-    ProcedureReturn
-  EndIf
-  
-  WriteStringN(hiawathaConfig,"# ATTENTION: This file is automatically generated on each start of iCHM")
-  WriteStringN(hiawathaConfig,"set ROOT = " + hiawathaRoot)
-  WriteStringN(hiawathaConfig,"set LOGDIR = " + hiawathaLogDir)
-  WriteStringN(hiawathaConfig,"set INTERFACE = " + hiawathaInterface)
-  WriteStringN(hiawathaConfig,"set HIAWATHA_PORT = " + hiawathaPort)
-  WriteStringN(hiawathaConfig,"set ICHM_PORT = " + fcgiPort)
-  WriteStringN(hiawathaConfig,"set PIDFILE = " + hiawathaPIDFile)
-  WriteStringN(hiawathaConfig,"")
-  
-  ;Debug myDir + "/Web/Server/hiawatha.conf"
-  
-  While Eof(hiawathaConfigTemplate) = 0
-    line = ReadString(hiawathaConfigTemplate)
-    WriteStringN(hiawathaConfig,line)
-  Wend
-  
-  CloseFile(hiawathaConfigTemplate)
-  CloseFile(hiawathaConfig)
-  
-  Protected hiawatha = RunProgram(hiawathaBinary,~"-d -c \"" + hiawathaCfgDir + ~"\"",hiawathaCfgDir,#PB_Program_Open)
-  ;Debug hiawathaBinary
-  ;Debug "-d -c " + hiawathaCfgDir
-  If IsProgram(hiawatha)
-    Protected hiawathaPID = ProgramID(hiawatha)
-    PostEvent(#evHiawathaStarted)
+  Protected server.i = CreateNetworkServer(#PB_Any,port,#PB_Network_TCP|#PB_Network_IPv4)
+  If server
+    PostEvent(#evWebStarted)
     Repeat
-      Delay(50)
-      If hiawathaStop
-        ;Debug "stopping hiawatha"
-        RunProgram("/bin/kill",Str(hiawathaPID),"") ; send sigterm first
-        WaitProgram(hiawatha,10000)
-        If ProgramRunning(hiawatha)
-          ;Debug "force killing hiawatha"
-          KillProgram(hiawatha)
-        EndIf
-        CloseProgram(hiawatha)
-        PostEvent(#evHiawathaStopped)
-        ProcedureReturn
-      EndIf
-      If Not ProgramRunning(hiawatha)
-        If ProgramExitCode(hiawatha) = 1
-          PostEvent(#evHiawathaFailedBind)
-        Else
-          PostEvent(#evHiawathaDied)
-        EndIf
-        CloseProgram(hiawatha)
-        ProcedureReturn
-      EndIf
-    ForEver
-  Else
-    PostEvent(#evHiawathaFailedToStart)
+      webEvent = NetworkServerEvent()
+      Select webEvent
+        Case #PB_NetworkEvent_None
+          If (Not isSleeping) And (ElapsedMilliseconds() - lastEvent > 10000)
+            isSleeping = #True : sleepTime = 700
+            PostEvent(#evWebSleep)
+          EndIf
+        Case #PB_NetworkEvent_Connect
+          lastEvent = ElapsedMilliseconds()
+          isSleeping = #False : sleepTime = 50
+        Case #PB_NetworkEvent_Data
+          lastEvent = ElapsedMilliseconds()
+          isSleeping = #False : sleepTime = 50
+          webConnection = EventClient()
+          webConnectionIP = GetClientIP(webConnection)
+          webConnectionPort = GetClientPort(webConnection)
+          *webBuffer = AllocateMemory(65535)
+          ReceiveNetworkData(webConnection,*webBuffer,65534)
+          webRequestRaw = PeekS(*webBuffer,-1,#PB_UTF8)
+          FreeMemory(*webBuffer)
+          *webBuffer = 0
+          webRequest = StringField(webRequestRaw,1,~"\n")
+          webRequestType = LCase(StringField(webRequest,1," "))
+          webRequestQuery = StringField(webRequest,2," ")
+          webRequestParams = StringField(webRequestQuery,2,"?")
+          webRequestQuery = LCase(StringField(webRequestQuery,1,"?"))
+          webRequestQuery = ReplaceString(webRequestQuery,"..","")
+          webResponse = ""
+          webPayload = ""
+          webRequestApiKey = ""
+          *payloadBuffer = 0
+          payloadIsBinary = #False
+          payloadIsAlbumArt = #False
+          If webRequestType = "get" And webRequestQuery
+            
+            PostEvent(#evWebRequest,0,webConnection,webConnectionIP,webConnectionPort)
+            
+            apikeyStart = FindString(webRequestRaw,"x-api-key",1,#PB_String_NoCase)
+            If apikeyStart
+              apikeyStart + 10
+              apikeyEnd = FindString(webRequestRaw,~"\n",apikeyStart)
+              If apikeyEnd
+                webRequestApiKey = Mid(webRequestRaw,apikeyStart,apikeyEnd-apikeyStart)
+                webRequestApiKey = Trim(webRequestApiKey)
+                webRequestApiKey = Trim(webRequestApiKey,#CR$)
+                webRequestApiKey = Trim(webRequestApiKey,#LF$)
+              EndIf
+            EndIf
+            If FindString(webRequestQuery,"/api/") = 1 And Len(webRequestQuery) > 5 And webRequestApiKey <> settings\web\api_key
+              webPayload = "Unauthorized"
+              webResponse = "HTTP/1.1 401 Unauthorized" + #CRLF$ + "Content-Type: text/plain"
+            Else
+              
+              Select webRequestQuery
+                  
+                Case "/"
+                  webPayload = ReadFileFast(myDir + "/Web/Data/index.html")
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api","/api/"
+                  webPayload = #myNameVer + ~" API\n" +
+                               ~"---------------\n" + 
+                               ~"Available GET methods:\n" + 
+                               ~"/api/play-pause\n" +
+                               ~"/api/next\n" +
+                               ~"/api/previous\n" +
+                               ~"/api/next-album\n" +
+                               ~"/api/previous-album\n" +
+                               ~"/api/stop\n" +
+                               ~"/api/now-playing\n" +
+                               ~"/api/album-art\n" +
+                               ~"---------------\n" +
+                               ~"Don't forget to send X-Api-Key header!\n"
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/plain"
+                  
+                Case "/api/play-pause"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarPlayPause)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/next"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/previous"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/next-album"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarNextAlbum)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/previous-album"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/stop"
+                  PostEvent(#PB_Event_Gadget,#wnd,#toolbarStop)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: text/html"
+                  
+                Case "/api/now-playing"
+                  PostEvent(#evWebUpdateNowPlaying)
+                  While Not webProcessed
+                    Delay(10)
+                  Wend
+                  webProcessed = #False
+                  webJSON = CreateJSON(#PB_Any)
+                  webNowPlaying\lyrics = "[not available in api]"
+                  InsertJSONStructure(JSONValue(webJSON),@webNowPlaying,nowPlaying)
+                  webPayload = ComposeJSON(webJSON,#PB_JSON_PrettyPrint)
+                  FreeJSON(webJSON)
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: application/json"
+                  
+                Case "/album-art.jpg"
+                  PostEvent(#evWebGetAlbumArt)
+                  While Not webProcessed
+                    Delay(10)
+                  Wend
+                  webProcessed = #False
+                  If *webAlbumArt And MemorySize(*webAlbumArt) < 60000
+                    webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: image/jpeg"
+                    payloadIsAlbumArt = #True
+                  Else
+                    Debug "big album art: " +Str(MemorySize(*webAlbumArt))
+                    webPayload = "Internal Server Error"
+                    webResponse = "HTTP/1.1 500 Internal Server Error" + #CRLF$ + "Content-Type: text/plain"
+                    If *webAlbumArt : FreeMemory(*webAlbumArt) : EndIf
+                    *webAlbumArt = 0
+                  EndIf
+                  
+                Default
+                  If FileSize(myDir + "/Web/Data/" + webRequestQuery) > 0
+                    webResponse = "HTTP/1.1 200 OK" + #CRLF$
+                    
+                    Select GetExtensionPart(myDir + "/Web/Data/" + webRequestQuery)
+                      Case "htm","html"
+                        webResponse + "Content-Type: text/html"
+                      Case "css"
+                        webResponse + "Content-Type: text/css"
+                      Case "js"
+                        webResponse + "Content-Type: text/javascript"
+                      Default
+                        payloadIsBinary = #True
+                    EndSelect
+                    
+                    If payloadIsBinary
+                      Select GetExtensionPart(myDir + "/Web/Data/" + webRequestQuery)
+                        Case "jpg","jpeg"
+                          webResponse + "Content-Type: image/jpeg"
+                        Case "png"
+                          webResponse + "Content-Type: image/png"
+                        Default
+                          webResponse + "Content-Type: application/octet-stream"
+                      EndSelect
+                    Else
+                      webPayload = ReadFileFast(myDir + "/Web/Data/" + webRequestQuery)
+                    EndIf
+                  Else
+                    webPayload = "Not Found"
+                    webResponse = "HTTP/1.1 404 Not Found" + #CRLF$ + "Content-Type: text/plain"
+                  EndIf
+              EndSelect
+            EndIf
+          Else
+            ;Debug webRequestRaw
+            webPayload = "Bad Request"
+            webResponse = "HTTP/1.1 400 Bad Request" + #CRLF$ + "Content-Type: text/plain"
+          EndIf
+          
+          If payloadIsBinary
+            SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$,#PB_UTF8)
+            Protected file = ReadFile(#PB_Any,myDir + "/Web/Data/" + webRequestQuery)
+            If file And Lof(file) < 60000
+              *payloadBuffer = AllocateMemory(Lof(file))
+              ReadData(file,*payloadBuffer,Lof(file))
+              CloseFile(file)
+              SendNetworkData(webConnection,*payloadBuffer,MemorySize(*payloadBuffer))
+              FreeMemory(*payloadBuffer)
+            EndIf
+          ElseIf payloadIsAlbumArt
+            SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$,#PB_UTF8)
+            SendNetworkData(webConnection,*webAlbumArt,MemorySize(*webAlbumArt))
+            FreeMemory(*webAlbumArt)
+            *webAlbumArt = 0
+          Else
+            SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$ + webPayload,#PB_UTF8)
+          EndIf
+          CloseNetworkConnection(webConnection)
+      EndSelect
+      Delay(sleepTime)
+    Until webStop = #True
+    CloseNetworkServer(server)
   EndIf
+  
+  If activity
+    EndWork(activity)
+  EndIf
+  PostEvent(#evWebStopped)
 EndProcedure

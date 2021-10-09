@@ -27,8 +27,6 @@ if [ -f "$pb/compilers/pbcompiler" ]; then
 	if [ -d "$loc/$name.app" ]; then
 		echo -ne $greenColor"\ninjecting resources..."$noColor
 		cd ..
-        echo -ne $greenColor"\ncompiling hiawatha..."$noColor
-        build/build-hiawatha.sh
         echo -ne $greenColor"\ncompiling ffmpeg..."$noColor
         build/build-ffmpeg.sh
 		build/inject.sh "$loc/$name.app" || die "failed to inject $shortName"

@@ -99,7 +99,7 @@ Macro prefs()
   TextGadget(#prefsWebPortLabel,10,35,250,20,"Web server port (1025-65534):")
   SpinGadget(#prefsWebPort,10,55,80,20,1025,65534,#PB_Spin_Numeric)
   CocoaMessage(0,GadgetID(#prefsWebPort),"setFocusRingType:",1)
-  TextGadget(#prefsWebApiKeyLabel,10,85,350,20,"Api key (used for authorization, leave blank to generate):")
+  TextGadget(#prefsWebApiKeyLabel,10,85,350,20,"API key (used for authorization, leave blank to generate):")
   StringGadget(#prefsWebApiKey,10,105,350,20,"")
   CocoaMessage(0,GadgetID(#prefsWebApiKey),"setFocusRingType:",1)
   SetGadgetColor(#prefsWebLink,#PB_Gadget_FrontColor,$458c1e)
@@ -110,7 +110,7 @@ Macro prefs()
     SetGadgetState(#prefsWebEnable,#PB_Checkbox_Checked)
     DisableGadget(#prefsWebPort,#True)
   EndIf
-  If IsThread(hiawathaWatcherThread) And Not hiawathaStop
+  If IsThread(webThread)
     HideGadget(#prefsWebLink,#False)
     SetGadgetText(#prefsWebLink,"running on port " + Str(settings\web\web_server_port))
   Else

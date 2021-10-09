@@ -16,14 +16,12 @@ Define playlist.s,directory.s,file.s
 NewList filesInDirectory.s()
 NewList tagsParserThreads.i()
 Define lyricsThread.i
-Define fcgiThread.i
-Define hiawathaWatcherThread.i
+Define webThread.i
 Define i.i,j.i
 Define skip.b
 Define *elem.track_info
 Define playlistString.s
 Define nowPlaying.nowPlaying
-Define nowPlayingFCGI.nowPlaying
 Define dataDir.s = GetEnvironmentVariable("HOME") + "/Library/Application Support/" + #myName
 Define myDir.s = GetPathPart(ProgramFilename()) + ".."
 Define systemThreads.l = CountCPUs(#PB_System_ProcessCPUs)
@@ -36,7 +34,6 @@ Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
-Define alphaAlertShownFor.s
 Define nextID.i
 Define ffprobe.s = myDir + "/Tools/ffprobe-ichm"
 Define lyricsAvailable.b
@@ -45,16 +42,13 @@ Define *response.HTTPRequestManager::response
 Define responseResult.s
 Define lastHTTPRequestManagerProcess.i
 
-; hiawatha and fcgi stuff
-Define fcgiPort.l
-Define fcgiProcessed.b
-Define *fcgiAlbumArt
-Define hiawathaStop.b
-Define hiawathaBinary.s = myDir + "/Web/Server/hiawatha-ichm"
-Define hiawathaRoot.s = myDir + "/Web/Data"
-Define hiawathaLogDir.s = dataDir + "/web/logs"
-Define hiawathaCfgDir.s = dataDir + "/web"
-Define hiawathaPIDFile.s = dataDir + "/web/hiawatha-ichm.pid"
+; web server stuff
+Define webPort.l
+Define webStop.b
+Define webProcessed.b
+Define *webAlbumArt
+Define webNowPlaying.nowPlaying
+Define lastBindTry.i = ElapsedMilliseconds() - 5000
 
 ; nowplaying update stuff
 Define currentTimeSec.i
@@ -92,15 +86,8 @@ audioplayer::addFFmpegFormat("ape")
 InitCGI()
 ExamineDesktops()
 
-If FileSize(hiawathaPIDFile) : RunProgram("/usr/bin/pkill",~"-KILL -F \"" + hiawathaPIDFile + ~"\"","") : EndIf
 If FileSize(dataDir) <> -2 : CreateDirectory(dataDir) : EndIf
 If FileSize(dataDir + "/lyrics") <> -2 : CreateDirectory(dataDir + "/lyrics") : EndIf
-If FileSize(hiawathaCfgDir) <> -2 : CreateDirectory(hiawathaCfgDir) : EndIf
-If FileSize(hiawathaLogDir) = -2 : DeleteDirectory(hiawathaLogDir,"*.*",#PB_FileSystem_Recursive|#PB_FileSystem_Force) : EndIf
-CreateDirectory(hiawathaLogDir)
-DeleteFile(hiawathaCfgDir + "/hiawatha.conf",#PB_FileSystem_Force)
-DeleteFile(hiawathaCfgDir + "/mimetype.conf",#PB_FileSystem_Force)
-CopyFile(myDir + "/Web/Server/mimetype.conf",hiawathaCfgDir + "/mimetype.conf")
 If FileSize(dataDir + "/tmp") <> -2
   CreateDirectory(dataDir + "/tmp")
 Else
@@ -142,15 +129,9 @@ MenuItem(#PB_Menu_About,"")
 nowPlaying\ID = -1
 debugLog("main","ready to play")
 
-If alphaAlertShownFor <> #myVer
-  MessageRequester(#myNameVer,#alphaWarning,#PB_MessageRequester_Warning)
-EndIf
-alphaAlertShownFor = #myVer
-
-Define timeoutTime.i = #defaultTimeout
-
 Repeat
-  ev = WaitWindowEvent(timeoutTime)
+  ev = WaitWindowEvent(#defaultTimeout)
+  ;Debug "event"
   
   ; event processing
   Select ev
@@ -635,47 +616,32 @@ Repeat
       EndIf
     Case #evUpdateNowPlaying
       updateNowPlaying(EventType(),EventData())
-    Case #evFCGIStarted
-      debugLog("web","fcgi started on port " + Str(fcgiPort))
-    Case #evFCGIStopped
-      debugLog("web","fcgi stopped")
-    Case #evFCGIFailed
-      debugLog("web","fcgi failed binding to any port!")
-      MessageRequester(#myName,"FCGI init failed. Check that at least one of the ports in 50000:51000 range is free.",#PB_MessageRequester_Error)
-    Case #evFCGIUpdateNowPlaying
-      CopyStructure(@nowPlaying,@nowPlayingFCGI,nowPlaying)
-      fcgiProcessed = #True
-    Case #evFCGIGetAlbumArt
+    Case #evWebUpdateNowPlaying
+      CopyStructure(@nowPlaying,@webNowPlaying,nowPlaying)
+      webProcessed = #True
+    Case #evwebGetAlbumArt
+      If IsImage(#previewAlbumArt) : FreeImage(#previewAlbumArt) : EndIf
       If IsImage(#currentAlbumArt)
-        *fcgiAlbumArt = EncodeImage(#currentAlbumArt,#PB_ImagePlugin_JPEG)
+        CopyImage(#currentAlbumArt,#previewAlbumArt)
       Else
-        *fcgiAlbumArt = EncodeImage(#defaultAlbumArt,#PB_ImagePlugin_JPEG)
+        CopyImage(#defaultAlbumArt,#previewAlbumArt)
       EndIf
-      fcgiProcessed = #True
-    Case #evHiawathaStarted
-      debugLog("web","hiawatha started on port " + Str(settings\web\web_server_port))
+      ResizeImage(#previewAlbumArt,300,300,#PB_Image_Smooth)
+      *webAlbumArt = EncodeImage(#previewAlbumArt,#PB_ImagePlugin_JPEG,7)
+      webProcessed = #True
+    Case #evWebStarted
+      debugLog("web","web server started on port " + Str(settings\web\web_server_port))
       If IsWindow(#wndPrefs)
         HideGadget(#prefsWebLink,#False)
         SetGadgetText(#prefsWebLink,"running on port " + Str(settings\web\web_server_port))
       EndIf
-    Case #evHiawathaFailedToStart,#evHiawathaFailedBind
-      If IsWindow(#wndPrefs)
-        HideGadget(#prefsWebLink,#True)
-        SetGadgetState(#prefsWebEnable,#PB_Checkbox_Unchecked)
-      EndIf
-      flushSettings()
-      If ev = #evHiawathaFailedToStart
-        debugLog("web","hiawatha failed to start")
-        MessageRequester(#myName,"Web server failed to start and will be disabled. Try checking logs in `~/Library/Application Support/iCanHazMusic`.",#PB_MessageRequester_Error)
-      Else
-        debugLog("web","hiawatha failed to bind to port " + Str(settings\web\web_server_port))
-        MessageRequester(#myName,"Web server failed to bind to port " + Str(settings\web\web_server_port) + " and will be disabled. Free the port or change it in iCHM's preferences.",#PB_MessageRequester_Error)
-      EndIf
-    Case #evHiawathaDied
-      debugLog("web","hiawatha died unexpectedly")
-    Case #evHiawathaStopped
+    Case #evWebStopped
       If IsWindow(#wndPrefs) : HideGadget(#prefsWebLink,#True) : EndIf
-      debugLog("web","hiawatha stopped")
+      debugLog("web","web server stopped")
+    Case #evWebSleep
+      debugLog("web","switching to longer delays due to inactivity")
+    Case #evWebRequest
+      debugLog("web","new request " + Str(EventGadget()) + " from " + IPString(EventType()) + ":" + Str(EventData()))
   EndSelect
   
   ; audioplayer routine
@@ -696,30 +662,27 @@ Repeat
     lastHTTPRequestManagerProcess = ElapsedMilliseconds()
   EndIf
   
+  ; web server startup routine
   If settings\web\use_web_server
-    If Not IsThread(fcgiThread)
-      For i = 50000 To 51000
-        If isPortAvailable(i)
-          fcgiPort = i
-          Break
+    If Not IsThread(webThread) And ElapsedMilliseconds() - lastBindTry >= 3000
+      lastBindTry = ElapsedMilliseconds()
+      debugLog("web","checking port " + Str(settings\web\web_server_port))
+      If isPortAvailable(settings\web\web_server_port)
+        debugLog("web","starting web server")
+        webStop = #False
+        webThread = CreateThread(@webHandler(),settings\web\web_server_port)
+      Else
+        debugLog("web","port is busy")
+        If IsWindow(#wndPrefs)
+          HideGadget(#prefsWebLink,#True)
         EndIf
-      Next
-      debugLog("web","starting fcgi")
-      fcgiThread = CreateThread(@fcgiHandler(),fcgiPort)
-    EndIf
-    If Not IsThread(hiawathaWatcherThread)
-      debugLog("web","starting hiawatha")
-      hiawathaStop = #False
-      hiawathaWatcherThread = CreateThread(@hiawathaWatcher(),fcgiPort)
+      EndIf  
     EndIf
   Else
-    If IsThread(fcgiThread)
-      KillThread(fcgiThread)
-      PostEvent(#evFCGIStopped)
-    EndIf
-    If IsThread(hiawathaWatcherThread)
-      hiawathaStop = #True
-      WaitThread(hiawathaWatcherThread)
+    If IsThread(webThread)
+      debugLog("web","stopping web server")
+      webStop = #True
+      WaitThread(webThread)
     EndIf
   EndIf
   

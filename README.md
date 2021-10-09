@@ -20,7 +20,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 
 ## Current state
 #### What should work
- - m4a, aac, mp3, wav, ogg, flac and aiff playback
+ - m4a, aac, mp3, wav, ogg, oga, flac, alac, wv and ape playback
  - last.fm scrobbling and now playing updates (enable it in the menu)
  - playback navigation and queue
  - grouping by albums
@@ -47,6 +47,10 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - equalizer
  - tags editing, format conversion and other Swiss knife functions
  - advanced foobar2000-level customization (i'm too dumb for that, sorry)
+
+## Web interface & API
+Enable web server in preferences, then open http://0.0.0.0:8008/ (change port according to your settings), enter your API key when prompted. Go to http://0.0.0.0:8008/api/ to get the list of available methods. Example usage with curl:  
+`curl http://127.0.0.1:8008/api/play-pause -H 'X-Api-Key: your_api_key'`
 
 ## Enabling lyrics loading
 This should be changed in the future but for now in order for this to work you need to install [python3 from homebrew](https://formulae.brew.sh/formula/python@3.9) with `brew install python@3.9` and then [lyricgenius module](https://pypi.org/project/lyricsgenius/) with `pip3 install lyricsgenius`. Test that this works in your terminal:  

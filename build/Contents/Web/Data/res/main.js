@@ -1,3 +1,7 @@
+function isElementOverflowing(element) {
+    return element.offsetWidth < element.scrollWidth;
+}
+
 window.onload = function() {
     
     let albumArt = document.getElementById('albumArt');
@@ -12,7 +16,6 @@ window.onload = function() {
     let next = document.getElementById('next');
     let nextAlbum = document.getElementById('nextAlbum');
     let stop = document.getElementById('stop');
-    let auth = 'ichm';
 
     let currentID;
     let currentTrack;
@@ -21,6 +24,7 @@ window.onload = function() {
     let errorNotification;
     let npRequest;
     let npRequestCompleted = true;
+    let auth;
 
     function ichmUnavailable() {
         errorNotification = SimpleNotification.error({
@@ -39,29 +43,30 @@ window.onload = function() {
     function toolbarHandler(event) {
         switch(event.target) {
             case playPause:
-                method = 'playPause';
+                method = 'play-pause';
                 break;
             case previousAlbum:
-                method = 'previousAlbum';
+                method = 'previous-album';
                 break;
             case previous:
                 method = 'previous';
-                break;
-            case playPause:
-                method = 'playPause';
                 break;
             case next:
                 method = 'next';
                 break;
             case nextAlbum:
-                method = 'nextAlbum';
+                method = 'next-album';
                 break;
             case stop:
                 method = 'stop';
         }
 
         var toolbarRequest = new XMLHttpRequest();
-        toolbarRequest.open('GET','/api/?' + method);
+        toolbarRequest.open('GET','/api/' + method);
+        auth = window.localStorage.getItem('ichm-auth');
+        if (auth) {
+            toolbarRequest.setRequestHeader('X-Api-Key',auth)
+        }
         toolbarRequest.timeout = 5000;
         toolbarRequest.send();
         toolbarRequest.onload = function() {
@@ -85,9 +90,9 @@ window.onload = function() {
                     //insertAnimation: {name:'',duration:0},
                     //removeAnimation: {name:'',duration:0}
                 });
+                updateStatus();
             }
         }
-        updateStatus();
     }
 
     previousAlbum.onclick = toolbarHandler;
@@ -107,8 +112,8 @@ window.onload = function() {
             npRequestCompleted = true;
             if (npRequest.status == 401) {
                 npRequestCompleted = false;
-                auth = prompt('Please input you iCHM password:',auth);
-                setCookie('ichm-auth',auth,3650);
+                auth = prompt('Please enter you iCHM API key:',auth);
+                window.localStorage.setItem('ichm-auth',auth);
                 npRequestCompleted = true;
             } else if (npRequest.status != 200) {
                 ichmUnavailable();
@@ -118,7 +123,7 @@ window.onload = function() {
                     //console.log(nowPlayingData);
                     if (currentID != nowPlayingData.ID) {
                         currentID = nowPlayingData.ID;
-                        albumArt.innerHTML = '<img width="300" height="300" src="api/?albumart&ts=' + new Date().getTime() +'">';
+                        albumArt.innerHTML = '<img width="300" height="300" src="/album-art.jpg?ts=' + new Date().getTime() +'">';
                     }
                     if (nowPlayingData.ID != -1) {
                         if ((nowPlayingData.artist + ' - ' + nowPlayingData.title) != currentTrack) {
@@ -176,7 +181,11 @@ window.onload = function() {
             ichmUnavailable();
             npRequestCompleted = true;
         };
-        npRequest.open('GET','/api/?nowplaying');
+        npRequest.open('GET','/api/now-playing');
+        auth = window.localStorage.getItem('ichm-auth');
+        if (auth) {
+            npRequest.setRequestHeader('X-Api-Key',auth)
+        }
         npRequest.timeout = 5000;
         npRequest.ontimeout = function(e) {
             npRequestCompleted = true;

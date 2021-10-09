@@ -1,49 +1,17 @@
 ﻿#myName = "iCanHazMusic"
-#myVer = "0.2.0"
+#myVer = "0.3.0"
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
 #myURL = "https://github.com/deseven/iCanHazMusic"
 #myAbout = ~"written by deseven, 2021\n\nLicense: UNLICENSE\nURL: " + #myURL + 
            ~"\n\n3rd-party components:\n" +
-           ~" - FFmpeg (https://ffmpeg.org)\n" +
-           ~" - Hiawatha (https://www.hiawatha-webserver.org)"
+           ~" - FFmpeg (https://ffmpeg.org)"
 
 #geniusToken = "5ssfgWNLZE4ETICJ8EspeGmrVu-Jqp_W0S4q5cJ-Fz_tEKGYimesWxTx9dZ0CO_b"
 
 #lastfmEndpoint = "https://ws.audioscrobbler.com/"
 #lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
 #lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
-
-#alphaWarning = "This is a very early version of " + #myName + 
-                ~", it may contain bugs and... Who am I kidding, it does indeed contain bugs!\n\n" + 
-                "Please share your feedback by creating an issue on GitHub (https://github.com/deseven/iCanHazMusic/issues) or by contacting me directly (https://d7.wtf/contact)." +
-                ~"\n\n" +
-                ~"What should work: \n" +
-                ~" - m4a, aac, mp3, wav, ogg, flac and aiff playback\n" +
-                ~" - last.fm scrobbling and now playing updates (enable it in the menu)\n" +
-                ~" - playback navigation and queue\n" +
-                ~" - grouping by albums\n" +
-                ~" - dock menu\n" +
-                ~" - big (10k+ entries) playlists\n" +
-                ~" - window size and position saving\n" +
-                ~" - album art from external files\n" +
-                ~" - lyrics loading from Genius (if you installed the lyricsgenius module, see the readme in the repo)\n" +
-                ~" - queue, playback orders\n" +
-                ~"\n" +
-                ~"What should work in the future: \n" +
-                ~" - global hotkeys for playback\n" +
-                ~" - album art from tags\n" +
-                ~" - playlist entries rearrangement\n" +
-                ~" - seekbar\n" +
-                ~" - volume control\n" +
-                ~" - drag'n'drop operations\n" +
-                ~"\n" +
-                ~"What is not planned: \n" +
-                ~" - gapless playback (well, maybe someday...)\n" +
-                ~" - CUE support\n" +
-                ~" - equalizer\n" +
-                ~" - tags editing\n" +
-                ~" - advanced foobar2000-level customization (i'm too dumb for that, sorry)\n"
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
@@ -99,17 +67,12 @@ Enumeration globalEvents #PB_Event_FirstCustomValue
   #evUpdateNowPlaying
   #evNowPlayingRequestFinished
   #evScrobbleRequestFinished
-  #evFCGIFailed
-  #evFCGIStarted
-  #evFCGIStopped
-  #evFCGIUpdateNowPlaying
-  #evFCGIGetAlbumArt
-  #evHiawathaStarted
-  #evHiawathaFailedToStart
-  #evDummy
-  #evHiawathaFailedBind
-  #evHiawathaDied
-  #evHiawathaStopped
+  #evWebStarted
+  #evWebStopped
+  #evWebSleep
+  #evWebRequest
+  #evWebUpdateNowPlaying
+  #evWebGetAlbumArt
 EndEnumeration
 
 Enumeration columns
@@ -162,6 +125,7 @@ EndEnumeration
 Enumeration albumArt
   #defaultAlbumArt
   #currentAlbumArt
+  #previewAlbumArt
 EndEnumeration
 
 Enumeration lastfmAuthSteps
@@ -255,7 +219,6 @@ EndStructure
 
 Structure settings
   last_played_track_id.i
-  alpha_alert_shown_for.s
   web.settingsWeb
   lastfm.settingsLastfm
   window.settingsWindow
