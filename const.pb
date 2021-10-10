@@ -1,7 +1,8 @@
 ﻿#myName = "iCanHazMusic"
-#myVer = "0.3.0"
+#myVer = "0.3.1"
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
+#myID = "wtf.d7.icanhazmusic"
 #myURL = "https://github.com/deseven/iCanHazMusic"
 #myAbout = ~"written by deseven, 2021\n\nLicense: UNLICENSE\nURL: " + #myURL + 
            ~"\n\n3rd-party components:\n" +
@@ -12,6 +13,8 @@
 #lastfmEndpoint = "https://ws.audioscrobbler.com/"
 #lastfmAPIKey = "b29cdf01b8e0a255c6a55e68685d6cdf"
 #lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
+
+#terminalNotifier = "/usr/local/bin/terminal-notifier"
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
@@ -46,6 +49,10 @@ Enumeration
   #toolbarLyricsReload
   #toolbarLyricsReloadWeb
   #prefsPanel
+  #prefsUseTerminalNotifier
+  #prefsUseTerminalNotifierNote
+  #prefsUseGenius
+  #prefsUseGeniusNote
   #prefsWebEnable
   #prefsWebPort
   #prefsWebPortLabel
@@ -219,6 +226,8 @@ EndStructure
 
 Structure settings
   last_played_track_id.i
+  use_terminal_notifier.b
+  use_genius.b
   web.settingsWeb
   lastfm.settingsLastfm
   window.settingsWindow

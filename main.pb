@@ -36,11 +36,12 @@ Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
 Define nextID.i
 Define ffprobe.s = myDir + "/Tools/ffprobe-ichm"
-Define lyricsAvailable.b
+Define geniusAvailable.b
 Define dropCount.i
 Define *response.HTTPRequestManager::response
 Define responseResult.s
 Define lastHTTPRequestManagerProcess.i
+Define seekbarSelect.d
 
 ; web server stuff
 Define webPort.l
@@ -97,7 +98,7 @@ EndIf
 
 IncludeFile "proc.pb"
 
-lyricsAvailable = canLoadLyrics()
+geniusAvailable = canLoadLyrics()
 
 IncludeFile "interface.pb"
 debugLog("main","interface loaded")
@@ -136,13 +137,23 @@ Repeat
   ; event processing
   Select ev
       
+    Case #PB_Event_LeftClick
+      If EventWindow() = #wnd
+        seekbarSelect = getProgressBarPosition(#wnd,#nowPlayingProgress,5,5)
+        If seekbarSelect <> -1 And nowPlaying\ID <> -1
+          seekbarSelect = seekbarSelect*(nowPlaying\durationSec/100)
+          If seekbarSelect > nowPlaying\durationSec : seekbarSelect = durationSec : EndIf
+          nowPlaying\currentTime = audioplayer::setCurrentTime(seekbarSelect)
+          PostEvent(#evUpdateNowPlaying,#wnd,0,nowPlaying\currentTime,nowPlaying\durationSec)
+        EndIf
+      EndIf
+      
     Case #PB_Event_CloseWindow
       Select EventWindow()
         Case #wnd
           Break
         Case #wndPrefs
-          saveSettings()
-          loadSettings()
+          flushSettings()
       EndSelect
       CloseWindow(EventWindow())
       
@@ -399,7 +410,7 @@ Repeat
               EndIf
           EndSelect
         Case #toolbarLyricsReloadWeb
-          If lyricsAvailable
+          If geniusAvailable
             If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
             HideGadget(#toolbarLyricsReloadWeb,#True)
             SetGadgetText(#lyrics,"[looking for lyrics...]")
@@ -471,6 +482,8 @@ Repeat
           flushSettings()
         Case #prefsWebLink
           RunProgram("open","http://0.0.0.0:" + Str(settings\web\web_server_port),"")
+        Case #prefsUseTerminalNotifier,#prefsUseGenius
+          flushSettings()
       EndSelect
       
     ; drag'n'drop processing
@@ -565,6 +578,7 @@ Repeat
       If lastfmSession
         debugLog("lastfm","updating nowplaying " + Str(nowPlaying\ID))
         lastfmUpdateNowPlaying()
+        playbackNotification()
       EndIf
     Case #evPlayFinish
       debugLog("playback","track ended")
@@ -648,7 +662,7 @@ Repeat
   If audioplayer::getPlayerID() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
     If lastDurationUpdate + 900 <= ElapsedMilliseconds()
       lastDurationUpdate = ElapsedMilliseconds()
-      newCurrent = audioplayer::getCurrentTime()/1000
+      newCurrent = audioplayer::getCurrentTime()
       If oldCurrent <> newCurrent
         oldCurrent = newCurrent
         PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)

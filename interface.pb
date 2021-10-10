@@ -83,16 +83,13 @@ GadgetToolTip(#toolbarStop,"Stop")
 GadgetToolTip(#toolbarLyricsReloadWeb,"Reload lyrics from Genius")
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
-If Not lyricsAvailable
-  SetGadgetText(#lyrics,"[lyrics disabled]")
-  HideGadget(#lyrics,#True)
-EndIf
 HideGadget(#toolbarLyricsReloadWeb,#True)
 
 Macro prefs()
   OpenWindow(#wndPrefs,0,0,400,300,#myName + " Preferences",#PB_Window_ScreenCentered|#PB_Window_SystemMenu|#PB_Window_Tool,WindowID(#wnd))
   ;StickyWindow(#wndPrefs,#True)
-  PanelGadget(#prefsPanel,0,0,400,300)
+  PanelGadget(#prefsPanel,0,0,400,300) 
+  
   AddGadgetItem(#prefsPanel,-1,"Web")
   CheckBoxGadget(#prefsWebEnable,10,5,240,20,"Enable web server")
   HyperLinkGadget(#prefsWebLink,250,9,160,20,"",$00aa00,#PB_HyperLink_Underline)
@@ -115,5 +112,17 @@ Macro prefs()
     SetGadgetText(#prefsWebLink,"running on port " + Str(settings\web\web_server_port))
   Else
     HideGadget(#prefsWebLink,#True)
+  EndIf
+  
+  AddGadgetItem(#prefsPanel,-1,"Features")
+  CheckBoxGadget(#prefsUseTerminalNotifier,10,5,360,20,"Use terminal-notifier if available")
+  TextGadget(#prefsUseTerminalNotifierNote,10,25,360,60,"Used for playback notifications. It must be accessible as " + #terminalNotifier + ~". Install it with brew:\n`brew install terminal-notifier`")
+  CheckBoxGadget(#prefsUseGenius,10,100,360,20,"Use LyricsGenius if available")
+  TextGadget(#prefsUseGeniusNote,10,120,360,80,~"Used for downloading lyrics. Install it with brew and pip:\n`brew install python@3`\n`pip3 install lyricsgenius`\nTest by calling:\n`/usr/local/bin/python3 -m lyricsgenius -h`")
+  If settings\use_terminal_notifier
+    SetGadgetState(#prefsUseTerminalNotifier,#PB_Checkbox_Checked)
+  EndIf
+  If settings\use_genius
+    SetGadgetState(#prefsUseGenius,#PB_Checkbox_Checked)
   EndIf
 EndMacro

@@ -329,10 +329,22 @@ Procedure saveSettings()
     Else
       settings\web\use_web_server = #False
     EndIf
+    If GetGadgetState(#prefsUseTerminalNotifier) = #PB_Checkbox_Checked
+      settings\use_terminal_notifier = #True
+    Else
+      settings\use_terminal_notifier = #False
+    EndIf
+    If GetGadgetState(#prefsUseGenius) = #PB_Checkbox_Checked
+      settings\use_genius = #True
+    Else
+      settings\use_genius = #False
+    EndIf
   EndIf
   
   Protected object.i = SetJSONObject(JSONValue(json))
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
+  SetJSONBoolean(AddJSONMember(object,"use_terminal_notifier"),settings\use_terminal_notifier)
+  SetJSONBoolean(AddJSONMember(object,"use_genius"),settings\use_genius)
   
   Protected objectWeb = SetJSONObject(AddJSONMember(object,"web"))
   SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),settings\web\use_web_server)
@@ -410,6 +422,8 @@ Procedure loadSettings()
   settings\playback\playback_order = "default"
   settings\web\use_web_server = #False
   settings\web\web_server_port = 8008
+  settings\use_terminal_notifier = #True
+  settings\use_genius = #True
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
@@ -433,6 +447,12 @@ Procedure loadSettings()
       Else
         SetGadgetState(#prefsWebEnable,#PB_Checkbox_Unchecked)
         DisableGadget(#prefsWebPort,#False)
+      EndIf
+      If settings\use_terminal_notifier
+        SetGadgetState(#prefsUseTerminalNotifier,#PB_Checkbox_Checked)
+      EndIf
+      If settings\use_genius
+        SetGadgetState(#prefsUseGenius,#PB_Checkbox_Checked)
       EndIf
     EndIf
     
@@ -983,6 +1003,31 @@ ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
   ProcedureReturn IsGroupRow
 EndProcedure
 
+Procedure playbackNotification()
+  Shared nowPlaying
+  Shared settings
+  If settings\use_terminal_notifier
+    If FileSize(#terminalNotifier) > 0
+      Protected NewList args.s()
+      AddElement(args()) : args() = "-sender"
+      AddElement(args()) : args() = #myID
+      AddElement(args()) : args() = "-group"
+      AddElement(args()) : args() = "ichm"
+      AddElement(args()) : args() = "-title"
+      AddElement(args()) : args() = nowPlaying\title
+      AddElement(args()) : args() = "-subtitle"
+      AddElement(args()) : args() = nowPlaying\artist
+      AddElement(args()) : args() = "-message"
+      AddElement(args()) : args() = nowPlaying\details
+      If FileSize(nowPlaying\albumArt) > 0
+        AddElement(args()) : args() = "-contentImage"
+        AddElement(args()) : args() = nowPlaying\albumArt
+      EndIf
+      RunProgramNative(#terminalNotifier,args(),"","",#True)
+    EndIf
+  EndIf
+EndProcedure
+
 Procedure webHandler(port.l)
   Protected activity.i = BeginWork(#NSActivityBackground,"iCHM web server")
   Protected webEvent.i
@@ -1023,7 +1068,7 @@ Procedure webHandler(port.l)
       Select webEvent
         Case #PB_NetworkEvent_None
           If (Not isSleeping) And (ElapsedMilliseconds() - lastEvent > 10000)
-            isSleeping = #True : sleepTime = 700
+            isSleeping = #True : sleepTime = 500
             PostEvent(#evWebSleep)
           EndIf
         Case #PB_NetworkEvent_Connect

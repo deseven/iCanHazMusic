@@ -74,7 +74,7 @@ Procedure RecursiveDirectorySafe(path$, List File.s())
    
 EndProcedure
 
-Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
+Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "",runAndForget = #False)
   Protected i
   Protected arg.s
   Protected argsArray
@@ -120,11 +120,12 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
     Protected stringData = CocoaMessage(0,string,"dataUsingEncoding:",#NSUTF8StringEncoding)
   EndIf
   
-  Protected readPipe = CocoaMessage(0,0,"NSPipe pipe")
-  Protected readHandle = CocoaMessage(0,readPipe,"fileHandleForReading")
-  CocoaMessage(0,task,"setStandardOutput:",readPipe)
-  
-  CocoaMessage(0,task,"setStandardError:",CocoaMessage(0,task,"standardOutput"))
+  If Not runAndForget
+    Protected readPipe = CocoaMessage(0,0,"NSPipe pipe")
+    Protected readHandle = CocoaMessage(0,readPipe,"fileHandleForReading")
+    CocoaMessage(0,task,"setStandardOutput:",readPipe)
+    CocoaMessage(0,task,"setStandardError:",CocoaMessage(0,task,"standardOutput"))
+  EndIf
   
   CocoaMessage(0,task,"launch")
   
@@ -133,11 +134,13 @@ Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "")
     CocoaMessage(0,writeHandle,"closeFile")
   EndIf
   
-  Protected outputData = CocoaMessage(0,readHandle,"readDataToEndOfFile")
-  CocoaMessage(0,readHandle,"closeFile")
-  If outputData
-    Protected stdoutNative = CocoaMessage(0,CocoaMessage(0,0,"NSString alloc"),"initWithData:",outputData,"encoding:",#NSUTF8StringEncoding)
-    stdout = PeekS(CocoaMessage(0,stdoutNative,"UTF8String"),-1,#PB_UTF8)
+  If Not runAndForget
+    Protected outputData = CocoaMessage(0,readHandle,"readDataToEndOfFile")
+    CocoaMessage(0,readHandle,"closeFile")
+    If outputData
+      Protected stdoutNative = CocoaMessage(0,CocoaMessage(0,0,"NSString alloc"),"initWithData:",outputData,"encoding:",#NSUTF8StringEncoding)
+      stdout = PeekS(CocoaMessage(0,stdoutNative,"UTF8String"),-1,#PB_UTF8)
+    EndIf
   EndIf
   
   CocoaMessage(0,task,"release")
@@ -299,6 +302,29 @@ Procedure EndWork(Activity)
   EndIf
 EndProcedure
 
+Procedure.f getProgressBarPosition(window.i,gadget.i,topOffset = 0,bottomOffset = 0)
+  If IsGadget(gadget) And IsWindow(window)
+    Protected curX.i = WindowMouseX(window)
+    Protected curY.i = WindowMouseY(window)
+    If curX >= 0 And curY >= 0
+      Protected gadX.i = GadgetX(gadget,#PB_Gadget_WindowCoordinate)
+      Protected gadY.i = GadgetY(gadget,#PB_Gadget_WindowCoordinate)
+      Protected gadW.i = GadgetWidth(gadget,#PB_Gadget_ActualSize)
+      Protected gadH.i = GadgetHeight(gadget,#PB_Gadget_ActualSize)
+      If (curX >= gadX) And (curX <= gadX + gadW) And (curY >= gadY) And (curY <= gadY + gadH)
+        Protected locX.i = curX - gadX
+        Protected locY.i = curY - gadY
+        If (locY - topOffset >= 0) And (gadH - locY >= bottomOffset)
+          Protected gadP.f = gadW/100
+          Protected gadC.f = locX/gadP
+          ProcedureReturn gadC
+        EndIf
+      EndIf
+    EndIf
+  EndIf
+  ProcedureReturn -1
+EndProcedure
+
 Macro cleanUp()
   debugLog("main","cleaning up")
   EXIT = #True
@@ -346,11 +372,6 @@ Macro doPlay()
   nowPlaying\album = GetGadgetItemText(#playlist,nowPlaying\ID,#album)
   nowPlaying\duration = GetGadgetItemText(#playlist,nowPlaying\ID,#duration)
   debugLog("playback","loading " + nowPlaying\path)
-  If Len(nowPlaying\duration) > 5
-    nowPlaying\durationSec = ParseDate("%hh:%ii:%ss",nowPlaying\duration)
-  Else
-    nowPlaying\durationSec = ParseDate("%ii:%ss",nowPlaying\duration)
-  EndIf
   nowPlaying\details = GetGadgetItemText(#playlist,nowPlaying\ID,#details)
   nowPlaying\lyrics = ""
   nowPlaying\isPaused = #False
@@ -359,20 +380,23 @@ Macro doPlay()
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
   SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myNameVer)
   SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
+  audioplayer::load(nowPlaying\path)
+  audioplayer::setFinishEvent(#evPlayFinish)
+  audioplayer::play()
+  nowPlaying\durationSec = audioplayer::getDuration()
   If nowPlaying\durationSec >= 3600
     SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
   Else
     SetGadgetText(#nowPlayingDuration,"00:00 / " + nowPlaying\duration)
   EndIf
-  audioplayer::load(nowPlaying\path)
-  audioplayer::setFinishEvent(#evPlayFinish)
-  audioplayer::play()
-  nowPlaying\durationSec = audioplayer::getDuration()/1000
   SetGadgetState(#nowPlayingProgress,0)
-  If lyricsAvailable
+  If settings\use_genius And geniusAvailable
     HideGadget(#toolbarLyricsReloadWeb,#True)
     SetGadgetText(#lyrics,"[looking for lyrics...]")
     lyricsThread = CreateThread(@lyrics(),#False)
+  Else
+    HideGadget(#toolbarLyricsReloadWeb,#True)
+    SetGadgetText(#lyrics,"")
   EndIf
   loadAlbumArt()
   LastElement(history()) : AddElement(history()) : history() = nowPlaying\ID
@@ -402,11 +426,10 @@ Macro doStop()
   SetGadgetText(#toolbarPlayPause,#playSymbol)
   SetWindowTitle(#wnd,#myNameVer)
   SetGadgetText(#nowPlaying,"")
+  HideGadget(#toolbarLyricsReloadWeb,#True)
   SetGadgetText(#nowPlayingDuration,"[standby]")
   SetGadgetState(#nowPlayingProgress,0)
-  If lyricsAvailable
-    SetGadgetText(#lyrics,"")
-  EndIf
+  SetGadgetText(#lyrics,"")
   loadAlbumArt()
 EndMacro
 
