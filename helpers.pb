@@ -260,7 +260,7 @@ Macro cleanUp()
 EndMacro
 
 Macro die()
-  doStop()
+  audioplayer::free()
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If IsThread(webThread)
     debugLog("web","stopping web server")
