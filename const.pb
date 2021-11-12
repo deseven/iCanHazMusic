@@ -1,5 +1,5 @@
 ﻿#myName = "iCanHazMusic"
-#myVer = "0.3.1"
+#myVer = "0.4.0"
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
 #myID = "wtf.d7.icanhazmusic"
@@ -132,7 +132,7 @@ EndEnumeration
 Enumeration albumArt
   #defaultAlbumArt
   #currentAlbumArt
-  #previewAlbumArt
+  #tmpImage
 EndEnumeration
 
 Enumeration lastfmAuthSteps

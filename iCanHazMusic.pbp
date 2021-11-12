@@ -7,28 +7,28 @@
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2021-10-10 12:25" user="deseven" host="de7mac.local"/>
+    <lastopen date="2021-10-11 11:41" user="deseven" host="de7mac.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="6945fd39f02ef56f95e4205e1a077f5b"/>
+      <fingerprint md5="40819be120625e0f52c1fe8a1ccb351b"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="3d309e2bd12fa406a24481a8ee0b64dd"/>
+      <fingerprint md5="44bd32acea0e241e924e0bc580d16150"/>
     </file>
     <file name="interface.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="dec12312c30332baf2e323fc4927fe5f"/>
+      <fingerprint md5="408b94fbdf4ea2ba22c9d8be669e184e"/>
     </file>
     <file name="main.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="542cda1b408256234571608d2905de30"/>
+      <fingerprint md5="769f6ba9a763e3cfae61fbac0e18e9a9"/>
     </file>
     <file name="proc.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="889b5a382bdaad855420af93be01b0f6"/>
+      <fingerprint md5="75165f9f36d48d3f4ecbc4c25d2e42cd"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
@@ -36,7 +36,7 @@
     </file>
     <file name="../pb-macos-audioplayer/audioplayer.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="28832e0d35ad3e2bff02720b2b923dac"/>
+      <fingerprint md5="38aa084398365c74497ae9ec8d7234a8"/>
     </file>
   </section>
   <section name="targets">

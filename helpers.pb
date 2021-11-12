@@ -74,84 +74,6 @@ Procedure RecursiveDirectorySafe(path$, List File.s())
    
 EndProcedure
 
-Procedure.s RunProgramNative(path.s,List args.s(),workdir.s = "",stdin.s = "",runAndForget = #False)
-  Protected i
-  Protected arg.s
-  Protected argsArray
-  Protected stdout.s
-  
-  If FileSize(path) <= 0
-    ProcedureReturn ""
-  EndIf
-  
-  If Not _IsMainScope
-    Protected Pool = CocoaMessage(0,0,"NSAutoreleasePool new")
-  EndIf
-  
-  If ListSize(args())
-    SelectElement(args(),0)
-    arg = args()
-    argsArray = CocoaMessage(0,0,"NSArray arrayWithObject:$",@arg)
-    If ListSize(args()) > 1
-      For i = 1 To ListSize(args()) - 1
-        SelectElement(args(),i)
-        arg = args()
-        argsArray = CocoaMessage(0,argsArray,"arrayByAddingObject:$",@arg)
-      Next
-    EndIf
-  EndIf
-  Protected task = CocoaMessage(0,CocoaMessage(0,0,"NSTask alloc"),"init")
-  
-  CocoaMessage(0,task,"setLaunchPath:$",@path)
-  
-  If argsArray
-    CocoaMessage(0,task,"setArguments:",argsArray)
-  EndIf
-  
-  If workdir
-    CocoaMessage(0,task,"setCurrentDirectoryPath:$",@workdir)
-  EndIf
-  
-  If stdin
-    Protected writePipe = CocoaMessage(0,0,"NSPipe pipe")
-    Protected writeHandle = CocoaMessage(0,writePipe,"fileHandleForWriting")
-    CocoaMessage(0,task,"setStandardInput:",writePipe)
-    Protected string = CocoaMessage(0,0,"NSString stringWithString:$",@stdin)
-    Protected stringData = CocoaMessage(0,string,"dataUsingEncoding:",#NSUTF8StringEncoding)
-  EndIf
-  
-  If Not runAndForget
-    Protected readPipe = CocoaMessage(0,0,"NSPipe pipe")
-    Protected readHandle = CocoaMessage(0,readPipe,"fileHandleForReading")
-    CocoaMessage(0,task,"setStandardOutput:",readPipe)
-    CocoaMessage(0,task,"setStandardError:",CocoaMessage(0,task,"standardOutput"))
-  EndIf
-  
-  CocoaMessage(0,task,"launch")
-  
-  If stdin
-    CocoaMessage(0,writeHandle,"writeData:",stringData)
-    CocoaMessage(0,writeHandle,"closeFile")
-  EndIf
-  
-  If Not runAndForget
-    Protected outputData = CocoaMessage(0,readHandle,"readDataToEndOfFile")
-    CocoaMessage(0,readHandle,"closeFile")
-    If outputData
-      Protected stdoutNative = CocoaMessage(0,CocoaMessage(0,0,"NSString alloc"),"initWithData:",outputData,"encoding:",#NSUTF8StringEncoding)
-      stdout = PeekS(CocoaMessage(0,stdoutNative,"UTF8String"),-1,#PB_UTF8)
-    EndIf
-  EndIf
-  
-  CocoaMessage(0,task,"release")
-  
-  If Pool
-    CocoaMessage(0,Pool,"release")
-  EndIf
-  
-  ProcedureReturn stdout
-EndProcedure
-
 Procedure.i unixtimeUTC()
   If Not _IsMainScope
     Protected Pool = CocoaMessage(0,0,"NSAutoreleasePool new")
@@ -219,16 +141,14 @@ Procedure.s ReadFileFast(path.s)
   ProcedureReturn string
 EndProcedure
 
-Procedure ReadBinaryFileFast(path.s,*data)
+Procedure ReadBinaryFileFast(path.s)
   Protected file = ReadFile(#PB_Any,path)
+  Protected *data
   If file
-    If MemorySize(*data) >= Lof(file)
-      ReadData(file,*data,Lof(file))
-      CloseFile(file)
-      ProcedureReturn #True
-    Else
-      CloseFile(file)
-    EndIf
+    *data = AllocateMemory(Lof(file))
+    ReadData(file,*data,Lof(file))
+    CloseFile(file)
+    ProcedureReturn *data
   EndIf
 EndProcedure
 
@@ -358,9 +278,7 @@ Macro die()
 EndMacro
 
 Macro doPlay()
-  If audioplayer::getPlayerID()
-    audioplayer::free()
-  EndIf
+  preloadID = -1
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1
     SetGadgetItemText(#playlist,nowPlaying\ID,"",#status)
@@ -380,10 +298,24 @@ Macro doPlay()
   SetGadgetItemText(#playlist,nowPlaying\ID,#playSymbol,#status)
   SetWindowTitle(#wnd,nowPlaying\artist +" - " + nowPlaying\title + " (" + nowPlaying\duration + ")" + " • " + #myNameVer)
   SetGadgetText(#nowPlaying,nowPlaying\artist + " - " + nowPlaying\title + ~"\n" + nowPlaying\album + ~"\n" + nowPlaying\details)
-  audioplayer::load(nowPlaying\path)
-  audioplayer::setFinishEvent(#evPlayFinish)
-  audioplayer::play()
-  nowPlaying\durationSec = audioplayer::getDuration()
+  If currentAP
+    audioplayer::free(currentAP)
+    currentAP = 0
+  EndIf
+  If preloadAP And audioplayer::getPath(preloadAP) = nowPlaying\path
+    debugLog("playback","using preloaded AP")
+    currentAP = preloadAP
+    preloadAP = 0
+  Else
+    If preloadAP
+      audioplayer::free(preloadAP)
+      preloadAP = 0
+    EndIf
+    currentAP = audioplayer::load(#PB_Any,nowPlaying\path)
+    audioplayer::play(currentAP)
+  EndIf
+  audioplayer::setFinishEvent(currentAP,#evPlayFinish)
+  nowPlaying\durationSec = audioplayer::getDuration(currentAP)
   If nowPlaying\durationSec >= 3600
     SetGadgetText(#nowPlayingDuration,"00:00:00 / " + nowPlaying\duration)
   Else
@@ -404,7 +336,7 @@ Macro doPlay()
     FirstElement(history())
     DeleteElement(history())
   EndIf
-  If audioplayer::getTempPath()
+  If audioplayer::getTempPath(currentAP)
     debugLog("playback","playing (ffmpeg)")
   Else
     debugLog("playback","playing (native)")
@@ -413,9 +345,15 @@ Macro doPlay()
 EndMacro
 
 Macro doStop()
+  preloadID = -1
   debugLog("playback","stop")
-  If audioplayer::getPlayerID()
-    audioplayer::free()
+  If currentAP
+    audioplayer::free(currentAP)
+    currentAP = 0
+  EndIf
+  If preloadAP
+    audioplayer::free(preloadAP)
+    preloadAP = 0
   EndIf
   If IsThread(lyricsThread) : KillThread(lyricsThread) : EndIf
   If nowPlaying\ID <> -1

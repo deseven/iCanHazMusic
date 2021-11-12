@@ -42,6 +42,8 @@ AddGadgetColumn(#playlist,#duration,"Duration",65)
 AddGadgetColumn(#playlist,#album,"Album",150)
 AddGadgetColumn(#playlist,#details,"Details",80)
 
+;CocoaMessage(0,GadgetID(#playlist),"setFloatsGroupRows:",#NO)
+
 ListIconGadgetHideColumn(#playlist,#file,#True)
 SetListIconColumnJustification(#playlist,#status,#justifyCenter)
 SetListIconColumnJustification(#playlist,#track,#justifyRight)
@@ -52,6 +54,8 @@ SetListIconColumnJustification(#playlist,#details,#justifyRight)
 ;CocoaMessage(0, GadgetID(#playlist), "setUsesAutomaticRowHeights:", #YES)
 CocoaMessage(0,GadgetID(#playlist),"setAllowsTypeSelect:",#NO)
 
+;CocoaMessage(0,GadgetID(#playlist),"setStyle:",4)
+
 LoadFont(1,"Menlo",24,#PB_Font_Bold)
 CreateImage(#defaultAlbumArt,500,500)
 StartDrawing(ImageOutput(#defaultAlbumArt))
@@ -61,10 +65,15 @@ DrawText(500/2-TextWidth("[no album art]")/2,500/2-TextHeight("[no album art]")/
 StopDrawing()
 FreeFont(1)
 ImageGadget(#albumArt,WindowWidth(#wnd)-500,0,500,500,ImageID(#defaultAlbumArt))
+CopyImage(#defaultAlbumArt,#tmpImage)
+ResizeImage(#tmpImage,300,300,#PB_Image_Smooth)
+SaveImage(#tmpImage,dataDir + "/tmp/album-art.jpg",#PB_ImagePlugin_JPEG,7)
+FreeImage(#tmpImage)
 
 TextGadget(#nowPlaying,WindowWidth(#wnd)-500,500,500,59,"",#PB_Text_Center)
 TextGadget(#nowPlayingDuration,WindowWidth(#wnd)-500,559,500,16,"[standby]",#PB_Text_Center)
 ProgressBarGadget(#nowPlayingProgress,WindowWidth(#wnd)-495,575,490,20,0,100)
+SetGadgetState(#nowPlayingProgress,-2)
 
 ButtonGadget(#toolbarPreviousAlbum,WindowWidth(#wnd)-495,595,50,25,#previousAlbumSymbol)
 ButtonGadget(#toolbarPrevious,WindowWidth(#wnd)-445,595,50,25,#previousSymbol)

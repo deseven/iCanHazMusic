@@ -7,6 +7,7 @@ IncludeFile "const.pb"
 IncludeFile "helpers.pb"
 IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
 IncludeFile "../pb-httprequest-manager/httprequest-manager.pbi"
+IncludeFile "../pb-macos-task/task.pbi"
 
 Define settings.settings
 NewList tagsToGet.track_info()
@@ -35,6 +36,9 @@ Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
 Define nextID.i
+Define preloadID.i = -1
+Define currentAP.l
+Define preloadAP.l
 Define ffprobe.s = myDir + "/Tools/ffprobe-ichm"
 Define geniusAvailable.b
 Define dropCount.i
@@ -47,7 +51,6 @@ Define seekbarSelect.d
 Define webPort.l
 Define webStop.b
 Define webProcessed.b
-Define *webAlbumArt
 Define webNowPlaying.nowPlaying
 Define lastBindTry.i = ElapsedMilliseconds() - 5000
 
@@ -79,6 +82,7 @@ UseZipPacker()
 InitNetwork()
 HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
 audioplayer::setffmpegPath(myDir + "/Tools/ffmpeg-ichm")
+audioplayer::setFFmpegTempDirPath(dataDir + "/tmp")
 audioplayer::addFFmpegFormat("flac")
 audioplayer::addFFmpegFormat("oga")
 audioplayer::addFFmpegFormat("ogg")
@@ -124,6 +128,8 @@ AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
 
 EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
 
+BindEvent(#evPlayFinish,@playFinishHandler())
+
 MenuItem(#PB_Menu_Preferences,"")
 MenuItem(#PB_Menu_About,"")
 
@@ -143,7 +149,7 @@ Repeat
         If seekbarSelect <> -1 And nowPlaying\ID <> -1
           seekbarSelect = seekbarSelect*(nowPlaying\durationSec/100)
           If seekbarSelect > nowPlaying\durationSec : seekbarSelect = durationSec : EndIf
-          nowPlaying\currentTime = audioplayer::setCurrentTime(seekbarSelect)
+          nowPlaying\currentTime = audioplayer::setCurrentTime(currentAP,seekbarSelect)
           PostEvent(#evUpdateNowPlaying,#wnd,0,nowPlaying\currentTime,nowPlaying\durationSec)
         EndIf
       EndIf
@@ -393,6 +399,10 @@ Repeat
                   nextID = GetGadgetState(#playlist)
                   currentAlbum = GetGadgetItemText(#playlist,nextID,#album)
                   historyEnabled = #True
+                  If preloadAP
+                    audioplayer::free(preloadAP)
+                    preloadAP = 0
+                  EndIf
                   doPlay()
                   saveSettings()
                 Else
@@ -427,15 +437,15 @@ Repeat
             If GetGadgetState(#playlist) > -1
               PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
             EndIf
-          ElseIf audioplayer::getPlayerID()
+          ElseIf audioplayer::getPlayerID(currentAP)
             If nowPlaying\isPaused
               nowPlaying\isPaused = #False
-              audioplayer::play()
+              audioplayer::play(currentAP)
               debugLog("playback","continued")
               SetGadgetText(#toolbarPlayPause,#pauseSymbol)
             Else
               nowPlaying\isPaused = #True
-              audioplayer::pause()
+              audioplayer::pause(currentAP)
               debugLog("playback","paused")
               SetGadgetText(#toolbarPlayPause,#playSymbol)
             EndIf
@@ -580,13 +590,6 @@ Repeat
         lastfmUpdateNowPlaying()
         playbackNotification()
       EndIf
-    Case #evPlayFinish
-      debugLog("playback","track ended")
-      If lastfmSession
-        debugLog("lastfm","scrobbling " + Str(nowPlaying\ID))
-        lastfmScrobble()
-      EndIf
-      PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
     Case #evLyricsFail
       SetGadgetText(#lyrics,"[no lyrics found]")
       HideGadget(#toolbarLyricsReloadWeb,#False)
@@ -633,15 +636,8 @@ Repeat
     Case #evWebUpdateNowPlaying
       CopyStructure(@nowPlaying,@webNowPlaying,nowPlaying)
       webProcessed = #True
-    Case #evwebGetAlbumArt
-      If IsImage(#previewAlbumArt) : FreeImage(#previewAlbumArt) : EndIf
-      If IsImage(#currentAlbumArt)
-        CopyImage(#currentAlbumArt,#previewAlbumArt)
-      Else
-        CopyImage(#defaultAlbumArt,#previewAlbumArt)
-      EndIf
-      ResizeImage(#previewAlbumArt,300,300,#PB_Image_Smooth)
-      *webAlbumArt = EncodeImage(#previewAlbumArt,#PB_ImagePlugin_JPEG,7)
+    Case #evWebGetAlbumArt
+      ; to make sure that at least one event was processed
       webProcessed = #True
     Case #evWebStarted
       debugLog("web","web server started on port " + Str(settings\web\web_server_port))
@@ -659,12 +655,20 @@ Repeat
   EndSelect
   
   ; audioplayer routine
-  If audioplayer::getPlayerID() And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
+  If audioplayer::getPlayerID(currentAP) And nowPlaying\ID <> -1 And nowPlaying\isPaused = #False
     If lastDurationUpdate + 900 <= ElapsedMilliseconds()
       lastDurationUpdate = ElapsedMilliseconds()
-      newCurrent = audioplayer::getCurrentTime()
+      newCurrent = audioplayer::getCurrentTime(currentAP)
       If oldCurrent <> newCurrent
         oldCurrent = newCurrent
+        If nowPlaying\durationSec - newCurrent <= 5 And preloadAP = 0 And preloadID = -1 And playbackOrder <> #playbackOrderShuffleTracks
+          preloadID = getNextTrack(#True)
+          Debug "got next id for preload: " + Str(preloadID)
+          If preloadID <> -1
+            preloadAP = audioplayer::load(#PB_Any,GetGadgetItemText(#playlist,preloadID,#file))
+            debugLog("playback","preloaded " + audioplayer::getPath(preloadAP))
+          EndIf
+        EndIf
         PostEvent(#evUpdateNowPlaying,#wnd,0,newCurrent,nowPlaying\durationSec)
       EndIf
     EndIf

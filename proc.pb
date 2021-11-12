@@ -155,7 +155,7 @@ Procedure getTags(start.i)
   Protected json.s
   Protected NewMap tags_lcase.s()
   Protected i.i
-  Protected NewList args.s()
+  Protected task.task::task
   
   Delay(start * 100) ; to spread execution times
   
@@ -170,87 +170,98 @@ Procedure getTags(start.i)
     Protected path.s = tagsToGet()\path
     UnlockMutex(tagsToGetLock)
     
-    ClearList(args())
-    AddElement(args()) : args() = "-v"
-    AddElement(args()) : args() = "quiet"
-    AddElement(args()) : args() = "-print_format"
-    AddElement(args()) : args() = "json"
-    AddElement(args()) : args() = "-show_format"
-    AddElement(args()) : args() = "-show_streams"
-    AddElement(args()) : args() = path
+    ClearStructure(@task,task::task)
+    InitializeStructure(@task,task::task)
+    With task
+      \path = ffprobe
+      \wait_program = #True
+      \read_output = #True
+      
+      AddElement(\args()) : \args() = "-v"
+      AddElement(\args()) : \args() = "quiet"
+      AddElement(\args()) : \args() = "-print_format"
+      AddElement(\args()) : \args() = "json"
+      AddElement(\args()) : \args() = "-show_format"
+      AddElement(\args()) : \args() = "-show_streams"
+      AddElement(\args()) : \args() = path
+    EndWith
     
-    json = RunProgramNative(ffprobe,args())
-    
-    LockMutex(tagsToGetLock)
-    SelectElement(tagsToGet(),i)
-    If ParseJSON(0,json)
-      ExtractJSONStructure(JSONValue(0),@metadata.ffprobe_answer,ffprobe_answer)
+    If task::run(@task) And task\exit_code = 0
       
-      ClearMap(tags_lcase())
-      ForEach metadata\format\tags()
-        tags_lcase(LCase(MapKey(metadata\format\tags()))) = metadata\format\tags()
-      Next
-      
-      tagsToGet()\format = metadata\format\format_name
-      tagsToGet()\duration = FormatDate("%hh:%ii:%ss",ValF(metadata\format\duration))
-      tagsToGet()\bitrate = Val(metadata\format\bit_rate)
-      
-      If Left(tagsToGet()\duration,2) = "00"
-        tagsToGet()\duration = Mid(tagsToGet()\duration,4)
-      EndIf
-      
-      With tagsToGet()\tags
-        \album = tags_lcase("album")
-        \artist = tags_lcase("artist")
-        \title = tags_lcase("title")
-        \track = tags_lcase("track")
+      LockMutex(tagsToGetLock)
+      SelectElement(tagsToGet(),i)
+      If ParseJSON(0,task\stdout)
+        ExtractJSONStructure(JSONValue(0),@metadata.ffprobe_answer,ffprobe_answer)
         
-        If Not Len(\artist)
-          If tags_lcase("composer")            : \artist = tags_lcase("composer") : EndIf
-          If tags_lcase("discogs_artist_list") : \artist = tags_lcase("discogs_artist_list") : EndIf
-          If tags_lcase("band")                : \artist = tags_lcase("band") : EndIf
-          If tags_lcase("performer")           : \artist = tags_lcase("performer") : EndIf
-          If tags_lcase("album_artist")        : \artist = tags_lcase("album_artist") : EndIf
-        EndIf
-        
-        ;Debug tagsToGet()\id
-        ;Debug tagsToGet()\tags\title
-        
-        If tags_lcase("date")
-          \album + " (" + tags_lcase("date") + ")"
-        ElseIf tags_lcase("year")
-          \album + " (" + tags_lcase("year") + ")"
-        EndIf
-      EndWith
-      
-      ; last resort - look into streams
-      If tagsToGet()\tags\artist = "" Or tagsToGet()\tags\title = ""
-        ForEach metadata\streams()
-          ClearMap(tags_lcase())
-          ForEach metadata\streams()\tags()
-            tags_lcase(LCase(MapKey(metadata\streams()\tags()))) = metadata\streams()\tags()
-          Next
-          With tagsToGet()\tags
-            If tags_lcase("album") : \album = tags_lcase("album") : EndIf
-            If tags_lcase("artist") : \artist = tags_lcase("artist") : EndIf
-            If tags_lcase("title") : \title = tags_lcase("title") : EndIf
-            If tags_lcase("track") : \track = tags_lcase("track") : EndIf
-            
-            If tags_lcase("date")
-              \album + " (" + tags_lcase("date") + ")"
-            ElseIf tags_lcase("year")
-              \album + " (" + tags_lcase("year") + ")"
-            EndIf
-          EndWith
+        ClearMap(tags_lcase())
+        ForEach metadata\format\tags()
+          tags_lcase(LCase(MapKey(metadata\format\tags()))) = metadata\format\tags()
         Next
+        
+        tagsToGet()\format = metadata\format\format_name
+        tagsToGet()\duration = FormatDate("%hh:%ii:%ss",ValF(metadata\format\duration))
+        tagsToGet()\bitrate = Val(metadata\format\bit_rate)
+        
+        If Left(tagsToGet()\duration,2) = "00"
+          tagsToGet()\duration = Mid(tagsToGet()\duration,4)
+        EndIf
+        
+        With tagsToGet()\tags
+          \album = tags_lcase("album")
+          \artist = tags_lcase("artist")
+          \title = tags_lcase("title")
+          \track = tags_lcase("track")
+          
+          If Not Len(\artist)
+            If tags_lcase("composer")            : \artist = tags_lcase("composer") : EndIf
+            If tags_lcase("discogs_artist_list") : \artist = tags_lcase("discogs_artist_list") : EndIf
+            If tags_lcase("band")                : \artist = tags_lcase("band") : EndIf
+            If tags_lcase("performer")           : \artist = tags_lcase("performer") : EndIf
+            If tags_lcase("album_artist")        : \artist = tags_lcase("album_artist") : EndIf
+          EndIf
+          
+          ;Debug tagsToGet()\id
+          ;Debug tagsToGet()\tags\title
+          
+          If tags_lcase("date")
+            \album + " (" + tags_lcase("date") + ")"
+          ElseIf tags_lcase("year")
+            \album + " (" + tags_lcase("year") + ")"
+          EndIf
+        EndWith
+        
+        ; last resort - look into streams
+        If tagsToGet()\tags\artist = "" Or tagsToGet()\tags\title = ""
+          ForEach metadata\streams()
+            ClearMap(tags_lcase())
+            ForEach metadata\streams()\tags()
+              tags_lcase(LCase(MapKey(metadata\streams()\tags()))) = metadata\streams()\tags()
+            Next
+            With tagsToGet()\tags
+              If tags_lcase("album") : \album = tags_lcase("album") : EndIf
+              If tags_lcase("artist") : \artist = tags_lcase("artist") : EndIf
+              If tags_lcase("title") : \title = tags_lcase("title") : EndIf
+              If tags_lcase("track") : \track = tags_lcase("track") : EndIf
+              
+              If tags_lcase("date")
+                \album + " (" + tags_lcase("date") + ")"
+              ElseIf tags_lcase("year")
+                \album + " (" + tags_lcase("year") + ")"
+              EndIf
+            EndWith
+          Next
+        EndIf
+        
+        FreeJSON(0)
+        PostEvent(#evTagGetSuccess,#PB_Ignore,#PB_Ignore,#PB_Ignore,@tagsToGet())
+      Else
+        PostEvent(#evTagGetFail,#PB_Ignore,#PB_Ignore,#PB_Ignore,@tagsToGet())
       EndIf
-      
-      FreeJSON(0)
-      PostEvent(#evTagGetSuccess,#PB_Ignore,#PB_Ignore,#PB_Ignore,@tagsToGet())
+      UnlockMutex(tagsToGetLock)
     Else
+      Debug task\stderr
       PostEvent(#evTagGetFail,#PB_Ignore,#PB_Ignore,#PB_Ignore,@tagsToGet())
     EndIf
-    UnlockMutex(tagsToGetLock)
     
     i + numThreads - 1
   Next
@@ -260,7 +271,7 @@ EndProcedure
 Procedure lyrics(forceGenius)
   Shared nowPlaying,dataDir
   Protected lyricsHash.s = StringFingerprint(nowPlaying\artist + " - " + nowPlaying\title,#PB_Cipher_MD5)
-  Protected NewList args.s()
+  Protected task.task::task
   Protected json.s
   
   If forceGenius = #False And FileSize(dataDir + "/lyrics/" + lyricsHash + ".txt") > 0
@@ -268,20 +279,25 @@ Procedure lyrics(forceGenius)
     PostEvent(#evLyricsSuccessFile)
     ProcedureReturn
   EndIf
-
-  AddElement(args()) : args() = "-u"
-  AddElement(args()) : args() = "-m"
-  AddElement(args()) : args() = "lyricsgenius"
-  AddElement(args()) : args() = "song"
-  AddElement(args()) : args() = nowPlaying\title
-  AddElement(args()) : args() = nowPlaying\artist
-  AddElement(args()) : args() = "--save"
-  AddElement(args()) : args() = "-q"
-  SetEnvironmentVariable("GENIUS_ACCESS_TOKEN",#geniusToken)
-  Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),dataDir + "/tmp")
-  ;Debug res
-  If Left(res,6) = "Wrote "
-    Protected geniusPath.s = RTrim(RTrim(RTrim(Mid(res,7),#LF$)),".")
+  
+  With task
+    \path = "/usr/local/bin/python3"
+    \workdir = dataDir + "/tmp"
+    \read_output = #True
+    
+    AddElement(\args()) : \args() = "-u"
+    AddElement(\args()) : \args() = "-m"
+    AddElement(\args()) : \args() = "lyricsgenius"
+    AddElement(\args()) : \args() = "song"
+    AddElement(\args()) : \args() = nowPlaying\title
+    AddElement(\args()) : \args() = nowPlaying\artist
+    AddElement(\args()) : \args() = "--save"
+    AddElement(\args()) : \args() = "-q"
+    SetEnvironmentVariable("GENIUS_ACCESS_TOKEN",#geniusToken)
+  EndWith
+  
+  If task::run(@task) And Left(task\stdout,6) = "Wrote "
+    Protected geniusPath.s = RTrim(RTrim(RTrim(Mid(task\stdout,7),#LF$)),".")
     If FileSize(dataDir + "/tmp/" + geniusPath) > 0
       json = ReadFileFast(dataDir + "/tmp/" + geniusPath)
       If ParseJSON(2,json)
@@ -302,13 +318,16 @@ Procedure lyrics(forceGenius)
 EndProcedure
 
 Procedure canLoadLyrics()
-  Protected NewList args.s()
-  AddElement(args()) : args() = "-u"
-  AddElement(args()) : args() = "-m"
-  AddElement(args()) : args() = "lyricsgenius"
-  AddElement(args()) : args() = "-h"
-  Protected res.s = RunProgramNative("/usr/local/bin/python3",args(),"")
-  If FindString(res,"Download song lyrics from Genius.com")
+  Protected task.task::task
+  With task
+    \path = "/usr/local/bin/python3"
+    \read_output = #True
+    AddElement(\args()) : \args() = "-u"
+    AddElement(\args()) : \args() = "-m"
+    AddElement(\args()) : \args() = "lyricsgenius"
+    AddElement(\args()) : \args() = "-h"
+  EndWith
+  If task::run(@task) And FindString(task\stdout,"Download song lyrics from Genius.com")
     ProcedureReturn #True
   EndIf
 EndProcedure
@@ -584,8 +603,13 @@ EndProcedure
 
 Procedure loadAlbumArt()
   Shared nowPlaying
+  Shared dataDir
+  Shared myDir
   Protected fileDir.s = GetPathPart(nowPlaying\path)
+  Protected tmpDir.s = dataDir + "/tmp"
+  Protected ffmpeg.s = myDir + "/Tools/ffmpeg-ichm"
   Protected albumArt.s
+  Protected internalArt.s = tmpDir + "/" + StringFingerprint(fileDir,#PB_Cipher_MD5) + ".jpg"
   
   If nowPlaying\ID = -1
     nowPlaying\albumArt= ""
@@ -645,25 +669,50 @@ Procedure loadAlbumArt()
       FinishDirectory(0)
     EndIf
   EndIf
+
+  If FileSize(internalArt) > 0
+    albumArt = internalArt
+  EndIf
+  
+  If Not Len(albumArt)
+    Protected task.task::task
+    With task
+      \path = ffmpeg
+      \workdir = tmpDir
+      \wait_program = #True
+      AddElement(\args()) : \args() = "-i"
+      AddElement(\args()) : \args() = nowPlaying\path
+      AddElement(\args()) : \args() = "-an"
+      AddElement(\args()) : \args() = "-vcodec"
+      AddElement(\args()) : \args() = "copy"
+      AddElement(\args()) : \args() = "-y"
+      AddElement(\args()) : \args() = internalArt
+    EndWith
+    If task::run(@task) And task\exit_code = 0 And FileSize(internalArt) > 0
+      albumArt = internalArt
+    EndIf
+  EndIf
   
   If nowPlaying\albumArt <> albumArt
+    If IsImage(#currentAlbumArt)
+      SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
+      FreeImage(#currentAlbumArt)
+    EndIf
     If albumArt
-      If IsImage(#currentAlbumArt)
-        SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
-        FreeImage(#currentAlbumArt)
-      EndIf
       debugLog ("albumart","loading " + albumArt)
       If LoadImage(#currentAlbumArt,albumArt)
+        CopyImage(#currentAlbumArt,#tmpImage)
         ResizeImage(#currentAlbumArt,500,500,#PB_Image_Smooth)
         SetGadgetState(#albumArt,ImageID(#currentAlbumArt))
       Else
+        CopyImage(#defaultAlbumArt,#tmpImage)
+        debugLog ("albumart","not found")
         SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
       EndIf
-    Else
-      debugLog ("albumart","failed to load")
-      SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
-      If IsImage(#currentAlbumArt) : FreeImage(#currentAlbumArt) : EndIf
     EndIf
+    ResizeImage(#tmpImage,300,300,#PB_Image_Smooth)
+    SaveImage(#tmpImage,tmpDir + "/album-art.jpg",#PB_ImagePlugin_JPEG,7)
+    FreeImage(#tmpImage)
     nowPlaying\albumArt = albumArt
   EndIf
 EndProcedure
@@ -820,7 +869,7 @@ Procedure queueRemove(id.i)
   Next
 EndProcedure
 
-Procedure queueNext()
+Procedure queueNext(peek.b = #False)
   Shared playQueue()
   Shared queueEnded.b
   Protected id.i
@@ -830,7 +879,9 @@ Procedure queueNext()
     If ListSize(playQueue()) = 1
       queueEnded = #True
     EndIf
-    queueRemove(id)
+    If Not peek
+      queueRemove(id)
+    EndIf
   Else
     id = -1
   EndIf
@@ -918,7 +969,7 @@ Procedure getPreviousAlbum()
   ProcedureReturn nextID
 EndProcedure
 
-Procedure getNextTrack()
+Procedure getNextTrack(peek.b = #False)
   Protected nextID.i = -1
   Protected i
   Shared nowPlaying
@@ -926,10 +977,12 @@ Procedure getNextTrack()
   Shared currentAlbum,queueEnded
   Shared historyEnabled
   If nowPlaying\ID <> - 1
-    nextID = queueNext()
+    nextID = queueNext(peek)
     If nextID = -1 Or nextID >= CountGadgetItems(#playlist) ; if we don't have anything queued
       If queueEnded And stopAtQueueEnd
-        queueEnded = #False
+        If Not peek
+          queueEnded = #False
+        EndIf
         nextID = -1
       ElseIf playbackFollowsCursor And GetGadgetState(#playlist) > -1 And (cursorFollowsPlayback = #False Or GetGadgetState(#playlist) <> nowPlaying\ID)
         nextID = GetGadgetState(#playlist)
@@ -1006,24 +1059,28 @@ EndProcedure
 Procedure playbackNotification()
   Shared nowPlaying
   Shared settings
+  Shared dataDir
+  Protected task.task::task
   If settings\use_terminal_notifier
     If FileSize(#terminalNotifier) > 0
-      Protected NewList args.s()
-      AddElement(args()) : args() = "-sender"
-      AddElement(args()) : args() = #myID
-      AddElement(args()) : args() = "-group"
-      AddElement(args()) : args() = "ichm"
-      AddElement(args()) : args() = "-title"
-      AddElement(args()) : args() = nowPlaying\title
-      AddElement(args()) : args() = "-subtitle"
-      AddElement(args()) : args() = nowPlaying\artist
-      AddElement(args()) : args() = "-message"
-      AddElement(args()) : args() = nowPlaying\details
-      If FileSize(nowPlaying\albumArt) > 0
-        AddElement(args()) : args() = "-contentImage"
-        AddElement(args()) : args() = nowPlaying\albumArt
-      EndIf
-      RunProgramNative(#terminalNotifier,args(),"","",#True)
+      With task
+        \path = #terminalNotifier
+        AddElement(\args()) : \args() = "-sender"
+        AddElement(\args()) : \args() = #myID
+        AddElement(\args()) : \args() = "-group"
+        AddElement(\args()) : \args() = "ichm"
+        AddElement(\args()) : \args() = "-title"
+        AddElement(\args()) : \args() = nowPlaying\title
+        AddElement(\args()) : \args() = "-subtitle"
+        AddElement(\args()) : \args() = nowPlaying\artist
+        AddElement(\args()) : \args() = "-message"
+        AddElement(\args()) : \args() = nowPlaying\details
+        If FileSize(nowPlaying\albumArt) > 0
+          AddElement(\args()) : \args() = "-contentImage"
+          AddElement(\args()) : \args() = dataDir + "/tmp/album-art.jpg"
+        EndIf
+      EndWith
+      task::run(@task)
     EndIf
   EndIf
 EndProcedure
@@ -1048,15 +1105,16 @@ Procedure webHandler(port.l)
   Protected payloadIsAlbumArt.b
   Protected webJSON.i
   Protected apikeyStart.i,apikeyEnd.i
+  Protected file.i
   Shared myDir.s
+  Shared dataDir.s
   Shared webStop.b
   Shared webProcessed.b
   Shared webNowPlaying.nowPlaying
-  Shared *webAlbumArt
   Shared settings.settings
   webProcessed = #False
   
-  Protected sleepTime.l = 50
+  Protected sleepTime.l = 30
   Protected isSleeping = #False
   Protected lastEvent.i
   
@@ -1073,10 +1131,10 @@ Procedure webHandler(port.l)
           EndIf
         Case #PB_NetworkEvent_Connect
           lastEvent = ElapsedMilliseconds()
-          isSleeping = #False : sleepTime = 50
+          isSleeping = #False : sleepTime = 30
         Case #PB_NetworkEvent_Data
           lastEvent = ElapsedMilliseconds()
-          isSleeping = #False : sleepTime = 50
+          isSleeping = #False : sleepTime = 30
           webConnection = EventClient()
           webConnectionIP = GetClientIP(webConnection)
           webConnectionPort = GetClientPort(webConnection)
@@ -1182,16 +1240,9 @@ Procedure webHandler(port.l)
                     Delay(10)
                   Wend
                   webProcessed = #False
-                  If *webAlbumArt And MemorySize(*webAlbumArt) < 60000
-                    webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: image/jpeg"
-                    payloadIsAlbumArt = #True
-                  Else
-                    Debug "big album art: " +Str(MemorySize(*webAlbumArt))
-                    webPayload = "Internal Server Error"
-                    webResponse = "HTTP/1.1 500 Internal Server Error" + #CRLF$ + "Content-Type: text/plain"
-                    If *webAlbumArt : FreeMemory(*webAlbumArt) : EndIf
-                    *webAlbumArt = 0
-                  EndIf
+                  payloadIsBinary = #True
+                  payloadIsAlbumArt = #True
+                  webResponse = "HTTP/1.1 200 OK" + #CRLF$ + "Content-Type: image/jpeg"
                   
                 Default
                   If FileSize(myDir + "/Web/Data/" + webRequestQuery) > 0
@@ -1234,19 +1285,18 @@ Procedure webHandler(port.l)
           
           If payloadIsBinary
             SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$,#PB_UTF8)
-            Protected file = ReadFile(#PB_Any,myDir + "/Web/Data/" + webRequestQuery)
-            If file And Lof(file) < 60000
+            If payloadIsAlbumArt
+              file = ReadFile(#PB_Any,dataDir + "/tmp/album-art.jpg")
+            Else
+              file = ReadFile(#PB_Any,myDir + "/Web/Data/" + webRequestQuery)
+            EndIf
+            If file And Lof(file) < 64000
               *payloadBuffer = AllocateMemory(Lof(file))
               ReadData(file,*payloadBuffer,Lof(file))
               CloseFile(file)
               SendNetworkData(webConnection,*payloadBuffer,MemorySize(*payloadBuffer))
               FreeMemory(*payloadBuffer)
             EndIf
-          ElseIf payloadIsAlbumArt
-            SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$,#PB_UTF8)
-            SendNetworkData(webConnection,*webAlbumArt,MemorySize(*webAlbumArt))
-            FreeMemory(*webAlbumArt)
-            *webAlbumArt = 0
           Else
             SendNetworkString(webConnection,webResponse + #CRLF$ + "Connection: close" + #CRLF$ + #CRLF$ + webPayload,#PB_UTF8)
           EndIf
@@ -1261,4 +1311,17 @@ Procedure webHandler(port.l)
     EndWork(activity)
   EndIf
   PostEvent(#evWebStopped)
+EndProcedure
+
+Procedure playFinishHandler()
+  Shared preloadAP,lastfmSession,nowPlaying
+  If preloadAP
+    audioplayer::play(preloadAP)
+  EndIf
+  debugLog("playback","track ended")
+  If lastfmSession
+    debugLog("lastfm","scrobbling " + Str(nowPlaying\ID))
+    lastfmScrobble()
+  EndIf
+  PostEvent(#PB_Event_Gadget,#wnd,#toolbarNext)
 EndProcedure

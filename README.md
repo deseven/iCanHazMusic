@@ -28,14 +28,13 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - seekbar
  - big (10k+ entries) playlists
  - window size and position saving
- - album art from external files
+ - album art from external files and tags
  - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
  - queue, playback orders
  - simple web interface and api
 
 #### What should work in the future 
  - global hotkeys for playback
- - album art from tags
  - playlist entries rearrangement
  - volume control
  - drag'n'drop operations
@@ -57,7 +56,7 @@ This should be changed in the future but for now in order for this to work you n
 `/usr/local/bin/python3 -m lyricsgenius -h`
 
 ## Compiling from source
-iCHM is created in [PB](http://purebasic.com) and depends on [pb-macos-audioplayer](https://github.com/deseven/pb-macos-audioplayer), along with [pb-httprequest-manager](https://github.com/deseven/pb-httprequest-manager). [FFmpeg](https://www.ffmpeg.org/) is an external dependency, but the build script should handle that for you automatically.  
+iCHM is created in [PB](http://purebasic.com) and depends on [pb-macos-audioplayer](https://github.com/deseven/pb-macos-audioplayer), along with [pb-httprequest-manager](https://github.com/deseven/pb-httprequest-manager) and [pb-macos-task](https://github.com/deseven/pb-macos-task). [FFmpeg](https://www.ffmpeg.org/) is an external dependency, but the build script should handle that for you automatically.  
 You also need [node-appdmg](https://github.com/LinusU/node-appdmg) if you want to build dmg.  
 1. Obtain the latest LTS version of pbcompiler, install it to ```/Applications```.  
 2. Install xcode command line tools by running ```xcode-select --install```.  

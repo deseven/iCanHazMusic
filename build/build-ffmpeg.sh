@@ -190,6 +190,7 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-demuxer=dsf
     --enable-demuxer=mp3
     --enable-demuxer=mov
+    --enable-demuxer=image2
 
     --enable-muxer=pcm_f64be
     --enable-muxer=pcm_f64le
@@ -210,6 +211,7 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-muxer=pcm_u16le
     --enable-muxer=pcm_u8
     --enable-muxer=wav
+    --enable-muxer=image2
 
     --enable-decoder=ape
     --enable-decoder=flac
@@ -226,6 +228,7 @@ FFMPEG_CONFIGURE_FLAGS=(
     --enable-encoder=pcm_u16le
     --enable-encoder=pcm_u24le
     --enable-encoder=pcm_u32le
+    --enable-encoder=mjpeg
 
     --extra-version="ichm"
     --extra-cflags="-fno-stack-check"
