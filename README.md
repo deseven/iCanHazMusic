@@ -32,13 +32,13 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
  - queue, playback orders
  - simple web interface and api
+ - playlist search
 
 #### What should work in the future 
  - global hotkeys for playback
  - playlist entries rearrangement
  - volume control
  - drag'n'drop operations
- - playlist search
 
 #### What is not planned
  - gapless playback (well, maybe someday...)
@@ -56,10 +56,10 @@ This should be changed in the future but for now in order for this to work you n
 `/usr/local/bin/python3 -m lyricsgenius -h`
 
 ## Compiling from source
-iCHM is created in [PB](http://purebasic.com) and depends on [pb-macos-audioplayer](https://github.com/deseven/pb-macos-audioplayer), along with [pb-httprequest-manager](https://github.com/deseven/pb-httprequest-manager) and [pb-macos-task](https://github.com/deseven/pb-macos-task). [FFmpeg](https://www.ffmpeg.org/) is an external dependency, but the build script should handle that for you automatically.  
+iCHM is created in [PB](http://purebasic.com) and depends on [pb-macos-audioplayer](https://github.com/deseven/pb-macos-audioplayer), along with [pb-httprequest-manager](https://github.com/deseven/pb-httprequest-manager), [pb-macos-globalhotkeys](https://github.com/deseven/pb-macos-globalhotkeys) and [pb-macos-task](https://github.com/deseven/pb-macos-task). [FFmpeg](https://www.ffmpeg.org/) is an external dependency, but the build script should handle that for you automatically.  
 You also need [node-appdmg](https://github.com/LinusU/node-appdmg) if you want to build dmg.  
 1. Obtain the latest LTS version of pbcompiler, install it to ```/Applications```.  
 2. Install xcode command line tools by running ```xcode-select --install```.  
 3. Clone iCHM repo.  
-4. Clone ```pb-macos-audioplayer``` and ```pb-httprequest-manager``` modules to neighboring directories.  
+4. Clone all required `pb-*` modules to neighboring directories.  
 5. Run the included ```build/build.sh``` script to build the app. If you want codesigning then provide your developer ID as a first argument.  

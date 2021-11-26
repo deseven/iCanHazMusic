@@ -11,6 +11,8 @@ MenuItem(#addDirectory,"Add Diectory...")
 MenuItem(#addFile,"Add File(s)...")
 
 MenuTitle("Playback")
+MenuItem(#playbackAction,"Find..." + Chr(9) + "+CMD+F")
+MenuBar()
 MenuItem(#playbackCursorFollowsPlayback,"Cursor follows playback")
 MenuItem(#playbackPlaybackFollowsCursor,"Playback follows cursor")
 OpenSubMenu("Order")
@@ -95,7 +97,7 @@ EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Ed
 HideGadget(#toolbarLyricsReloadWeb,#True)
 
 Macro prefs()
-  OpenWindow(#wndPrefs,0,0,400,300,#myName + " Preferences",#PB_Window_ScreenCentered|#PB_Window_SystemMenu|#PB_Window_Tool,WindowID(#wnd))
+  OpenWindow(#wndPrefs,0,0,400,300,#myName + " Preferences",#PB_Window_WindowCentered|#PB_Window_SystemMenu|#PB_Window_Tool|#PB_Window_Invisible,WindowID(#wnd))
   ;StickyWindow(#wndPrefs,#True)
   PanelGadget(#prefsPanel,0,0,400,300) 
   
@@ -134,4 +136,19 @@ Macro prefs()
   If settings\use_genius
     SetGadgetState(#prefsUseGenius,#PB_Checkbox_Checked)
   EndIf
+  HideWindow(#wndPrefs,#False)
+EndMacro
+
+Macro action()
+  OpenWindow(#wndAction,0,0,400,300,"Find",#PB_Window_WindowCentered|#PB_Window_SystemMenu|#PB_Window_Tool|#PB_Window_Invisible,WindowID(#wnd))
+  StringGadget(#actionSearch,5,5,390,20,"",#PB_String_BorderLess)
+  ListViewGadget(#actionResults,0,25,400,275)
+  CocoaMessage(0,GadgetID(#actionSearch),"setFocusRingType:",1)
+  CocoaMessage(0,GadgetID(#actionResults),"setFocusRingType:",1)
+  SetActiveGadget(#actionSearch)
+  AddKeyboardShortcut(#wndAction,#PB_Shortcut_Up,#actionUp)
+  AddKeyboardShortcut(#wndAction,#PB_Shortcut_Down,#actionDown)
+  AddKeyboardShortcut(#wndAction,#PB_Shortcut_Escape,#actionCancel)
+  AddKeyboardShortcut(#wndAction,#PB_Shortcut_Return,#actionConfirm)
+  HideWindow(#wndAction,#False)
 EndMacro

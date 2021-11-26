@@ -847,11 +847,11 @@ Procedure queueRemove(id.i)
       Else
         Break
       EndIf
-      CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
+      ;CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
       ForEach idsToRemove()
         queueRemove(idsToRemove())
       Next
-      CocoaMessage(0,GadgetID(#playlist),"endUpdates")
+      ;CocoaMessage(0,GadgetID(#playlist),"endUpdates")
     Next
   Else
     ForEach playQueue()
@@ -985,7 +985,11 @@ Procedure getNextTrack(peek.b = #False)
         EndIf
         nextID = -1
       ElseIf playbackFollowsCursor And GetGadgetState(#playlist) > -1 And (cursorFollowsPlayback = #False Or GetGadgetState(#playlist) <> nowPlaying\ID)
-        nextID = GetGadgetState(#playlist)
+        If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+          nextID = GetGadgetState(#playlist) + 1
+        Else
+          nextID = GetGadgetState(#playlist)
+        EndIf
       Else
         Select playbackOrder
           Case #orderShuffleTracks

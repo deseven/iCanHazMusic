@@ -8,7 +8,14 @@ IncludeFile "helpers.pb"
 IncludeFile "../pb-macos-audioplayer/audioplayer.pbi"
 IncludeFile "../pb-httprequest-manager/httprequest-manager.pbi"
 IncludeFile "../pb-macos-task/task.pbi"
+IncludeFile "../pb-macos-globalhotkeys/ghk.pbi"
 
+ImportC ""
+  sel_registerName(str.p-ascii)
+  class_addMethod(class, selector, imp, types.p-ascii)
+EndImport
+
+Define app.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define settings.settings
 NewList tagsToGet.track_info()
 NewList playQueue.i()
@@ -72,6 +79,11 @@ Define queueEnded.b
 NewList history.i()
 Define historyEnabled.b
 
+; search stuff
+Define search.s
+Define searchArtist.s,searchArtistL.s
+Define searchTitle.s,searchTitleL.s
+
 Global EXIT = #False
 
 UseMD5Fingerprint()
@@ -125,6 +137,9 @@ AddKeyboardShortcut(#wnd,#PB_Shortcut_Space,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Up,#playlistUp)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Down,#playlistDown)
 
 EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
 
@@ -161,6 +176,7 @@ Repeat
         Case #wndPrefs
           flushSettings()
       EndSelect
+      RemoveKeyboardShortcut(EventWindow(),#PB_Shortcut_All)
       CloseWindow(EventWindow())
       
     ; menu events
@@ -168,7 +184,7 @@ Repeat
       Select EventMenu()
         Case #openPlaylist
           If CountGadgetItems(#playlist) = 0 Or 
-             (CountGadgetItems(#playlist) And MessageRequester(#myName,"Your current playlist will be cleared, are sure you want to continue?",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes)
+             (CountGadgetItems(#playlist) And MessageRequester(#myName,"Your current playlist will be cleared, are you sure you want to continue?",#PB_MessageRequester_YesNo|#PB_MessageRequester_Warning) = #PB_MessageRequester_Yes)
             playlist = OpenFileRequester("Select playlist","","",0)
             If FileSize(playlist) > 0 And ReadFile(0,playlist)
               cleanUp()
@@ -297,6 +313,13 @@ Repeat
           EndIf
           setAlbums()
           saveState()
+        Case #playbackAction
+          If Not IsWindow(#wndAction)
+            action()
+          Else
+            SetActiveWindow(#wndAction)
+            SetActiveGadget(#actionSearch)
+          EndIf
         Case #playbackCursorFollowsPlayback
           cursorFollowsPlayback = 1-cursorFollowsPlayback
           SetMenuItemState(#menu,#playbackCursorFollowsPlayback,cursorFollowsPlayback)
@@ -370,7 +393,25 @@ Repeat
         Case #dockPrevious
           PostEvent(#PB_Event_Gadget,#wnd,#toolbarPrevious)
         Case #dockPreviousAlbum
-          PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)  
+          PostEvent(#PB_Event_Gadget,#wnd,#toolbarPreviousAlbum)
+        Case #actionUp
+          SetGadgetState(#actionResults,GetGadgetState(#actionResults)-1)
+        Case #actionDown
+          SetGadgetState(#actionResults,GetGadgetState(#actionResults)+1)
+        Case #actionCancel
+          PostEvent(#PB_Event_CloseWindow,#wndAction,0)
+        Case #actionConfirm
+          If GetGadgetState(#actionResults) <> -1
+            SetGadgetState(#playlist,GetGadgetItemData(#actionResults,GetGadgetState(#actionResults)))
+            PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
+            PostEvent(#PB_Event_CloseWindow,#wndAction,0)
+          EndIf
+        Case #playlistUp
+          SetActiveGadget(#playlist)
+          SetGadgetState(#playlist,GetGadgetState(#playlist)-1)
+        Case #playlistDown
+          SetActiveGadget(#playlist)
+          SetGadgetState(#playlist,GetGadgetState(#playlist)+1)
         Case #PB_Menu_Quit
           Break
         Case #PB_Menu_Preferences
@@ -494,6 +535,34 @@ Repeat
           RunProgram("open","http://0.0.0.0:" + Str(settings\web\web_server_port),"")
         Case #prefsUseTerminalNotifier,#prefsUseGenius
           flushSettings()
+        Case #actionSearch
+          If EventType() = #PB_EventType_Change
+            Define search.s = GetGadgetText(#actionSearch)
+            ClearGadgetItems(#actionResults)
+            If Len(search) => 2
+              j = 0
+              search = LCaseEx(search)
+              For i = 0 To CountGadgetItems(#playlist)-1
+                If Not GetGadgetItemData(#playlist,i)
+                  searchArtist = GetGadgetItemText(#playlist,i,#artist)
+                  searchTitle = GetGadgetItemText(#playlist,i,#title)
+                  searchArtistL = LCaseEx(searchArtist)
+                  searchTitleL = LCaseEx(searchTitle)
+                  If FindString(searchArtistL,search) Or FindString(searchTitleL,search)
+                    AddGadgetItem(#actionResults,-1,searchArtist + " - " + searchTitle)
+                    SetGadgetItemData(#actionResults,CountGadgetItems(#actionResults)-1,i)
+                    j + 1
+                    If j = 20
+                      Break
+                    EndIf
+                  EndIf
+                EndIf
+              Next
+              If j
+                SetGadgetState(#actionResults,0)
+              EndIf
+            EndIf
+          EndIf
       EndSelect
       
     ; drag'n'drop processing

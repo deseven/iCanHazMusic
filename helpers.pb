@@ -222,6 +222,15 @@ Procedure EndWork(Activity)
   EndIf
 EndProcedure
 
+; code by Shardik (https://www.purebasic.fr/english/viewtopic.php?p=419788#p419788)
+Procedure.S LCaseEx(String.S)
+  If Len(String) > 0
+    ProcedureReturn PeekS(CocoaMessage(0, CocoaMessage(0,
+      CocoaMessage(0, 0, "NSString stringWithString:$", @String),
+      "lowercaseString"), "UTF8String"), -1, #PB_UTF8)
+  EndIf
+EndProcedure
+
 Procedure.f getProgressBarPosition(window.i,gadget.i,topOffset = 0,bottomOffset = 0)
   If IsGadget(gadget) And IsWindow(window)
     Protected curX.i = WindowMouseX(window)
