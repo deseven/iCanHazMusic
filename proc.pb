@@ -543,16 +543,15 @@ Procedure saveState()
   CreateJSON(1)
   Protected arr = SetJSONArray(JSONValue(1))
   For i = 0 To playlistSize - 1
-    Protected elem = SetJSONObject(AddJSONElement(arr))
-    SetJSONString(AddJSONMember(elem,"details"),GetGadgetItemText(#playlist,i,#details))
-    SetJSONString(AddJSONMember(elem,"album"),GetGadgetItemText(#playlist,i,#album))
-    SetJSONString(AddJSONMember(elem,"duration"),GetGadgetItemText(#playlist,i,#duration))
-    SetJSONString(AddJSONMember(elem,"title"),GetGadgetItemText(#playlist,i,#title))
-    SetJSONString(AddJSONMember(elem,"artist"),GetGadgetItemText(#playlist,i,#artist))
-    SetJSONString(AddJSONMember(elem,"track"),GetGadgetItemText(#playlist,i,#track))
-    SetJSONString(AddJSONMember(elem,"file"),GetGadgetItemText(#playlist,i,#file))
-    If GetGadgetItemData(#playlist,i)
-      SetJSONString(AddJSONMember(elem,"isAlbum"),"yes")
+    If Not GetGadgetItemData(#playlist,i)
+      Protected elem = SetJSONObject(AddJSONElement(arr))
+      SetJSONString(AddJSONMember(elem,"details"),GetGadgetItemText(#playlist,i,#details))
+      SetJSONString(AddJSONMember(elem,"album"),GetGadgetItemText(#playlist,i,#album))
+      SetJSONString(AddJSONMember(elem,"duration"),GetGadgetItemText(#playlist,i,#duration))
+      SetJSONString(AddJSONMember(elem,"title"),GetGadgetItemText(#playlist,i,#title))
+      SetJSONString(AddJSONMember(elem,"artist"),GetGadgetItemText(#playlist,i,#artist))
+      SetJSONString(AddJSONMember(elem,"track"),GetGadgetItemText(#playlist,i,#track))
+      SetJSONString(AddJSONMember(elem,"file"),GetGadgetItemText(#playlist,i,#file))
     EndIf
   Next
   Protected state.s = ComposeJSON(1,#PB_JSON_PrettyPrint)
@@ -575,23 +574,35 @@ Procedure loadState()
   Protected json.s
   Protected i.i
   Protected NewMap values.s()
+  Protected currentAlbum.s,currentDir.s
   If FileSize(dataDir + "/current_state.json") > 0
     json = ReadFileFast(dataDir + "/current_state.json")
     If ParseJSON(1,json)
       CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
       For i = 0 To JSONArraySize(JSONValue(1)) - 1
         ExtractJSONMap(GetJSONElement(JSONValue(1),i),values())
-        AddGadgetItem(#playlist,i,#sep + 
-                                  values("file") + #sep + 
-                                  values("track") + #sep + 
-                                  values("artist") + #sep + 
-                                  values("title") + #sep + 
-                                  values("duration") + #sep + 
-                                  values("album") + #sep + 
-                                  values("details"))
-        If values("isAlbum") = "yes"
-          SetGadgetItemData(#playlist,i,#True)
-          SetGadgetItemText(#playlist,i,#albumSymbol,#status)
+        If values("isAlbum") = ""
+          If currentAlbum <> values("album") Or currentDir <> GetPathPart(values("file"))
+            AddGadgetItem(#playlist,-1,#albumSymbol + #sep + 
+                                       #sep + 
+                                       #sep + 
+                                       values("artist") + #sep + 
+                                       #sep + 
+                                       #sep + 
+                                       values("album") + #sep)
+            currentAlbum = values("album")
+            currentDir = GetPathPart(values("file"))
+            SetGadgetItemData(#playlist,CountGadgetItems(#playlist)-1,#True)
+            
+          EndIf
+          AddGadgetItem(#playlist,-1,#sep + 
+                                     values("file") + #sep + 
+                                     values("track") + #sep + 
+                                     values("artist") + #sep + 
+                                     values("title") + #sep + 
+                                     values("duration") + #sep + 
+                                     values("album") + #sep + 
+                                     values("details"))
         EndIf
       Next
       CocoaMessage(0,GadgetID(#playlist),"endUpdates")
@@ -837,21 +848,18 @@ Procedure queueRemove(id.i)
   Shared playQueue()
   Shared nowPlaying
   If GetGadgetItemData(#playlist,id)
-    Protected album.s = GetGadgetItemText(#playlist,id,#album)
     Protected i.i
     Protected NewList idsToRemove.i()
     For i = id + 1 To CountGadgetItems(#playlist) - 1
-      If GetGadgetItemText(#playlist,i,#album) = album
+      If Not GetGadgetItemData(#playlist,i) 
         AddElement(idsToRemove())
         idsToRemove() = i
       Else
         Break
       EndIf
-      ;CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
-      ForEach idsToRemove()
-        queueRemove(idsToRemove())
-      Next
-      ;CocoaMessage(0,GadgetID(#playlist),"endUpdates")
+    Next
+    ForEach idsToRemove()
+      queueRemove(idsToRemove())
     Next
   Else
     ForEach playQueue()
@@ -863,10 +871,10 @@ Procedure queueRemove(id.i)
         Break
       EndIf
     Next
+    ForEach playQueue()
+      SetGadgetItemText(#playlist,playQueue(),"[" + Str(ListIndex(playQueue()) + 1) + "]",#status)
+    Next
   EndIf
-  ForEach playQueue()
-    SetGadgetItemText(#playlist,playQueue(),"[" + Str(ListIndex(playQueue()) + 1) + "]",#status)
-  Next
 EndProcedure
 
 Procedure queueNext(peek.b = #False)

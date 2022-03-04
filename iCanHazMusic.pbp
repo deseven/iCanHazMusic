@@ -7,7 +7,7 @@
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2021-11-25 11:46" user="deseven" host="de7mac.local"/>
+    <lastopen date="2022-02-22 20:09" user="deseven" host="de7mac.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
@@ -28,7 +28,7 @@
     </file>
     <file name="proc.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="d2d00599055f180dbd16263aec5a91b3"/>
+      <fingerprint md5="28634c0dac5e1a0d3c019e719ba3f3f0"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
@@ -38,13 +38,13 @@
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
       <fingerprint md5="686ec97381769f843b90533c3b859c2b"/>
     </file>
-    <file name="../pb-macos-task/task.pbi">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="8924bfc923ac0cc11c8027c1c4dd3409"/>
-    </file>
     <file name="../pb-macos-globalhotkeys/ghk.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="0" panelstate="+-"/>
       <fingerprint md5="84360602992a51bea59ca1c7147b339b"/>
+    </file>
+    <file name="../pb-macos-task/task.pbi">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
+      <fingerprint md5="8924bfc923ac0cc11c8027c1c4dd3409"/>
     </file>
   </section>
   <section name="targets">
