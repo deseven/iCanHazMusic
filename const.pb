@@ -32,7 +32,7 @@
 Enumeration
   #wnd
   #wndPrefs
-  #wndAction
+  #wndFind
   #playlist
   #albumArt
   #nowPlaying
@@ -97,11 +97,19 @@ EndEnumeration
 
 Enumeration menu
   #menu
+  #playlistMenu
+EndEnumeration
+
+Enumeration menuItems
   #openPlaylist
   #savePlaylist
   #addDirectory
   #addFile
-  #playbackAction
+  #playlistFind
+  #playlistQueue
+  #playlistPlay
+  #playlistReloadTags
+  #playlistRemove
   #playbackCursorFollowsPlayback
   #playbackPlaybackFollowsCursor
   #playbackOrderDefault
@@ -110,11 +118,6 @@ Enumeration menu
   #playbackStopAtQueueEnd
   #lastfmState
   #lastfmUser
-  #playlistMenu
-  #playlistQueue
-  #playlistPlay
-  #playlistReloadTags
-  #playlistRemove
   #dockMenu
   #dockArtist
   #dockTitle
@@ -130,6 +133,8 @@ Enumeration menu
   #actionCancel
   #playlistUp
   #playlistDown
+  #playlistNext
+  #playlistPrevious
 EndEnumeration
 
 Enumeration playbackOrder

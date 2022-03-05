@@ -131,15 +131,17 @@ loadState()
 updateLastfmStatus()
 loadSettings() ; temporary hack to redraw the playlist
 
-AddKeyboardShortcut(#wnd,#PB_Shortcut_Q,#playlistQueue)
-AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Space,#playlistQueue)
-AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
-AddKeyboardShortcut(#wnd,#PB_Shortcut_R,#playlistReloadTags)
-AddKeyboardShortcut(#wnd,#PB_Shortcut_Back,#playlistRemove)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Return,#playlistPlay)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_K,#playlistUp)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_J,#playlistDown)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_H,#playlistPrevious)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_L,#playlistNext)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Up,#playlistUp)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Down,#playlistDown)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Left,#playlistPrevious)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Right,#playlistNext)
 
 EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
 
@@ -313,11 +315,11 @@ Repeat
           EndIf
           setAlbums()
           saveState()
-        Case #playbackAction
-          If Not IsWindow(#wndAction)
+        Case #playlistFind
+          If Not IsWindow(#wndFind)
             action()
           Else
-            SetActiveWindow(#wndAction)
+            SetActiveWindow(#wndFind)
             SetActiveGadget(#actionSearch)
           EndIf
         Case #playbackCursorFollowsPlayback
@@ -399,12 +401,12 @@ Repeat
         Case #actionDown
           SetGadgetState(#actionResults,GetGadgetState(#actionResults)+1)
         Case #actionCancel
-          PostEvent(#PB_Event_CloseWindow,#wndAction,0)
+          PostEvent(#PB_Event_CloseWindow,#wndFind,0)
         Case #actionConfirm
           If GetGadgetState(#actionResults) <> -1
             SetGadgetState(#playlist,GetGadgetItemData(#actionResults,GetGadgetState(#actionResults)))
             PostEvent(#PB_Event_Gadget,#wnd,#playlist,#PB_EventType_LeftDoubleClick)
-            PostEvent(#PB_Event_CloseWindow,#wndAction,0)
+            PostEvent(#PB_Event_CloseWindow,#wndFind,0)
           EndIf
         Case #playlistUp
           SetActiveGadget(#playlist)
@@ -412,6 +414,30 @@ Repeat
         Case #playlistDown
           SetActiveGadget(#playlist)
           SetGadgetState(#playlist,GetGadgetState(#playlist)+1)
+        Case #playlistNext
+          SetActiveGadget(#playlist)
+          If GetGadgetState(#playlist)+1 < CountGadgetItems(#playlist)
+            For i = GetGadgetState(#playlist)+1 To CountGadgetItems(#playlist)-1
+              If GetGadgetItemData(#playlist,i)
+                SetGadgetState(#playlist,i+1)
+                Break
+              EndIf
+            Next
+          EndIf
+        Case #playlistPrevious
+          If GetGadgetState(#playlist)-1 >= 0
+            For i = GetGadgetState(#playlist) To 0 Step -1
+              If GetGadgetItemData(#playlist,i)
+                For j = i-1 To 0 Step -1
+                  If GetGadgetItemData(#playlist,j)
+                    SetGadgetState(#playlist,j+1)
+                    Break
+                  EndIf
+                Next
+                Break
+              EndIf
+            Next
+          EndIf
         Case #PB_Menu_Quit
           Break
         Case #PB_Menu_Preferences
