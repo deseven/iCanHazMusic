@@ -103,6 +103,16 @@ Procedure ListIconGadgetHideColumn(gadget.i,index.i,state.b)
   EndIf
 EndProcedure
 
+Procedure ListIconGadgetHideRow(gadget.i,index.i,state.b)
+  Protected indexSet.i
+  CocoaMessage(@indexSet,0,"NSIndexSet indexSetWithIndex:",index)
+  If state
+    CocoaMessage(0,GadgetID(gadget),"hideRowsAtIndexes:",indexSet,"withAnimation:",0)
+  Else
+    CocoaMessage(0,GadgetID(gadget),"unhideRowsAtIndexes:",indexSet,"withAnimation:",0)
+  EndIf
+EndProcedure
+
 ; code by Shardik (http://www.purebasic.fr/english/viewtopic.php?p=393256#p393256)
 Procedure SetListIconColumnJustification(ListIconID.I,ColumnIndex.I,Alignment.I)
   Protected ColumnHeaderCell.I

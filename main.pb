@@ -130,6 +130,7 @@ sizeGadgets()
 loadState()
 updateLastfmStatus()
 loadSettings() ; temporary hack to redraw the playlist
+setAlbums()
 
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Space,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)
@@ -277,6 +278,25 @@ Repeat
           Else
             queueAdd(GetGadgetState(#playlist))
           EndIf
+        Case #playlistFinder
+          If GetGadgetState(#playlist) <> -1
+            If GetGadgetItemData(#playlist,GetGadgetState(#playlist))
+              RunProgram("open",~"-R \"" + GetPathPart(GetGadgetItemText(#playlist,GetGadgetState(#playlist)+1,#file)) + ~"\"","")
+            Else
+              RunProgram("open",~"-R \"" + GetGadgetItemText(#playlist,GetGadgetState(#playlist),#file) + ~"\"","")
+            EndIf
+          EndIf
+        Case #playlistDontGroupByAlbums
+          If GetMenuItemState(#menu,#playlistDontGroupByAlbums)
+            SetMenuItemState(#menu,#playlistDontGroupByAlbums,#False)
+            settings\playlist\dont_group_by_albums = #False
+          Else
+            SetMenuItemState(#menu,#playlistDontGroupByAlbums,#True)
+            settings\playlist\dont_group_by_albums = #True
+          EndIf
+          saveSettings()
+          queueClear()
+          setAlbums()
         Case #playlistReloadTags
           If isParsingCompleted()
             If GetGadgetItemData(#playlist,GetGadgetState(#playlist))

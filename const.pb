@@ -106,8 +106,10 @@ Enumeration menuItems
   #addDirectory
   #addFile
   #playlistFind
+  #playlistDontGroupByAlbums
   #playlistQueue
   #playlistPlay
+  #playlistFinder
   #playlistReloadTags
   #playlistRemove
   #playbackCursorFollowsPlayback
@@ -223,6 +225,7 @@ Structure settingsPlaylist
   duration_width.i
   album_width.i
   details_width.i
+  dont_group_by_albums.b
 EndStructure
 
 Structure settingsPlayback

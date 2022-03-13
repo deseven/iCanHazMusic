@@ -393,6 +393,11 @@ Procedure saveSettings()
   SetJSONInteger(AddJSONMember(objectPlaylist,"duration_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#duration))
   SetJSONInteger(AddJSONMember(objectPlaylist,"album_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#album))
   SetJSONInteger(AddJSONMember(objectPlaylist,"details_width"),GetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,#details))
+  If settings\playlist\dont_group_by_albums
+    SetJSONBoolean(AddJSONMember(objectPlaylist,"dont_group_by_albums"),#True)
+  Else
+    SetJSONBoolean(AddJSONMember(objectPlaylist,"dont_group_by_albums"),#False)
+  EndIf
   
   Protected objectPlayback = SetJSONObject(AddJSONMember(object,"playback"))
   If cursorFollowsPlayback
@@ -443,6 +448,7 @@ Procedure loadSettings()
   settings\web\web_server_port = 8008
   settings\use_terminal_notifier = #True
   settings\use_genius = #True
+  settings\playlist\dont_group_by_albums = #False
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
@@ -507,6 +513,11 @@ Procedure loadSettings()
     EndIf
     If settings\playlist\track_width
       SetGadgetItemAttribute(#playlist,-1,#PB_ListIcon_ColumnWidth,settings\playlist\track_width,#track)
+    EndIf
+    If settings\playlist\dont_group_by_albums
+      SetMenuItemState(#menu,#playlistDontGroupByAlbums,#True)
+    Else
+      SetMenuItemState(#menu,#playlistDontGroupByAlbums,#False)
     EndIf
     
     If settings\playback\cursor_follows_playback
@@ -574,7 +585,6 @@ Procedure loadState()
   Protected json.s
   Protected i.i
   Protected NewMap values.s()
-  Protected currentAlbum.s,currentDir.s
   If FileSize(dataDir + "/current_state.json") > 0
     json = ReadFileFast(dataDir + "/current_state.json")
     If ParseJSON(1,json)
@@ -582,19 +592,6 @@ Procedure loadState()
       For i = 0 To JSONArraySize(JSONValue(1)) - 1
         ExtractJSONMap(GetJSONElement(JSONValue(1),i),values())
         If values("isAlbum") = ""
-          If currentAlbum <> values("album") Or currentDir <> GetPathPart(values("file"))
-            AddGadgetItem(#playlist,-1,#albumSymbol + #sep + 
-                                       #sep + 
-                                       #sep + 
-                                       values("artist") + #sep + 
-                                       #sep + 
-                                       #sep + 
-                                       values("album") + #sep)
-            currentAlbum = values("album")
-            currentDir = GetPathPart(values("file"))
-            SetGadgetItemData(#playlist,CountGadgetItems(#playlist)-1,#True)
-            
-          EndIf
           AddGadgetItem(#playlist,-1,#sep + 
                                      values("file") + #sep + 
                                      values("track") + #sep + 
@@ -896,21 +893,33 @@ Procedure queueNext(peek.b = #False)
   ProcedureReturn id
 EndProcedure
 
-Procedure setAlbums(startFrom = 0)
+Procedure setAlbums()
   Protected currentAlbum.s
   Protected newAlbum.s
   Protected color.i
-  Protected i.i
-  For i = startFrom To CountGadgetItems(#playlist) - 1
+  Protected i.i,j.i
+  Shared settings
+  CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
+  j = CountGadgetItems(#playlist) - 1
+  For i = 0 To j
     newAlbum = GetGadgetItemText(#playlist,i,#album)
     If newAlbum <> currentAlbum
       currentAlbum = newAlbum
-      If Not GetGadgetItemData(#playlist,i)
-        AddGadgetItem(#playlist,i,#albumSymbol + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#artist) + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#album))
-        SetGadgetItemData(#playlist,i,#True)
+      If settings\playlist\dont_group_by_albums
+        If GetGadgetItemData(#playlist,i)
+          RemoveGadgetItem(#playlist,i)
+          j - 1
+        EndIf
+      Else
+        If Not GetGadgetItemData(#playlist,i)
+          AddGadgetItem(#playlist,i,#albumSymbol + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#artist) + #sep + #sep + #sep + GetGadgetItemText(#playlist,i,#album))
+          j + 1
+          SetGadgetItemData(#playlist,i,#True)
+        EndIf
       EndIf
     EndIf
   Next
+  CocoaMessage(0,GadgetID(#playlist),"endUpdates")
 EndProcedure
 
 Procedure getNextAlbum()
