@@ -129,8 +129,10 @@ loadSettings()
 sizeGadgets()
 loadState()
 updateLastfmStatus()
-loadSettings() ; temporary hack to redraw the playlist
+;loadSettings() ; temporary hack to redraw the playlist
 setAlbums()
+SetGadgetState(#playlist,settings\last_played_track_id)
+SetActiveGadget(#playlist)
 
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Space,#playlistQueue)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Return|#PB_Shortcut_Shift,#playlistQueue)

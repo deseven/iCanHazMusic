@@ -484,7 +484,6 @@ Procedure loadSettings()
     lastfmSession = settings\lastfm\session
     lastfmUser = settings\lastfm\user
     lastPlayedID = settings\last_played_track_id
-    SetGadgetState(#playlist,settings\last_played_track_id)
     
     If settings\window\x Or settings\window\y Or settings\window\width Or settings\window\height
       ResizeWindow(#wnd,settings\window\x,settings\window\y,settings\window\width,settings\window\height)
