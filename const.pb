@@ -59,6 +59,15 @@ Enumeration
   #prefsWebApiKey
   #prefsWebApiKeyLabel
   #prefsWebLink
+  #prefsShortcutEdit
+  #prefsShortcutToggleLabel
+  #prefsShortcutToggle
+  #prefsShortcutNextLabel
+  #prefsShortcutNext
+  #prefsShortcutPreviousLabel
+  #prefsShortcutPrevious
+  #prefsShortcutFindLabel
+  #prefsShortcutFind
   #actionSearch
   #actionResults
 EndEnumeration
@@ -241,10 +250,18 @@ Structure settingsWeb
   api_key.s
 EndStructure
 
+Structure settingsShortcuts
+  toggle_shortcut.s
+  next_shortcut.s
+  previous_shortcut.s
+  find_shortcut.s
+EndStructure
+
 Structure settings
   last_played_track_id.i
   use_terminal_notifier.b
   use_genius.b
+  shortcuts.settingsShortcuts
   web.settingsWeb
   lastfm.settingsLastfm
   window.settingsWindow
@@ -257,83 +274,3 @@ EndStructure
 #justifyLeft = 0
 #justifyRight = 1
 #justifyCenter = 2
-
-Dim keys.s($FF)
-keys($00) = "A"
-keys($01) = "S"
-keys($02) = "D"
-keys($03) = "F"
-keys($04) = "H"
-keys($05) = "G"
-keys($06) = "Z"
-keys($07) = "X"
-keys($08) = "C"
-keys($09) = "V"
-keys($0B) = "B"
-keys($0C) = "Q"
-keys($0D) = "W"
-keys($0E) = "E"
-keys($0F) = "R"
-keys($10) = "Y"
-keys($11) = "T"
-keys($12) = "1"
-keys($13) = "2"
-keys($14) = "3"
-keys($15) = "4"
-keys($16) = "6"
-keys($17) = "5"
-keys($18) = "="
-keys($19) = "9"
-keys($1A) = "7"
-keys($1B) = "-"
-keys($1C) = "8"
-keys($1D) = "0"
-keys($1E) = "]"
-keys($1F) = "O"
-keys($20) = "U"
-keys($21) = "["
-keys($22) = "I"
-keys($23) = "P"
-keys($25) = "L"
-keys($26) = "J"
-keys($27) = "'"
-keys($28) = "K"
-keys($29) = ";"
-keys($2A) = ""
-keys($2B) = ","
-keys($2C) = "/"
-keys($2D) = "N"
-keys($2E) = "M"
-keys($2F) = "."
-keys($32) = "`"
-keys($24) = "↩"
-keys($30) = "Tab"
-keys($31) = "Space"
-keys($35) = "⎋"
-keys($39) = "CAPS"
-keys($7A) = "F1"
-keys($78) = "F2"
-keys($63) = "F3"
-keys($76) = "F4"
-keys($60) = "F5"
-keys($61) = "F6"
-keys($62) = "F7"
-keys($64) = "F8"
-keys($65) = "F9"
-keys($6D) = "F10"
-keys($67) = "F11"
-keys($6F) = "F12"
-keys($69) = "F13"
-keys($6B) = "F14"
-keys($71) = "F15"
-keys($6A) = "F16"
-keys($40) = "F17"
-keys($4F) = "F18"
-keys($50) = "F19"
-keys($5A) = "F20"
-keys($73) = "Home"
-keys($77) = "End"
-keys($74) = "PgUp"
-keys($79) = "PgDown"
-keys($0A) = "§"
-keys($33) = "Del"

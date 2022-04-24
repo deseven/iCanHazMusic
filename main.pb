@@ -83,6 +83,7 @@ Define historyEnabled.b
 Define search.s
 Define searchArtist.s,searchArtistL.s
 Define searchTitle.s,searchTitleL.s
+Define hideAfter.b
 
 Global EXIT = #False
 
@@ -93,6 +94,7 @@ UseJPEGImageEncoder()
 UseZipPacker()
 InitNetwork()
 HTTPRequestManager::init(1,30000,#myUserAgent,0,#True)
+globalHK::init()
 audioplayer::setffmpegPath(myDir + "/Tools/ffmpeg-ichm")
 audioplayer::setFFmpegTempDirPath(dataDir + "/tmp")
 audioplayer::addFFmpegFormat("flac")
@@ -183,6 +185,10 @@ Repeat
       EndSelect
       RemoveKeyboardShortcut(EventWindow(),#PB_Shortcut_All)
       CloseWindow(EventWindow())
+      If EventWindow() = #wndFind And hideAfter = #True
+        hideAfter = #False
+        CocoaMessage(0,app,"hide:")
+      EndIf
       
     ; menu events
     Case #PB_Event_Menu
@@ -343,6 +349,10 @@ Repeat
           Else
             SetActiveWindow(#wndFind)
             SetActiveGadget(#actionSearch)
+          EndIf
+          If Not CocoaMessage(0,app,"isActive")
+            CocoaMessage(0,app,"activateIgnoringOtherApps:",#YES)
+            hideAfter = #True
           EndIf
         Case #playbackCursorFollowsPlayback
           cursorFollowsPlayback = 1-cursorFollowsPlayback
@@ -568,6 +578,25 @@ Repeat
             saveSettings()
           Else
             doStop()
+          EndIf
+        Case #prefsShortcutEdit
+          If GetGadgetText(#prefsShortcutEdit) = "Edit"
+            SetGadgetText(#prefsShortcutEdit,"Apply")
+            globalHK::remove("",0,#True)
+            For i = #prefsShortcutToggle To #prefsShortcutFind Step 2
+              DisableGadget(i,#False)
+              CocoaMessage(0,GadgetID(i),"setTextColor:",0)
+            Next
+          Else
+            SetGadgetText(#prefsShortcutEdit,"Edit")
+            For i = #prefsShortcutToggle To #prefsShortcutFind Step 2
+              DisableGadget(i,#True)
+            Next
+            settings\shortcuts\toggle_shortcut = GetGadgetText(#prefsShortcutToggle)
+            settings\shortcuts\next_shortcut = GetGadgetText(#prefsShortcutNext)
+            settings\shortcuts\previous_shortcut = GetGadgetText(#prefsShortcutPrevious)
+            settings\shortcuts\find_shortcut = GetGadgetText(#prefsShortcutFind)
+            flushSettings()
           EndIf
         Case #prefsWebEnable
           If GetGadgetState(#prefsWebEnable) = #PB_Checkbox_Checked

@@ -332,6 +332,50 @@ Procedure canLoadLyrics()
   EndIf
 EndProcedure
 
+Procedure registerShortcuts()
+  Shared settings
+  globalHK::remove("",0,#True)
+  If settings\shortcuts\toggle_shortcut And globalHK::add(settings\shortcuts\toggle_shortcut,#PB_Event_Menu,#wnd,#dockPlayPause)
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutToggle),"setTextColor:",NSColor($00FF00))
+    EndIf
+  Else
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutToggle),"setTextColor:",NSColor($0000FF))
+    EndIf
+  EndIf
+  
+  If settings\shortcuts\next_shortcut And globalHK::add(settings\shortcuts\next_shortcut,#PB_Event_Menu,#wnd,#dockNext)
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutNext),"setTextColor:",NSColor($00FF00))
+    EndIf
+  Else
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutNext),"setTextColor:",NSColor($0000FF))
+    EndIf
+  EndIf
+  
+  If settings\shortcuts\previous_shortcut And globalHK::add(settings\shortcuts\previous_shortcut,#PB_Event_Menu,#wnd,#dockPrevious)
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutPrevious),"setTextColor:",NSColor($00FF00))
+    EndIf
+  Else
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutPrevious),"setTextColor:",NSColor($0000FF))
+    EndIf
+  EndIf
+  
+  If settings\shortcuts\find_shortcut And globalHK::add(settings\shortcuts\find_shortcut,#PB_Event_Menu,#wnd,#playlistFind)
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutFind),"setTextColor:",NSColor($00FF00))
+    EndIf
+  Else
+    If IsWindow(#wndPrefs)
+      CocoaMessage(0,GadgetID(#prefsShortcutFind),"setTextColor:",NSColor($0000FF))
+    EndIf
+  EndIf
+EndProcedure
+
 Procedure saveSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
@@ -364,6 +408,12 @@ Procedure saveSettings()
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
   SetJSONBoolean(AddJSONMember(object,"use_terminal_notifier"),settings\use_terminal_notifier)
   SetJSONBoolean(AddJSONMember(object,"use_genius"),settings\use_genius)
+  
+  Protected objectShortcuts = SetJSONObject(AddJSONMember(object,"shortcuts"))
+  SetJSONString(AddJSONMember(objectShortcuts,"toggle_shortcut"),settings\shortcuts\toggle_shortcut)
+  SetJSONString(AddJSONMember(objectShortcuts,"next_shortcut"),settings\shortcuts\next_shortcut)
+  SetJSONString(AddJSONMember(objectShortcuts,"previous_shortcut"),settings\shortcuts\previous_shortcut)
+  SetJSONString(AddJSONMember(objectShortcuts,"find_shortcut"),settings\shortcuts\find_shortcut)
   
   Protected objectWeb = SetJSONObject(AddJSONMember(object,"web"))
   SetJSONBoolean(AddJSONMember(objectWeb,"use_web_server"),settings\web\use_web_server)
@@ -453,6 +503,8 @@ Procedure loadSettings()
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
     FreeJSON(json)
+    
+    registerShortcuts()
     
     If Len(Trim(settings\web\api_key)) = 0 ; in case it exists but empty
       settings\web\api_key = StringFingerprint(Str(Date()),#PB_Cipher_MD5)

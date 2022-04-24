@@ -264,6 +264,16 @@ Procedure.f getProgressBarPosition(window.i,gadget.i,topOffset = 0,bottomOffset 
   ProcedureReturn -1
 EndProcedure
 
+Procedure NSColor(Color)
+  Protected Alpha.CGFloat, Blue.CGFloat, Green.CGFloat, Red.CGFloat
+  Alpha = 1
+  Red = Red(Color) / 255
+  Green = Green(Color) / 255
+  Blue = Blue(Color) / 255
+  ProcedureReturn CocoaMessage(0, 0, "NSColor colorWithDeviceRed:@", 
+               @Red, "green:@", @Green, "blue:@", @Blue, "alpha:@", @Alpha)
+EndProcedure
+
 Macro cleanUp()
   debugLog("main","cleaning up")
   EXIT = #True
