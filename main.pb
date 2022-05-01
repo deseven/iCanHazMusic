@@ -147,6 +147,11 @@ AddKeyboardShortcut(#wnd,#PB_Shortcut_Up,#playlistUp)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Down,#playlistDown)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Left,#playlistPrevious)
 AddKeyboardShortcut(#wnd,#PB_Shortcut_Right,#playlistNext)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Up|#PB_Shortcut_Shift,#playlistShiftUp)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_Down|#PB_Shortcut_Shift,#playlistShiftDown)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_K|#PB_Shortcut_Shift,#playlistShiftUp)
+AddKeyboardShortcut(#wnd,#PB_Shortcut_J|#PB_Shortcut_Shift,#playlistShiftDown)
+
 
 EnableGadgetDrop(#playlist,#PB_Drop_Files,#PB_Drag_Copy|#PB_Drag_Move|#PB_Drag_Link)
 
@@ -343,6 +348,10 @@ Repeat
           EndIf
           setAlbums()
           saveState()
+        Case #playlistShiftUp
+          playlistMove(#moveUp)
+        Case #playlistShiftDown
+          playlistMove(#moveDown)
         Case #playlistFind
           If Not IsWindow(#wndFind)
             action()

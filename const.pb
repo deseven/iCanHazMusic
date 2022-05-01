@@ -114,6 +114,8 @@ Enumeration menuItems
   #savePlaylist
   #addDirectory
   #addFile
+  #playlistShiftUp
+  #playlistShiftDown
   #playlistFind
   #playlistDontGroupByAlbums
   #playlistQueue
@@ -164,6 +166,11 @@ Enumeration lastfmAuthSteps
   #getToken
   #openAuthLink
   #getSession
+EndEnumeration
+
+Enumeration moveDirection
+  #moveUp
+  #moveDown
 EndEnumeration
 
 Structure ffprobe_format

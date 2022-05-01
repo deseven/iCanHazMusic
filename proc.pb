@@ -1128,6 +1128,102 @@ ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
   ProcedureReturn IsGroupRow
 EndProcedure
 
+Procedure playlistMoveItem(iFrom,iTo)
+  If iFrom < iTo
+    iTo + 1
+  EndIf
+  AddGadgetItem(#playlist,iTo,#sep + 
+                              GetGadgetItemText(#playlist,iFrom,#file) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#track) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#artist) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#title) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#duration) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#album) + #sep + 
+                              GetGadgetItemText(#playlist,iFrom,#details))
+  If iFrom > iTo
+    RemoveGadgetItem(#playlist,iFrom+1)
+  Else
+    RemoveGadgetItem(#playlist,iFrom)
+  EndIf
+EndProcedure
+
+Procedure playlistMove(direction.b,what.i = -1)
+  Protected i
+  Protected moveStart,moveEnd,moveTo,moveToOrig
+  If what = -1
+    moveStart = GetGadgetState(#playlist)
+  Else
+    moveStart = what
+  EndIf
+  If moveStart <> -1
+    If direction = #moveUp
+      If GetGadgetItemData(#playlist,moveStart) ; if moving an album
+        If moveStart > 0                        ; if it's not the first one already
+          RemoveGadgetItem(#playlist,moveStart)
+          
+          For i = moveStart To CountGadgetItems(#playlist)-1 ; determining what to move
+            If GetGadgetItemData(#playlist,i)
+              moveEnd = i-1
+              Break
+            EndIf
+          Next
+          If moveEnd = 0 : moveEnd = CountGadgetItems(#playlist)-1 : EndIf
+          
+          For i = moveStart-1 To 0 Step -1 ; determining where to move
+            If GetGadgetItemData(#playlist,i)
+              moveTo = i
+              Break
+            EndIf
+          Next
+                    
+          moveToOrig = moveTo
+          CocoaMessage(0,GadgetID(#playlist),"beginUpdates")
+          For i = moveStart To moveEnd
+            playlistMoveItem(i,moveTo)
+            moveTo + 1
+          Next
+          CocoaMessage(0,GadgetID(#playlist),"endUpdates")
+          
+          setAlbums()
+          SetGadgetState(#playlist,moveToOrig)
+        EndIf
+      Else
+        If moveStart-1 >= 0 And Not GetGadgetItemData(#playlist,moveStart-1)
+          playlistMoveItem(moveStart,moveStart-1)
+          SetGadgetState(#playlist,moveStart-1)
+        EndIf
+      EndIf
+    Else ; moving down
+      If GetGadgetItemData(#playlist,moveStart) ; if moving an album
+        
+        ; i'm too tired so instead of moving the album down we will select the next album and move it up
+        ; SMORT!
+        
+        For i = moveStart+1 To CountGadgetItems(#playlist)-1
+          If GetGadgetItemData(#playlist,i)
+            playlistMove(#moveUp,i)
+            Break
+          EndIf
+        Next
+        
+        ; now just to determine what should be the active item...
+        For i = moveStart+1 To CountGadgetItems(#playlist)-1
+          If GetGadgetItemData(#playlist,i)
+            SetGadgetState(#playlist,i)
+            Break
+          EndIf
+        Next
+        
+      Else
+        If moveStart+1 <= CountGadgetItems(#playlist)-1 And Not GetGadgetItemData(#playlist,moveStart+1)
+          playlistMoveItem(moveStart,moveStart+1)
+          SetGadgetState(#playlist,moveStart+1)
+        EndIf
+      EndIf
+    EndIf
+  EndIf
+EndProcedure
+
 Procedure playbackNotification()
   Shared nowPlaying
   Shared settings
@@ -1186,7 +1282,7 @@ Procedure webHandler(port.l)
   Shared settings.settings
   webProcessed = #False
   
-  Protected sleepTime.l = 30
+  Protected sleepTime.l = 50
   Protected isSleeping = #False
   Protected lastEvent.i
   
@@ -1198,15 +1294,15 @@ Procedure webHandler(port.l)
       Select webEvent
         Case #PB_NetworkEvent_None
           If (Not isSleeping) And (ElapsedMilliseconds() - lastEvent > 10000)
-            isSleeping = #True : sleepTime = 500
+            isSleeping = #True : sleepTime = 1000
             PostEvent(#evWebSleep)
           EndIf
         Case #PB_NetworkEvent_Connect
           lastEvent = ElapsedMilliseconds()
-          isSleeping = #False : sleepTime = 30
+          isSleeping = #False : sleepTime = 50
         Case #PB_NetworkEvent_Data
           lastEvent = ElapsedMilliseconds()
-          isSleeping = #False : sleepTime = 30
+          isSleeping = #False : sleepTime = 50
           webConnection = EventClient()
           webConnectionIP = GetClientIP(webConnection)
           webConnectionPort = GetClientPort(webConnection)
