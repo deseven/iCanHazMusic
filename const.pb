@@ -173,6 +173,10 @@ Enumeration moveDirection
   #moveDown
 EndEnumeration
 
+Enumeration timers
+  #timerSaveState
+EndEnumeration
+
 Structure ffprobe_format
   format_name.s
   duration.s

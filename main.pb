@@ -195,6 +195,16 @@ Repeat
         CocoaMessage(0,app,"hide:")
       EndIf
       
+      
+    ; timer events
+    Case #PB_Event_Timer
+      Select EventTimer()
+        Case #timerSaveState
+          RemoveWindowTimer(#wnd,#timerSaveState)
+          debugLog("timer","saving state")
+          saveState()
+      EndSelect
+      
     ; menu events
     Case #PB_Event_Menu
       Select EventMenu()
@@ -350,8 +360,12 @@ Repeat
           saveState()
         Case #playlistShiftUp
           playlistMove(#moveUp)
+          RemoveWindowTimer(#wnd,#timerSaveState)
+          AddWindowTimer(#wnd,#timerSaveState,2000)
         Case #playlistShiftDown
           playlistMove(#moveDown)
+          RemoveWindowTimer(#wnd,#timerSaveState)
+          AddWindowTimer(#wnd,#timerSaveState,2000)
         Case #playlistFind
           If Not IsWindow(#wndFind)
             action()
