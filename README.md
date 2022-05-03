@@ -31,12 +31,12 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - album art from external files and tags
  - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
  - queue, playback orders
- - simple web interface and api
+ - simple web interface and API
  - playlist search
+ - global hotkeys for playback (no media keys)
+ - playlist entries rearrangement
 
 #### What should work in the future 
- - global hotkeys for playback
- - playlist entries rearrangement
  - volume control
  - drag'n'drop operations
 
@@ -45,7 +45,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
  - CUE support
  - equalizer
  - tags editing, format conversion and other Swiss knife functions
- - advanced foobar2000-level customization (i'm too dumb for that, sorry)
+ - advanced foobar2000-level customization (I'm too dumb for that, sorry)
 
 ## Web interface & API
 Enable web server in preferences, then open http://0.0.0.0:8008/ (change port according to your settings), enter your API key when prompted. Go to http://0.0.0.0:8008/api/ to get the list of available methods. Example usage with curl:  
