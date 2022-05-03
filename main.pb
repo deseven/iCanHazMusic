@@ -740,8 +740,9 @@ Repeat
       EndWith
     Case #evTagGetFail
       *elem = EventData()
-      SetGadgetItemText(#playlist,*elem\id,"[failed to get artist]",#artist)
-      SetGadgetItemText(#playlist,*elem\id,"[failed to get title]",#title)
+      SetGadgetItemText(#playlist,*elem\id,"Unknown Artist",#artist)
+      SetGadgetItemText(#playlist,*elem\id,"Unknown Title",#title)
+      SetGadgetItemText(#playlist,*elem\id,"Unknown Album",#album)
     Case #evTagGetFinish
       If isParsingCompleted(#False)
         If ListSize(tagsParserThreads())

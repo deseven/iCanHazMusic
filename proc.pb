@@ -765,9 +765,13 @@ Procedure loadAlbumArt()
         SetGadgetState(#albumArt,ImageID(#currentAlbumArt))
       Else
         CopyImage(#defaultAlbumArt,#tmpImage)
-        debugLog ("albumart","not found")
+        debugLog ("albumart","failed to load")
         SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
       EndIf
+    Else
+      CopyImage(#defaultAlbumArt,#tmpImage)
+      debugLog ("albumart","not found")
+      SetGadgetState(#albumArt,ImageID(#defaultAlbumArt))
     EndIf
     ResizeImage(#tmpImage,300,300,#PB_Image_Smooth)
     SaveImage(#tmpImage,tmpDir + "/album-art.jpg",#PB_ImagePlugin_JPEG,7)
