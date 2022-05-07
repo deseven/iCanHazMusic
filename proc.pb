@@ -1488,7 +1488,8 @@ EndProcedure
 Procedure playFinishHandler()
   Shared preloadAP,lastfmSession,nowPlaying
   If preloadAP
-    audioplayer::play(preloadAP)
+    ; not needed since pb-macos-audioplayer r6
+    ;audioplayer::play(preloadAP)
   EndIf
   debugLog("playback","track ended")
   If lastfmSession

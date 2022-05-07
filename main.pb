@@ -833,9 +833,9 @@ Repeat
         oldCurrent = newCurrent
         If nowPlaying\durationSec - newCurrent <= 5 And preloadAP = 0 And preloadID = -1 And playbackOrder <> #playbackOrderShuffleTracks
           preloadID = getNextTrack(#True)
-          Debug "got next id for preload: " + Str(preloadID)
           If preloadID <> -1
             preloadAP = audioplayer::load(#PB_Any,GetGadgetItemText(#playlist,preloadID,#file))
+            audioplayer::setPlayNext(preloadAP)
             debugLog("playback","preloaded " + audioplayer::getPath(preloadAP))
           EndIf
         EndIf
