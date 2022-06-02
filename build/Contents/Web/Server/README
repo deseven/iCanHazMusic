@@ -1,3 +1,0 @@
-iCHM uses Hiawatha (https://www.hiawatha-webserver.org/) as a webserver.
-The main precompiled binary resides in this directory, along with config templates.
-If you actually want to edit the configuration for your needs, it's better to go to ~/Library/Application Support/iCanHazMusic/web

@@ -1,5 +1,5 @@
 ﻿#myName = "iCanHazMusic"
-#myVer = "0.4.0"
+#myVer = "0.5.0"
 #myNameVer = #myName + " " + #myVer
 #myUserAgent = #myName + "/" + #myVer
 #myID = "wtf.d7.icanhazmusic"
@@ -283,5 +283,5 @@ EndStructure
 #sep = Chr(10)
 
 #justifyLeft = 0
-#justifyRight = 1
-#justifyCenter = 2
+#justifyRight = 2
+#justifyCenter = 1

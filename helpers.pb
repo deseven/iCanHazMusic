@@ -114,7 +114,7 @@ Procedure ListIconGadgetHideRow(gadget.i,index.i,state.b)
 EndProcedure
 
 ; code by Shardik (http://www.purebasic.fr/english/viewtopic.php?p=393256#p393256)
-Procedure SetListIconColumnJustification(ListIconID.I,ColumnIndex.I,Alignment.I)
+Procedure SetListIconColumnHeaderJustification(ListIconID.I,ColumnIndex.I,Alignment.I)
   Protected ColumnHeaderCell.I
   Protected ColumnObject.I
   Protected ColumnObjectArray.I
@@ -122,14 +122,14 @@ Procedure SetListIconColumnJustification(ListIconID.I,ColumnIndex.I,Alignment.I)
   ; ----- Justify text of column cells
   CocoaMessage(@ColumnObjectArray, GadgetID(ListIconID), "tableColumns")
   CocoaMessage(@ColumnObject, ColumnObjectArray, "objectAtIndex:", ColumnIndex)
-  CocoaMessage(0, CocoaMessage(0, ColumnObject, "dataCell"), "setAlignment:", Alignment)
+  ;CocoaMessage(0, CocoaMessage(0, ColumnObject, "dataCell"), "setAlignment:", Alignment)
 
   ; ----- Justify text of column header
   CocoaMessage(@ColumnHeaderCell, ColumnObject, "headerCell")
   CocoaMessage(0, ColumnHeaderCell, "setAlignment:", Alignment)
 
   ; ----- Redraw ListIcon contents to see change
-  CocoaMessage(0, GadgetID(ListIconID), "reloadData")
+  ;CocoaMessage(0, GadgetID(ListIconID), "reloadData")
 EndProcedure
 
 Procedure IsWindowFullscreen(window)
@@ -190,7 +190,7 @@ Procedure NSLog(Message.s)
     CompilerEndIf  
     CocoaMessage(0, Format, "retain")
   EndIf
-  NSLog2(Format, @Message)  
+  ;NSLog2(Format, @Message)
 EndProcedure
 
 Procedure isPortAvailable(port.l,flags = 0)

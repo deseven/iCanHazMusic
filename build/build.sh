@@ -1,6 +1,7 @@
 #!/bin/bash
 
 pb="/Applications/PureBasic.app/Contents/Resources"
+pbalt="/Applications/PureBasic-x86.app/Contents/Resources"
 name="iCanHazMusic"
 shortName="ichm"
 ident="wtf.d7.icanhazmusic"
@@ -13,6 +14,7 @@ redColor='\033[31m'
 cd "$loc"
 export PUREBASIC_HOME="$pb"
 rm -rf "$loc/$name.app"
+rm -rf "$loc/$name-alt.app"
 rm -rf "$loc/$shortName.zip"
 rm -rf "$loc/$shortName.dmg"
 
@@ -24,6 +26,16 @@ die() {
 if [ -f "$pb/compilers/pbcompiler" ]; then
 	echo -ne $greenColor"compiling $shortName..."$noColor
 	"$pb/compilers/pbcompiler" -u -t -e "$loc/$name.app" "$loc/../main.pb" > /dev/null || die "failed to build $shortName"
+	if [ -d "$pbalt" ]; then
+		export PUREBASIC_HOME="$pbalt"
+		echo -ne $greenColor"\ncompiling $shortName for different arch..."$noColor
+		"$pbalt/compilers/pbcompiler" -u -t -e "$loc/$name-alt.app" "$loc/../main.pb" > /dev/null || die "failed to build $shortName"
+		export PUREBASIC_HOME="$pb"
+		echo -ne $greenColor"\ncreating universal binary..."$noColor
+		lipo -create -output "$name" "$loc/$name.app/Contents/MacOS/$name" "$loc/$name-alt.app/Contents/MacOS/$name-alt" || die "failed to create universal library"
+		strip "$name"
+		mv -f "$name" "$loc/$name.app/Contents/MacOS/$name"
+	fi
 	if [ -d "$loc/$name.app" ]; then
 		echo -ne $greenColor"\ninjecting resources..."$noColor
 		cd ..

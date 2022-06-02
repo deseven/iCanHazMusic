@@ -10,10 +10,10 @@ IncludeFile "../pb-httprequest-manager/httprequest-manager.pbi"
 IncludeFile "../pb-macos-task/task.pbi"
 IncludeFile "../pb-macos-globalhotkeys/ghk.pbi"
 
-ImportC ""
-  sel_registerName(str.p-ascii)
-  class_addMethod(class, selector, imp, types.p-ascii)
-EndImport
+;ImportC ""
+;  sel_registerName(str.p-ascii)
+;  class_addMethod(class, selector, imp, types.p-ascii)
+;EndImport
 
 Define app.i = CocoaMessage(0,0,"NSApplication sharedApplication")
 Define settings.settings
@@ -38,8 +38,7 @@ Define numThreads.b
 Define tagsToGetLock.i = CreateMutex()
 Define lastfmToken.s,lastfmSession.s,lastfmUser.s
 Define lastfmTokenResponse.s,lastfmSessionResponse.s
-Define sharedApp.i = CocoaMessage(0,0,"NSApplication sharedApplication")
-Define appDelegate.i = CocoaMessage(0,sharedApp,"delegate")
+Define appDelegate.i = CocoaMessage(0,app,"delegate")
 Define delegateClass.i = CocoaMessage(0,appDelegate,"class")
 Define lastPlayedID.i
 Define nextID.i
@@ -122,8 +121,9 @@ IncludeFile "interface.pb"
 debugLog("main","interface loaded")
 
 class_addMethod_(delegateClass,sel_registerName_("applicationDockMenu:"),@dockMenuHandler(),"v@:@")
-CocoaMessage(0,sharedApp,"setDelegate:",appDelegate)
-class_addMethod_(delegateClass,sel_registerName_("tableView:isGroupRow:"),@IsGroupRow(),"v@:@@")
+CocoaMessage(0,app,"setDelegate:",appDelegate)
+;class_addMethod_(delegateClass,sel_registerName_("tableView:isGroupRow:"),@IsGroupRow(),"v@:@@")
+class_addMethod_(delegateClass,sel_registerName_("tableView:willDisplayCell:forTableColumn:row:"),@CellDisplayCallback(),"v@:@@@@")
 CocoaMessage(0,GadgetID(#playlist),"setDelegate:",appDelegate)
 debugLog("main","handlers registered")
 

@@ -1122,14 +1122,80 @@ Procedure getPreviousTrack()
   ProcedureReturn nextID
 EndProcedure
 
-ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
-  Protected Gadget, IsGroupRow.I
+;ProcedureC IsGroupRow(Object.I, Selector.I, TableView.I, Row.I)
+;  ProcedureReturn GetGadgetItemData(#playlist, Row)
+;EndProcedure
+
+ProcedureC CellDisplayCallback(Object.I, Selector.I, TableView.I, Cell.I, *Column, Row.I)
+  Protected LineFrame.NSRect
+  Protected RowFrame.NSRect
+  Protected TextSize.NSSize
+  Protected CellFrame.NSRect
+  Protected BoldFontSize.CGFloat = 15.0
+  Protected FontSize.CGFloat = 13.0
+  Static SystemFont.i
+  Static BoldSystemFont.i
+  Protected Column.i = CocoaMessage(0,CocoaMessage(0,TableView,"tableColumns"),"indexOfObject:",*Column)
+  Protected CellText.s = GetGadgetItemText(#playlist,Row,Column)
   
-  Gadget = CocoaMessage(0, TableView, "tag")
+  If Not BoldSystemFont
+    BoldSystemFont = CocoaMessage(0, 0, "NSFont boldSystemFontOfSize:@", @BoldFontSize)
+    CocoaMessage(0, BoldSystemFont, "retain")
+  EndIf
   
-  IsGroupRow = GetGadgetItemData(Gadget, Row)
+  If Not SystemFont
+    SystemFont = CocoaMessage(0, 0, "NSFont systemFontOfSize:@", @FontSize)
+    CocoaMessage(0, SystemFont, "retain")
+  EndIf
   
-  ProcedureReturn IsGroupRow
+  CocoaMessage(0, Cell, "_setVerticallyCentered:", #YES)
+  
+  If GetGadgetItemData(#playlist,Row)
+    If Column = #status
+      ;CocoaMessage(0, Cell, "setBackgroundStyle:", 2)
+      ;CocoaMessage(0, Cell, "setDrawsBackground:", #YES)
+      ;CocoaMessage(0, Cell, "setBackgroundColor:",CocoaMessage(0, 0, "NSColor redColor"))
+      CocoaMessage(@CellFrame, TableView, "frameOfCellAtColumn:", Column, "row:", Row)
+      CocoaMessage(@TextSize, Cell, "cellSize")
+      CocoaMessage(@RowFrame, GadgetID(#playlist), "rectOfRow:", Row)
+      ;LineFrame\origin\x = CellFrame\origin\x + TextSize\width + 10
+      ;LineFrame\origin\y =  CellFrame\origin\y + CellFrame\size\height / 2 + 1
+      LineFrame\origin\x = CellFrame\origin\x-10
+      LineFrame\origin\y =  CellFrame\origin\y
+      LineFrame\size\height = RowFrame\size\height
+      LineFrame\size\width = RowFrame\size\width+20
+      CocoaMessage(0, CocoaMessage(0, 0, "NSColor grayColor"), "setStroke")
+      CocoaMessage(0, 0, "NSBezierPath strokeRect:@", @LineFrame)
+      CocoaMessage(0, Cell,
+                   "drawInteriorWithFrame:@", @LineFrame,
+                   "inView:", TableView)
+    EndIf
+    
+    CocoaMessage(0, Cell,
+                 "setTitle:", CocoaMessage(0, Cell, "title"))
+    CocoaMessage(0, Cell, 
+                 "setTextColor:", CocoaMessage(0, 0, "NSColor secondaryLabelColor"))
+    CocoaMessage(0, Cell,
+                 "setFont:", BoldSystemFont)
+  Else
+    CocoaMessage(0, Cell, 
+                 "setTextColor:", CocoaMessage(0, 0, "NSColor labelColor"))
+    CocoaMessage(0, Cell,
+                 "setFont:", SystemFont)
+    Select Column
+      Case #status
+        CocoaMessage(0, Cell, "setAlignment:", #justifyCenter)
+      Case #track
+        CocoaMessage(0, Cell, "setAlignment:", #justifyRight)
+      Case #duration
+        CocoaMessage(0, Cell, "setAlignment:", #justifyCenter)
+      Case #details
+        CocoaMessage(0, Cell, "setAlignment:", #justifyRight)
+    EndSelect
+  EndIf
+  
+  CocoaMessage(0, Cell, "setStringValue:$", @CellText)
+  
 EndProcedure
 
 Procedure playlistMoveItem(iFrom,iTo)

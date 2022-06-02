@@ -1,34 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 5.73 LTS (MacOS X - x64)">
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.00 Beta 8 - C Backend (MacOS X - arm64)">
   <section name="config">
     <options closefiles="1" openmode="0" name="iCanHazMusic"/>
   </section>
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2022-05-03 08:51" user="deseven" host="de7mac.local"/>
+    <lastopen date="2022-06-02 22:18" user="deseven" host="d7mba.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="376256bad561a7155a636efd77341a76"/>
+      <fingerprint md5="b5612b9ce3f5405246a948fff87756f8"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="cdfb59fe10c51ebf74cb9f7247e11198"/>
+      <fingerprint md5="3bf8f919416598f98c42e60e1585a88a"/>
     </file>
     <file name="interface.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="bda93cbe58aa632af418df93d39298f7"/>
+      <fingerprint md5="9121eae4aea15d7f3828d8798357d223"/>
     </file>
     <file name="main.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="fc34ca4475fed0cd775f6f60657ed06d"/>
+      <fingerprint md5="df8c7ac85e280ce587f7d1aa3b4d9024"/>
     </file>
     <file name="proc.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="187a173bf2db4fb4dce99f48d61d1476"/>
+      <fingerprint md5="62ed9a26492ed180671f8601574aed87"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
@@ -36,7 +36,7 @@
     </file>
     <file name="../pb-macos-audioplayer/audioplayer.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="686ec97381769f843b90533c3b859c2b"/>
+      <fingerprint md5="ace933d544280e527d6b039cc3000308"/>
     </file>
     <file name="../pb-macos-globalhotkeys/ghk.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
@@ -51,7 +51,7 @@
     <target name="Default Target" enabled="1" default="1">
       <inputfile value="main.pb"/>
       <outputfile value="iCanHazMusic.app"/>
-      <options thread="1" xpskin="1" debug="1"/>
+      <options thread="1" xpskin="1" debug="1" optimizer="1"/>
       <temporaryexe value="source"/>
       <icon enable="1">build/Contents/Resources/main.icns</icon>
       <tools>ICHM_INJECT,ICHM_INJECT_BUILD</tools>
