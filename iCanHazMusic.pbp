@@ -1,34 +1,34 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.00 Beta 8 - C Backend (MacOS X - arm64)">
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.00 LTS - C Backend (MacOS X - arm64)">
   <section name="config">
     <options closefiles="1" openmode="0" name="iCanHazMusic"/>
   </section>
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2022-06-02 22:18" user="deseven" host="d7mba.local"/>
+    <lastopen date="2022-08-02 10:33" user="deseven" host="d7mba.local"/>
   </section>
   <section name="files">
     <file name="const.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="b5612b9ce3f5405246a948fff87756f8"/>
+      <fingerprint md5="ac9b2be329c4866ef5eedf4d3d19afd8"/>
     </file>
     <file name="helpers.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="3bf8f919416598f98c42e60e1585a88a"/>
+      <fingerprint md5="d5335233c11261750dce526a18623dc4"/>
     </file>
     <file name="interface.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="9121eae4aea15d7f3828d8798357d223"/>
+      <fingerprint md5="e44e5592e2cb86ae9df4bafc44875b08"/>
     </file>
     <file name="main.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="df8c7ac85e280ce587f7d1aa3b4d9024"/>
+      <fingerprint md5="fafd7604315b107e3195273cd2fdd4dd"/>
     </file>
     <file name="proc.pb">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="62ed9a26492ed180671f8601574aed87"/>
+      <fingerprint md5="c7a95982802af78afabf9ecbb1c12de5"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
       <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>

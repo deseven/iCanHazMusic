@@ -281,7 +281,11 @@ Procedure lyrics(forceGenius)
   EndIf
   
   With task
-    \path = "/usr/local/bin/python3"
+    If FileSize("/usr/local/bin/python3") > 0
+      \path = "/usr/local/bin/python3"
+    Else
+      \path = "/opt/homebrew/bin/python3"
+    EndIf
     \workdir = dataDir + "/tmp"
     \read_output = #True
     
@@ -320,7 +324,11 @@ EndProcedure
 Procedure canLoadLyrics()
   Protected task.task::task
   With task
-    \path = "/usr/local/bin/python3"
+    If FileSize("/usr/local/bin/python3") > 0
+      \path = "/usr/local/bin/python3"
+    Else
+      \path = "/opt/homebrew/bin/python3"
+    EndIf
     \read_output = #True
     AddElement(\args()) : \args() = "-u"
     AddElement(\args()) : \args() = "-m"
@@ -1300,9 +1308,13 @@ Procedure playbackNotification()
   Shared dataDir
   Protected task.task::task
   If settings\use_terminal_notifier
-    If FileSize(#terminalNotifier) > 0
+    If FileSize(#terminalNotifier) > 0 Or FileSize(#terminalNotifierAlt) > 0
       With task
-        \path = #terminalNotifier
+        If FileSize(#terminalNotifier) > 0
+          \path = #terminalNotifier
+        Else
+          \path = #terminalNotifierAlt
+        EndIf
         AddElement(\args()) : \args() = "-sender"
         AddElement(\args()) : \args() = #myID
         AddElement(\args()) : \args() = "-group"

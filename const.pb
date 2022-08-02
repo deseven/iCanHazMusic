@@ -15,6 +15,7 @@
 #lastfmSecret = "0697a290be37610c1081ccd5f0a0f82a"
 
 #terminalNotifier = "/usr/local/bin/terminal-notifier"
+#terminalNotifierAlt = "/opt/homebrew/bin/terminal-notifier"
 
 #playSymbol = "▶"
 #pauseSymbol = "❚ ❚"
