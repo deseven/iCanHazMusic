@@ -52,6 +52,7 @@ Define *response.HTTPRequestManager::response
 Define responseResult.s
 Define lastHTTPRequestManagerProcess.i
 Define seekbarSelect.d
+Define volume.f
 
 ; web server stuff
 Define webPort.l
@@ -601,6 +602,16 @@ Repeat
           Else
             doStop()
           EndIf
+        Case #volume
+          volume = GetGadgetState(#volume) / 100
+          If audioplayer::getPlayerID(currentAP) And nowPlaying\ID <> -1
+            audioplayer::setVolume(currentAP,volume)
+          EndIf
+          If preloadAP And audioplayer::getPlayerID(preloadAP)
+            audioplayer::setVolume(preloadAP,volume)
+          EndIf
+          saveSettings()
+          Debug "volume set to " + StrF(volume,2)
         Case #prefsShortcutEdit
           If GetGadgetText(#prefsShortcutEdit) = "Edit"
             SetGadgetText(#prefsShortcutEdit,"Apply")
@@ -784,16 +795,16 @@ Repeat
               If ev = #evNowPlayingRequestFinished
                 responseResult + " was successfull"
               ElseIf ev = #evScrobbleRequestFinished
-                If FindString(*response\response,~"\"accepted\":1")
+                If FindString(*response\text,~"\"accepted\":1")
                   responseResult + " was successfull"
-                ElseIf FindString(*response\response,~"\"ignored\":1")
+                ElseIf FindString(*response\text,~"\"ignored\":1")
                   responseResult + " was ignored"
                 Else
-                  responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\response
+                  responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\text
                 EndIf
               EndIf
             Else
-              responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\response
+              responseResult + " failed with http code " + Str(*response\statusCode) + ": " + *response\text
             EndIf
         EndSelect
         debugLog("lastfm",responseResult)
@@ -834,6 +845,7 @@ Repeat
           preloadID = getNextTrack(#True)
           If preloadID <> -1
             preloadAP = audioplayer::load(#PB_Any,GetGadgetItemText(#playlist,preloadID,#file))
+            audioplayer::setVolume(preloadAP,volume)
             audioplayer::setPlayNext(preloadAP)
             debugLog("playback","preloaded " + audioplayer::getPath(preloadAP))
           EndIf

@@ -39,6 +39,7 @@ Enumeration
   #nowPlaying
   #nowPlayingProgress
   #nowPlayingDuration
+  #volume
   #lyrics
   #toolbarPlayPause
   #toolbarNext
@@ -273,6 +274,7 @@ Structure settings
   last_played_track_id.i
   use_terminal_notifier.b
   use_genius.b
+  volume.f
   shortcuts.settingsShortcuts
   web.settingsWeb
   lastfm.settingsLastfm

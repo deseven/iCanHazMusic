@@ -1,50 +1,50 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.00 LTS - C Backend (MacOS X - arm64)">
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.02 LTS - C Backend (MacOS X - arm64)">
   <section name="config">
     <options closefiles="1" openmode="0" name="iCanHazMusic"/>
   </section>
   <section name="data">
     <explorer view="/Applications/PureBasic.app/Contents/Resources/Examples/" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2022-08-02 10:33" user="deseven" host="d7mba.local"/>
+    <lastopen date="2024-06-05 18:57" user="deseven" host="d7mba.local"/>
   </section>
   <section name="files">
+    <file name="../pb-macos-audioplayer/audioplayer.pbi">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="1" panelstate="+-"/>
+      <fingerprint md5="1a02eee5d4edab60aa51307eab96c6fc"/>
+    </file>
     <file name="const.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="ac9b2be329c4866ef5eedf4d3d19afd8"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="2" panelstate="+"/>
+      <fingerprint md5="13db141077ece10216e4c3643031ad93"/>
     </file>
     <file name="helpers.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="3" panelstate="+"/>
       <fingerprint md5="d5335233c11261750dce526a18623dc4"/>
     </file>
     <file name="interface.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="4" panelstate="+"/>
       <fingerprint md5="e44e5592e2cb86ae9df4bafc44875b08"/>
     </file>
     <file name="main.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="5" panelstate="+"/>
       <fingerprint md5="fafd7604315b107e3195273cd2fdd4dd"/>
     </file>
     <file name="proc.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+"/>
-      <fingerprint md5="c7a95982802af78afabf9ecbb1c12de5"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="6" panelstate="+"/>
+      <fingerprint md5="659572535225a4673cb350d1d1bfec5e"/>
     </file>
     <file name="../pb-httprequest-manager/httprequest-manager.pbi">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="7" panelstate="+-"/>
       <fingerprint md5="d70eae180fa52bde1fd4d39c88610074"/>
     </file>
-    <file name="../pb-macos-audioplayer/audioplayer.pbi">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="ace933d544280e527d6b039cc3000308"/>
+    <file name="../pb-macos-task/task.pbi">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="8" panelstate="+-"/>
+      <fingerprint md5="8924bfc923ac0cc11c8027c1c4dd3409"/>
     </file>
     <file name="../pb-macos-globalhotkeys/ghk.pbi">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
+      <config load="0" scan="1" panel="1" warn="1" lastopen="0" sortindex="999" panelstate="+-"/>
       <fingerprint md5="84360602992a51bea59ca1c7147b339b"/>
-    </file>
-    <file name="../pb-macos-task/task.pbi">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" panelstate="+-"/>
-      <fingerprint md5="8924bfc923ac0cc11c8027c1c4dd3409"/>
     </file>
   </section>
   <section name="targets">

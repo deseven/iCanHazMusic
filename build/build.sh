@@ -1,7 +1,7 @@
 #!/bin/bash
 
 pb="/Applications/PureBasic.app/Contents/Resources"
-pbalt="/Applications/PureBasic-x86.app/Contents/Resources"
+pbalt="/Applications/PureBasic-x86.app/Contents/Resources-DISABLED"
 name="iCanHazMusic"
 shortName="ichm"
 ident="wtf.d7.icanhazmusic"

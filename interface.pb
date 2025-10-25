@@ -108,6 +108,10 @@ GadgetToolTip(#toolbarStop,"Stop")
 GadgetToolTip(#toolbarLyricsReloadWeb,"Reload lyrics from Genius")
 
 EditorGadget(#lyrics,WindowWidth(#wnd)-500,620,500,WindowHeight(#wnd)-620,#PB_Editor_ReadOnly|#PB_Editor_WordWrap)
+HideGadget(#lyrics,#True)
+
+TrackBarGadget(#volume,WindowWidth(#wnd)-495,620,490,40,0,100)
+
 HideGadget(#toolbarLyricsReloadWeb,#True)
 
 Macro prefs()
@@ -170,8 +174,9 @@ Macro prefs()
     SetGadgetState(#prefsUseTerminalNotifier,#PB_Checkbox_Checked)
   EndIf
   If settings\use_genius
-    SetGadgetState(#prefsUseGenius,#PB_Checkbox_Checked)
+    SetGadgetState(#prefsUseGenius,#PB_Checkbox_Unchecked) ; temporarily disabled
   EndIf
+  DisableGadget(#prefsUseGenius,#True) ; temporarily disabled
   HideWindow(#wndPrefs,#False)
 EndMacro
 

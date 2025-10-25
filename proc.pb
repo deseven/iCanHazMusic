@@ -322,6 +322,7 @@ Procedure lyrics(forceGenius)
 EndProcedure
 
 Procedure canLoadLyrics()
+  ProcedureReturn #False ; temporarily disabled
   Protected task.task::task
   With task
     If FileSize("/usr/local/bin/python3") > 0
@@ -388,7 +389,7 @@ Procedure saveSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
-  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
+  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b,volume.f
   Shared settings.settings
   Protected json.i = CreateJSON(#PB_Any)
   
@@ -416,6 +417,7 @@ Procedure saveSettings()
   SetJSONInteger(AddJSONMember(object,"last_played_track_id"),lastPlayedID)
   SetJSONBoolean(AddJSONMember(object,"use_terminal_notifier"),settings\use_terminal_notifier)
   SetJSONBoolean(AddJSONMember(object,"use_genius"),settings\use_genius)
+  SetJSONFloat(AddJSONMember(object,"volume"),volume)
   
   Protected objectShortcuts = SetJSONObject(AddJSONMember(object,"shortcuts"))
   SetJSONString(AddJSONMember(objectShortcuts,"toggle_shortcut"),settings\shortcuts\toggle_shortcut)
@@ -492,7 +494,7 @@ Procedure loadSettings()
   Shared dataDir.s
   Shared lastfmSession.s,lastfmUser.s
   Shared lastPlayedID
-  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b
+  Shared cursorFollowsPlayback.b,playbackFollowsCursor.b,playbackOrder.b,stopAtQueueEnd.b,volume.f
   Protected settingsData.s = ReadFileFast(dataDir + "/settings.json")
   Protected json.i = ParseJSON(#PB_Any,settingsData)
   Shared settings.settings
@@ -507,6 +509,7 @@ Procedure loadSettings()
   settings\use_terminal_notifier = #True
   settings\use_genius = #True
   settings\playlist\dont_group_by_albums = #False
+  settings\volume = 1.0
   
   If json
     ExtractJSONStructure(JSONValue(json),@settings,settings,#PB_JSON_NoClear)
@@ -602,6 +605,8 @@ Procedure loadSettings()
         playbackOrder = #orderDefault
         SetMenuItemState(#menu,#playbackOrderDefault,#True)
     EndSelect
+    volume = settings\volume
+    SetGadgetState(#volume,volume * 100)
   EndIf
   debugLog("main","settings loaded")
 EndProcedure
@@ -1335,7 +1340,8 @@ Procedure playbackNotification()
   EndIf
 EndProcedure
 
-Procedure webHandler(port.l)
+Procedure webHandler(*port)
+  Protected port.l = *port
   Protected activity.i = BeginWork(#NSActivityBackground,"iCHM web server")
   Protected webEvent.i
   Protected webConnection.i

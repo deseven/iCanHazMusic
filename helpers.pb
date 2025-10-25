@@ -341,6 +341,7 @@ Macro doPlay()
       preloadAP = 0
     EndIf
     currentAP = audioplayer::load(#PB_Any,nowPlaying\path)
+    audioplayer::setVolume(currentAP,volume)
     audioplayer::play(currentAP)
   EndIf
   audioplayer::setFinishEvent(currentAP,#evPlayFinish)
@@ -441,7 +442,8 @@ Macro sizeGadgets()
   ResizeGadget(#toolbarNext,WindowWidth(#wnd)-345,#PB_Ignore,#PB_Ignore,#PB_Ignore)
   ResizeGadget(#toolbarNextAlbum,WindowWidth(#wnd)-295,#PB_Ignore,#PB_Ignore,#PB_Ignore)
   ResizeGadget(#toolbarStop,WindowWidth(#wnd)-245,#PB_Ignore,#PB_Ignore,#PB_Ignore)
-  ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)      
+  ResizeGadget(#toolbarLyricsReloadWeb,WindowWidth(#wnd)-55,#PB_Ignore,#PB_Ignore,#PB_Ignore)
+  ResizeGadget(#volume,WindowWidth(#wnd)-495,#PB_Ignore,#PB_Ignore,#PB_Ignore)
   ResizeGadget(#lyrics,WindowWidth(#wnd)-500,#PB_Ignore,#PB_Ignore,WindowHeight(#wnd)-620)
 EndMacro
 
