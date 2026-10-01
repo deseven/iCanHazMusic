@@ -6,18 +6,20 @@ struct iCanHazMusicApp: App {
 
     var body: some Scene {
         // Single main window (the first scene is opened on launch).
+        // Size and position are restored from the config by `WindowPersistence`.
         Window(AppConstants.appName, id: AppConstants.mainWindowID) {
             MainWindow()
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: Layout.windowMinWidth, minHeight: Layout.windowMinHeight)
+                .background(WindowAccessor { WindowPersistence.shared.attach($0) })
         }
-        .defaultSize(width: 800, height: 600)
+        .defaultSize(width: Layout.windowMinWidth, height: Layout.windowMinHeight)
         .windowResizability(.contentMinSize)
+        .restorationBehavior(.disabled)
 
         Window("About \(AppConstants.appName)", id: AppConstants.aboutWindowID) {
             AboutView()
         }
         .windowResizability(.contentSize)
-
         .restorationBehavior(.disabled)
         .defaultPosition(.center)
         .commands {

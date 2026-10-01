@@ -6,4 +6,8 @@ enum Log {
     static func info(_ message: String) {
         print("[\(AppConstants.appShortName)] \(message)")
     }
+
+    static func error(_ message: String) {
+        print("[\(AppConstants.appShortName)] ERROR: \(message)")
+    }
 }
