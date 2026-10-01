@@ -28,7 +28,9 @@ swiftc -O -parse-as-library -target arm64-apple-macos15.4 \
    AudioFile (+ AVFoundation only if the artist is missing). `auto` == pure-AVFoundation speed on MP3 with
    AudioFile's cheaper path for the other formats.
 3. **Concurrency pays off a lot on the NAS** (1 → 16 parallel: ~30 → ~160 files/s), but **saturates at ~16**
-   for local/NVMe-class storage. Default `concurrency: 16`.
+   for local/NVMe-class storage. Default `concurrency` is now **physical cores / 2**
+   (`TagReader.defaultConcurrency`; 4 on an 8-core machine), which is below that NAS sweet spot - pass
+   `concurrency: 16` explicitly for a slow network share.
 4. **Both APIs read ID3v1** (Apple added it at some point) - the hand-rolled ID3v1 backup read I first wrote
    was dead code and was removed. `ffprobe`-era fallbacks via album_artist/performer/band/composer are kept.
    **ID3v2.2 is the trap:** AVFoundation exposes its 3-char frames (`TT2`, `TP1`, ...) with
@@ -129,7 +131,7 @@ ok 10540 | partial 67 (missing artist 53, album 10, title 5) | noTags 3 | FAIL 0
 ## API
 
 ```swift
-let reader = TagReader(strategy: .auto, concurrency: 16, timeout: 30)
+let reader = TagReader(strategy: .auto, concurrency: TagReader.defaultConcurrency, timeout: 30)   // default: physical cores / 2
 for await r in reader.read(paths: paths) {          // completion order, one result per input
     switch r.status {
     case .complete:                       // title, artist and album all found
@@ -155,6 +157,24 @@ for await r in reader.read(paths: paths) {          // completion order, one res
 - **Artist fallback chain** (same semantics as the old ffprobe code): `artist`, else the last non-empty of
   `album_artist` → `performer` → `band` → `discogs_artist_list` → `composer`.
 - Cancelling the consuming task (e.g. removing a folder in the harness) stops new files from starting.
+- **Artwork source** (`r.artwork`; detection only, no image is read or decoded). First hit wins:
+  1. `.cover(name)`: `cover` / `folder` / `album` / `front` + `jpg` / `jpeg` / `png` in the file's folder, case-insensitive
+     (`Cover.JPG`, `FOLDER.png`, ...). If several exist: cover > folder > album > front, then jpg > jpeg > png.
+  2. `.embedded`: artwork inside the audio file.
+  3. `.anyImage(name)`: any other jpg/jpeg/png in the folder (first in natural order), last resort.
+  4. `.none`.
+
+  Hidden files (`._cover.jpg` AppleDouble leftovers on shares) are ignored. Folders are listed **once per
+  directory** (cached per `TagReader`, shared by concurrent files), so an album costs one `readdir`.
+  Embedded detection only runs when no priority-1 image exists. `TagReader(detectArtwork: false)` turns it
+  all off (the benchmarks do, so their numbers stay comparable). Failed files get `.none`.
+
+  How "embedded" is detected (verified with ffmpeg-made samples): via AVFoundation item keys (`APIC`/`PIC`,
+  `covr`, common-key artwork, Vorbis `METADATA_BLOCK_PICTURE`). That is free when AVFoundation already read
+  the tags, and one extra metadata load otherwise (e.g. non-MP3 files read via AudioFile). **FLAC is the
+  exception**: neither AVFoundation nor AudioToolbox exposes its `PICTURE` block (AudioFile claims the
+  property exists but returns nothing), so `FlacArtwork` walks the metadata block headers (4 bytes per
+  block, image data is skipped). ID3v2.2 `PIC` is handled by key but was not tested (ffmpeg can't write v2.2).
 
 ## Files
 
@@ -164,6 +184,7 @@ for await r in reader.read(paths: paths) {          // completion order, one res
 | [`TagReader/TagBackends.swift`](TagReader/TagBackends.swift) | AudioFile / AVFoundation backends + native key → canonical field map |
 | [`TagReader/TagReader.swift`](TagReader/TagReader.swift) | the concurrency + normalisation engine described above |
 | [`TagReader/AudioFileScanner.swift`](TagReader/AudioFileScanner.swift) | folder → file expansion, supported extensions |
+| [`TagReader/ArtworkFinder.swift`](TagReader/ArtworkFinder.swift) | `ArtworkSource`, folder image lookup + per-directory cache |
 | [`App/App.swift`](App/App.swift) | SwiftUI harness (sources list, live track table, status bar) |
 | [`Bench/Bench.swift`](Bench/Bench.swift) | `dump` (per-file inspection), `run` (disjoint-set benchmark, incl. ffprobe reference), `scan` (whole-list verification, `--problems out.tsv`) |
 | [`experiments/`](experiments) | `api-probe.swift` (per-API dump), `make-samples.sh` (tagged samples per format) |
@@ -173,7 +194,7 @@ for await r in reader.read(paths: paths) {          // completion order, one res
 `./build.sh run`. Add folders or files (button, ⌘O, or drag & drop), each source is scanned then its files are
 read with the chosen strategy/parallelism; rows appear as results arrive, so ordering is completion order.
 Columns show the fallback fields in grey italics, per-file status (with the failure reason) and which backend
-took how long. The filter bar above the table toggles status chips (OK / Missing fields / No tags / Failed,
+took how long, and the detected artwork source (image name, or "embedded"). The filter bar above the table toggles status chips (OK / Missing fields / No tags / Failed,
 with live counts; multi-select, empty = all) to isolate parsing problems - e.g. show only rows where the
 artist or album was missing. Remove sources/rows to cancel work, status bar shows live aggregate counts and files/s. The
 strategy/parallelism pickers apply to sources added afterwards (this is a benchmark harness - the point is to

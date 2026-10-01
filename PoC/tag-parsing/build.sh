@@ -7,7 +7,7 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p build
 FLAGS="-O -parse-as-library -target arm64-apple-macos15.4"
-LIB="TagReader/TagModels.swift TagReader/TagBackends.swift TagReader/TagReader.swift TagReader/AudioFileScanner.swift"
+LIB="TagReader/TagModels.swift TagReader/TagBackends.swift TagReader/TagReader.swift TagReader/AudioFileScanner.swift TagReader/ArtworkFinder.swift"
 
 target="${1:-all}"
 if [ "$target" = "bench" ] || [ "$target" = "all" ]; then

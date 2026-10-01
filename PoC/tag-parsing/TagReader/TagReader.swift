@@ -2,7 +2,7 @@ import Foundation
 
 /// Reads tags for many files with bounded parallelism and streams results back as soon as each file is done.
 ///
-///     let reader = TagReader(strategy: .auto, concurrency: 16)
+///     let reader = TagReader(strategy: .auto)   // concurrency: physical cores / 2
 ///     for await result in reader.read(paths: paths) { ... }   // arrives in completion order, not input order
 ///
 /// Every input yields exactly one result (unless the consumer cancels). Failures never throw:
@@ -25,16 +25,35 @@ public final class TagReader: Sendable {
         public var id: String { rawValue }
     }
 
+    /// Default parallelism: physical CPU cores / 2 (at least 1). `hw.physicalcpu` counts performance and
+    /// efficiency cores alike; falls back to the logical count if the sysctl fails.
+    public static let defaultConcurrency: Int = {
+        var cores: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        if sysctlbyname("hw.physicalcpu", &cores, &size, nil, 0) != 0 || cores < 1 {
+            cores = Int32(ProcessInfo.processInfo.processorCount)
+        }
+        return max(1, Int(cores) / 2)
+    }()
+
     public let strategy: Strategy
     /// Max files being read at the same time.
     public let concurrency: Int
     /// Timeout for the blocking AudioToolbox read (dead NAS, stalled mount, ...).
     public let timeout: TimeInterval
+    /// Detect the album-art source (folder image / embedded / any image) for every file. Detection only, no
+    /// image is read. Turn off for pure tag benchmarks.
+    public let detectArtwork: Bool
 
-    public init(strategy: Strategy = .auto, concurrency: Int = 16, timeout: TimeInterval = 30) {
+    private let artworkCache: ArtworkDirectoryCache
+
+    public init(strategy: Strategy = .auto, concurrency: Int = TagReader.defaultConcurrency, timeout: TimeInterval = 30,
+                detectArtwork: Bool = true) {
         self.strategy = strategy
         self.concurrency = max(1, concurrency)
         self.timeout = timeout
+        self.detectArtwork = detectArtwork
+        self.artworkCache = ArtworkDirectoryCache(timeout: timeout)
     }
 
     // MARK: Public API
@@ -99,6 +118,10 @@ public final class TagReader: Sendable {
             if !got.fields.isEmpty || (got.duration != nil && !hadDuration) { sources.append(backend) }
         }
 
+        // Folder lookup first: a cover/folder/album image makes embedded artwork irrelevant.
+        let folder = detectArtwork
+            ? await artworkCache.listing(for: url.deletingLastPathComponent()) : .empty
+
         var effective = strategy
         if effective == .auto {
             effective = url.pathExtension.lowercased() == "mp3" ? .avFoundation : .hybrid
@@ -126,10 +149,32 @@ public final class TagReader: Sendable {
             }
         }
 
+        let failed = sources.isEmpty
+        var artwork = ArtworkSource.none
+        if detectArtwork, !failed {
+            if let name = folder.preferred {
+                artwork = .cover(name)
+            } else {
+                if await hasEmbeddedArtwork(url: url, known: raw.hasArtwork) { artwork = .embedded }
+                else if let name = folder.anyImage { artwork = .anyImage(name) }
+            }
+        }
+
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
-        let (tags, status) = Self.finalize(raw: raw, failed: sources.isEmpty ? explainFailure(errors, url) : nil)
+        let (tags, status) = Self.finalize(raw: raw, failed: failed ? explainFailure(errors, url) : nil)
         return TagReadResult(id: index, url: url, tags: tags, status: status,
-                             sources: sources, elapsed: elapsed, rawFields: raw.fields)
+                             sources: sources, elapsed: elapsed, rawFields: raw.fields, artwork: artwork)
+    }
+
+    /// `known` is what the tag read already found out (nil = AVFoundation didn't run). FLAC pictures are invisible
+    /// to both macOS APIs, so they are looked for in the file itself; everything else uses AVFoundation item keys.
+    private func hasEmbeddedArtwork(url: URL, known: Bool?) async -> Bool {
+        if known == true { return true }
+        if url.pathExtension.lowercased() == "flac" {
+            return (try? await Self.offload(timeout: timeout) { try FlacArtwork.hasPicture(url: url) }) ?? false
+        }
+        if let known { return known }
+        return await AVFoundationBackend.hasEmbeddedArtwork(url: url) ?? false
     }
 
     /// Both APIs report a vanished file with an unhelpful message (AudioToolbox returns an undocumented
@@ -211,7 +256,7 @@ public final class TagReader: Sendable {
 
     /// Runs blocking `work` on a GCD queue and gives up waiting after `timeout` (the blocking call itself
     /// can't be interrupted, but the reader's window slot is freed and the file is reported as failed).
-    private static func offload<T: Sendable>(timeout: TimeInterval,
+    static func offload<T: Sendable>(timeout: TimeInterval,
                                              _ work: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<T, Error>) in
             let once = Once(c)

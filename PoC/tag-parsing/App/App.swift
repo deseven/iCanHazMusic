@@ -68,7 +68,7 @@ final class LibraryModel {
 
     // Reader settings (apply to sources added afterwards)
     var strategy: TagReader.Strategy = .auto
-    var concurrency = 16
+    var concurrency = TagReader.defaultConcurrency
 
     // Bookkeeping
     private var knownPaths = Set<String>()
@@ -292,7 +292,7 @@ struct ContentView: View {
             }
             .fixedSize()
             Picker("Parallel", selection: $model.concurrency) {
-                ForEach([1, 2, 4, 8, 16, 32, 64], id: \.self) { Text("\($0)").tag($0) }
+                ForEach(Set([1, 2, 4, 8, 16, 32, 64, TagReader.defaultConcurrency]).sorted(), id: \.self) { Text("\($0)").tag($0) }
             }
             .fixedSize()
         }
@@ -396,6 +396,7 @@ struct ContentView: View {
             TableColumn("Trk") { r in Text(r.result.tags.trackNumber.map(String.init) ?? "") }.width(30)
             TableColumn("Time") { r in Text(Self.format(r.result.tags.duration)).monospacedDigit() }.width(45)
             TableColumn("Status") { r in statusCell(r.result.status) }.width(min: 90, ideal: 120)
+            TableColumn("Artwork") { r in artworkCell(r.result.artwork) }.width(min: 90, ideal: 130)
             TableColumn("Via") { r in
                 Text("\(r.result.sources.joined(separator: "+")) \(Int(r.result.elapsed * 1000)) ms")
                     .font(.caption).foregroundStyle(.secondary)
@@ -433,6 +434,23 @@ struct ContentView: View {
             Label("no tags", systemImage: "questionmark.circle.fill").foregroundStyle(.secondary)
         case .failed(let why):
             Label(why, systemImage: "xmark.octagon.fill").foregroundStyle(.red).help(why).lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private func artworkCell(_ art: ArtworkSource) -> some View {
+        switch art {
+        case .cover(let name):
+            Label(name, systemImage: "photo.fill").foregroundStyle(.green).lineLimit(1).truncationMode(.middle)
+                .help("Folder image (priority 1)")
+        case .embedded:
+            Label("embedded", systemImage: "photo.on.rectangle").foregroundStyle(.blue)
+                .help("Embedded in the audio file (priority 2)")
+        case .anyImage(let name):
+            Label(name, systemImage: "photo").foregroundStyle(.orange).lineLimit(1).truncationMode(.middle)
+                .help("Any image in the folder (last resort, priority 3)")
+        case .none:
+            Text("none").foregroundStyle(.tertiary)
         }
     }
 

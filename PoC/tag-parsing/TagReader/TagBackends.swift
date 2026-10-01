@@ -8,6 +8,8 @@ import AudioToolbox
 struct RawTags: Sendable {
     var fields: [TagField: String] = [:]
     var duration: TimeInterval?
+    /// Whether the file carries embedded artwork. nil = not checked (backend didn't run / failed).
+    var hasArtwork: Bool?
 
     mutating func set(_ field: TagField, _ value: String) {
         let v = value.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
@@ -19,6 +21,7 @@ struct RawTags: Sendable {
     mutating func merge(_ other: RawTags) {
         for (k, v) in other.fields where fields[k] == nil { fields[k] = v }
         if duration == nil { duration = other.duration }
+        if let o = other.hasArtwork { hasArtwork = (hasArtwork ?? false) || o }
     }
 
 }
@@ -143,6 +146,41 @@ enum AudioFileBackend {
     }
 }
 
+// MARK: - FLAC embedded picture
+
+/// Neither AVFoundation nor AudioToolbox exposes FLAC `PICTURE` blocks, so for `.flac` the metadata block
+/// headers are walked by hand: 4 bytes per block (type + length), image data is skipped, never read.
+enum FlacArtwork {
+    static func hasPicture(url: URL) throws -> Bool {
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+
+        var offset: UInt64 = 0
+        guard var head = try fh.read(upToCount: 10), head.count >= 4 else { return false }
+        if head.starts(with: [0x49, 0x44, 0x33]), head.count == 10 {          // leading ID3v2 tag: skip it
+            let size = head[6...9].reduce(0) { $0 << 7 | UInt64($1 & 0x7F) }
+            offset = 10 + size + (head[5] & 0x10 != 0 ? 10 : 0)                 // + footer
+            try fh.seek(toOffset: offset)
+            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return false }
+            head = h
+        }
+        guard head.starts(with: [0x66, 0x4C, 0x61, 0x43]) else { return false }  // "fLaC"
+        if offset == 0 { offset = 4 } else { offset += 4 }
+
+        for _ in 0..<128 {                                                      // sanity bound
+            try fh.seek(toOffset: offset)
+            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return false }
+            let isLast = h[h.startIndex] & 0x80 != 0
+            let type = h[h.startIndex] & 0x7F
+            if type == 6 { return true }                                        // PICTURE
+            if isLast || type == 127 { return false }
+            let length = UInt64(h[h.startIndex + 1]) << 16 | UInt64(h[h.startIndex + 2]) << 8 | UInt64(h[h.startIndex + 3])
+            offset += 4 + length
+        }
+        return false
+    }
+}
+
 // MARK: - AVFoundation backend
 
 /// `AVURLAsset` metadata. Async, exposes every native item (album artist, performer, ...), but heavier
@@ -153,9 +191,11 @@ enum AVFoundationBackend {
         var raw = RawTags()
         do {
             let formats = try await asset.load(.availableMetadataFormats)
+            raw.hasArtwork = false
             for format in formats {
                 let items = try await asset.loadMetadata(for: format)
                 for item in items {
+                    if isArtwork(item) { raw.hasArtwork = true; continue }
                     // ID3v2.2 items have no identifier, only a bare 3-char key ("TT2", "TP1", ...).
                     guard let id = item.identifier?.rawValue ?? (item.key as? String),
                           let field = TagKeyMap.table[TagKeyMap.parse(identifier: id).key] else { continue }
@@ -180,6 +220,27 @@ enum AVFoundationBackend {
             throw TagReadError.unreadable("AVFoundation: \(error.localizedDescription)")
         }
         return raw
+    }
+
+    /// Artwork-only check (used when the tag read didn't go through AVFoundation). Reads item *keys* only,
+    /// never the image data.
+    static func hasEmbeddedArtwork(url: URL) async -> Bool? {
+        let asset = AVURLAsset(url: url)
+        guard let formats = try? await asset.load(.availableMetadataFormats) else { return nil }
+        for format in formats {
+            guard let items = try? await asset.loadMetadata(for: format) else { continue }
+            if items.contains(where: isArtwork) { return true }
+        }
+        return false
+    }
+
+    /// Native keys that carry a picture: ID3 `APIC` (v2.3/2.4) / `PIC` (v2.2), MP4 `covr`, Vorbis/FLAC pictures.
+    private static let artworkKeys: Set<String> = ["apic", "pic", "covr", "metadata_block_picture", "coverart"]
+
+    private static func isArtwork(_ item: AVMetadataItem) -> Bool {
+        if item.commonKey == .commonKeyArtwork { return true }
+        guard let id = item.identifier?.rawValue ?? (item.key as? String) else { return false }
+        return artworkKeys.contains(TagKeyMap.parse(identifier: id).key)
     }
 }
 

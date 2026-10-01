@@ -80,7 +80,7 @@ struct Bench {
           bench dump [--strategy audioFile|avFoundation|hybrid|auto] [--conc N] <file-or-folder>...
           bench run  --list FILE --root DIR [--files 100] [--rounds 3] [--strategies a,b,c (+ffprobe)]
                      [--conc 1,2,4,8] [--ext mp3,flac] [--seed 1] [--skip-sets N]
-          bench scan --list FILE --root DIR [--strategies auto] [--conc 16] [--ext mp3,flac]
+          bench scan --list FILE --root DIR [--strategies auto] [--conc N (default: physical cores / 2)] [--ext mp3,flac]
                      [--limit N] [--problems OUT.tsv]
                      Reads every listed file (no sampling) and reports status totals per strategy;
                      --problems writes one TSV line per non-complete file (status, detail, path).
@@ -92,13 +92,13 @@ struct Bench {
 
     static func dump(_ args: [String]) async {
         var strategy = TagReader.Strategy.auto
-        var conc = 16
+        var conc = TagReader.defaultConcurrency
         var paths: [String] = []
         var i = 0
         while i < args.count {
             switch args[i] {
             case "--strategy": i += 1; strategy = TagReader.Strategy(rawValue: args[i]) ?? .auto
-            case "--conc": i += 1; conc = Int(args[i]) ?? 16
+            case "--conc": i += 1; conc = Int(args[i]) ?? TagReader.defaultConcurrency
             default: paths.append(args[i])
             }
             i += 1
@@ -113,6 +113,7 @@ struct Bench {
             print("\(r.url.lastPathComponent)")
             print("   \(t.artist) | \(t.title) | \(t.album) | year=\(t.year ?? "-") track=\(t.trackNumber.map(String.init) ?? "-") dur=\(dur)")
             print("   status=\(r.status) via=\(r.sources.joined(separator: "+")) \(String(format: "%.1f", r.elapsed * 1000)) ms")
+            print("   artwork=\(r.artwork.label.isEmpty ? "-" : r.artwork.label)")
         }
     }
 
@@ -208,7 +209,7 @@ struct Bench {
         let opts = options(args)
         guard let list = opts["--list"], let root = opts["--root"] else { usage() }
         let strategies = (opts["--strategies"] ?? "auto").split(separator: ",").map(String.init)
-        let conc = Int(opts["--conc"] ?? "") ?? 16
+        let conc = Int(opts["--conc"] ?? "") ?? TagReader.defaultConcurrency
         let exts = Set((opts["--ext"] ?? "").split(separator: ",").map { $0.lowercased() })
         let limit = Int(opts["--limit"] ?? "")
 
@@ -218,7 +219,7 @@ struct Bench {
 
         var problemLines: [String] = []
         for name in strategies {
-            let reader = TagReader(strategy: TagReader.Strategy(rawValue: name) ?? .auto, concurrency: conc)
+            let reader = TagReader(strategy: TagReader.Strategy(rawValue: name) ?? .auto, concurrency: conc, detectArtwork: false)
             var complete = 0, partial = 0, noTags = 0, failed = 0
             var fallbackHist: [String: Int] = [:]
             let t0 = DispatchTime.now().uptimeNanoseconds
@@ -272,7 +273,7 @@ struct Bench {
             }
         } else {
             let reader = TagReader(strategy: TagReader.Strategy(rawValue: cfg.strategy) ?? .hybrid,
-                                   concurrency: cfg.concurrency)   // (unknown names fall back to .hybrid above)
+                                   concurrency: cfg.concurrency, detectArtwork: false)   // (unknown names fall back to .hybrid above)
             for await r in reader.read(urls: urls) {
                 switch r.status {
                 case .complete: st.complete += 1

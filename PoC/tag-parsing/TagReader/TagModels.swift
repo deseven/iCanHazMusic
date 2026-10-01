@@ -51,6 +51,8 @@ public struct TagReadResult: Sendable, Identifiable {
     public let elapsed: TimeInterval
     /// Raw (post-key-mapping, pre-fallback) values. Useful for diagnostics.
     public let rawFields: [TagField: String]
+    /// Detected album-art source (`.none` for failed files or when artwork detection is off).
+    public let artwork: ArtworkSource
 }
 
 public enum TagReadError: LocalizedError, Sendable {
