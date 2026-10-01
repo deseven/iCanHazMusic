@@ -6,19 +6,14 @@ struct PlaylistView: View {
     private let store = PlaylistStore.shared
 
     var body: some View {
-        PlaylistContentView(name: store.activeName)
+        PlaylistContentView(playlist: store.playlist(named: store.activeName))
             .id(store.activeName)
     }
 }
 
 private struct PlaylistContentView: View {
-    // TODO: replace the mock with the real playlist content once playlists can be populated.
-    @State private var playlist: Playlist
+    let playlist: Playlist
     @State private var selection: Set<Int> = []
-
-    init(name: String) {
-        _playlist = State(initialValue: MockPlaylist.make(for: name))
-    }
 
     var body: some View {
         VirtualPlaylistView(playlist: playlist, selection: $selection)

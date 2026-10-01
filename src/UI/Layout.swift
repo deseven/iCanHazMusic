@@ -26,6 +26,9 @@ enum Layout {
     static let artToControlsGap: CGFloat = 14
     static let infoToButtonsMinGap: CGFloat = 12
 
+    // Import progress sheet
+    static let importSheetWidth: CGFloat = 380
+
     // Divider between playlist and playback block
     static let dividerLineWidth: CGFloat = 1
     static let dividerHitWidth: CGFloat = 12

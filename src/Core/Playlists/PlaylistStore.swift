@@ -35,6 +35,7 @@ enum PlaylistError: LocalizedError {
 /// The set of playlists living in `playlists/*.json` and the currently active one.
 ///
 /// The playlist file format isn't defined yet; a playlist is just an (empty) JSON object.
+/// Playlist *content* only lives in memory for now (see `playlist(named:)`), nothing is stored.
 @MainActor
 @Observable
 final class PlaylistStore {
@@ -43,6 +44,9 @@ final class PlaylistStore {
     /// Playlist names, sorted alphabetically.
     private(set) var names: [String] = []
     private(set) var activeName: String = ""
+
+    /// In-memory content per playlist, keyed by `key(name)`. Missing entry = empty playlist.
+    private var contents: [String: Playlist] = [:]
 
     @ObservationIgnored private let fm = FileManager.default
     @ObservationIgnored private let configStore = ConfigStore.shared
@@ -85,7 +89,17 @@ final class PlaylistStore {
         existingName(matching: name) != nil
     }
 
+    func playlist(named name: String) -> Playlist {
+        contents[Self.key(name)] ?? .empty
+    }
+
     // MARK: - Mutations
+
+    /// Adds albums at the end of a playlist.
+    func append(_ albums: [Album], to name: String) {
+        guard !albums.isEmpty, let match = existingName(matching: name) else { return }
+        contents[Self.key(match)] = playlist(named: match).appending(albums)
+    }
 
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
@@ -131,6 +145,10 @@ final class PlaylistStore {
             throw PlaylistError.io(error)
         }
 
+        if let content = contents.removeValue(forKey: Self.key(current)) {
+            contents[Self.key(newName)] = content
+        }
+
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
         if wasActive { setActive(newName) }
@@ -145,6 +163,8 @@ final class PlaylistStore {
         } catch {
             throw PlaylistError.io(error)
         }
+
+        contents.removeValue(forKey: Self.key(current))
 
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()

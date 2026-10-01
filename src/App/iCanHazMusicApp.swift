@@ -28,11 +28,25 @@ struct iCanHazMusicApp: App {
     }
 }
 
-/// Replaces the stock "About" item in the app menu with our own window.
+/// Replaces the stock "About" item in the app menu with our own window and adds the import items to File.
 private struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    private let importer = ImportCoordinator.shared
 
     var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Add Directory...") {
+                Task { await importer.addDirectory() }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(importer.isBusy)
+
+            Button("Add File(s)...") {
+                Task { await importer.addFiles() }
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .disabled(importer.isBusy)
+        }
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppConstants.appName)") {
                 openWindow(id: AppConstants.aboutWindowID)

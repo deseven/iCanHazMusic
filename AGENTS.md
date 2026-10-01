@@ -16,8 +16,8 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Folder | What |
 |---|---|
 | `src/App/` | `@main` entry point and `AppDelegate`. |
-| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift`, `playlists/*.json`; `Playlist.swift` is the flattened album/track row model; `MockPlaylist.swift` is the temporary fake content shown for any playlist), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`. |
-| `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache`), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`). |
+| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift`, `playlists/*.json` plus the in-memory playlist content, which is not stored yet; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups tag results into albums by directory + album tag), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; ported from `PoC/tag-parsing`, see its README; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
+| `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache`), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`), `Import/` (`ImportCoordinator` = File menu / drag and drop entry points, `ImportProgressSheet` + `ImportProgressView` = the modal progress sheet). |
 
 UI may depend on Core, never the other way round. One view per file.
 
@@ -40,7 +40,7 @@ leave the directory in a sane state afterwards.
   (src is now nested, so a plain `src/*.swift` glob no longer matches; list the files explicitly with `find`.)
 - There is no test target. Logic that doesn't need UI can be exercised with a throwaway `main.swift` compiled
   together with the needed `src/**/*.swift` files (everything except `App/iCanHazMusicApp.swift`, which has `@main`).
-  Put such scratch files in a git-ignored/temporary directory and delete them afterwards.
+  Put such scratch files in `tmp/` (git-ignored; never use `dist/`, `build.sh` wipes it) and delete them afterwards.
 
 ### Quirks worth knowing
 - SwiftUI does not honor the sidebar's ideal width (it always starts at 140). Don't fight it; the width is saved

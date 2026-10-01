@@ -56,6 +56,15 @@ struct VirtualPlaylistView: View {
         .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, rect in
             viewport.rect = rect // plain reference, no re-render
         }
+        .onChange(of: playlist.rows.count) { old, new in
+            // Albums were appended (rows are only ever added at the end): refresh the window for the
+            // new content and bring the first new album into view.
+            guard new > old else { return }
+            let top = layout.rowOffsets[old]
+            window = layout.rowRange(minY: top, maxY: top + max(viewport.rect.height, 800),
+                                     overscan: Layout.playlistOverscan)
+            DispatchQueue.main.async { scrollPosition.scrollTo(y: top) }
+        }
         .focusable()
         .focused($focused)
         .focusEffectDisabled()

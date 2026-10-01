@@ -9,7 +9,7 @@ struct PlaylistRowView: View {
     var body: some View {
         let row = playlist.rows[index]
         if let track = playlist.track(for: row) {
-            TrackRowContent(track: track)
+            TrackRowContent(track: track, showArtist: playlist.albums[row.albumIndex].hasMultipleArtists)
                 .frame(height: Layout.trackRowHeight)
                 .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
                 .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
@@ -35,7 +35,7 @@ private struct AlbumHeaderContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(album.artist).font(.system(size: 13, weight: .bold))
                 Text(album.title).font(.system(size: 12))
-                Text(String(album.year))
+                Text(album.year ?? " ")
                     .font(.system(size: 11))
                     .foregroundStyle(isSelected ? .primary : .secondary)
             }
@@ -49,14 +49,16 @@ private struct AlbumHeaderContent: View {
 
 private struct TrackRowContent: View {
     let track: Track
+    /// Compilation albums: "artist – title" instead of just the title.
+    let showArtist: Bool
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(String(format: "%02d", track.number))
+            Text(track.numberText)
                 .monospacedDigit()
                 .opacity(0.65)
                 .frame(width: 44, alignment: .trailing)
-            Text(track.title)
+            Text(showArtist ? "\(track.artist) – \(track.title)" : track.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 12)

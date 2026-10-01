@@ -7,9 +7,9 @@ import Foundation
 ///
 /// Every input yields exactly one result (unless the consumer cancels). Failures never throw:
 /// they come back as `status == .failed(reason)` with fallback tags, so the UI can show/skip them.
-public final class TagReader: Sendable {
+final class TagReader: Sendable {
 
-    public enum Strategy: String, CaseIterable, Sendable, Identifiable {
+    enum Strategy: String, CaseIterable, Sendable, Identifiable {
         /// AudioToolbox only. Fastest / simplest; no album-artist/performer/band fallback.
         case audioFile
         /// AVFoundation only. Richest metadata, heaviest.
@@ -22,12 +22,12 @@ public final class TagReader: Sendable {
         /// backend is still consulted if the first one yields no artist, so neither can lose tags silently.
         case auto
 
-        public var id: String { rawValue }
+        var id: String { rawValue }
     }
 
     /// Default parallelism: physical CPU cores / 2 (at least 1). `hw.physicalcpu` counts performance and
     /// efficiency cores alike; falls back to the logical count if the sysctl fails.
-    public static let defaultConcurrency: Int = {
+    static let defaultConcurrency: Int = {
         var cores: Int32 = 0
         var size = MemoryLayout<Int32>.size
         if sysctlbyname("hw.physicalcpu", &cores, &size, nil, 0) != 0 || cores < 1 {
@@ -36,18 +36,18 @@ public final class TagReader: Sendable {
         return max(1, Int(cores) / 2)
     }()
 
-    public let strategy: Strategy
+    let strategy: Strategy
     /// Max files being read at the same time.
-    public let concurrency: Int
+    let concurrency: Int
     /// Timeout for the blocking AudioToolbox read (dead NAS, stalled mount, ...).
-    public let timeout: TimeInterval
+    let timeout: TimeInterval
     /// Detect the album-art source (folder image / embedded / any image) for every file. Detection only, no
     /// image is read. Turn off for pure tag benchmarks.
-    public let detectArtwork: Bool
+    let detectArtwork: Bool
 
     private let artworkCache: ArtworkDirectoryCache
 
-    public init(strategy: Strategy = .auto, concurrency: Int = TagReader.defaultConcurrency, timeout: TimeInterval = 30,
+    init(strategy: Strategy = .auto, concurrency: Int = TagReader.defaultConcurrency, timeout: TimeInterval = 30,
                 detectArtwork: Bool = true) {
         self.strategy = strategy
         self.concurrency = max(1, concurrency)
@@ -58,11 +58,11 @@ public final class TagReader: Sendable {
 
     // MARK: Public API
 
-    public func read(paths: [String]) -> AsyncStream<TagReadResult> {
+    func read(paths: [String]) -> AsyncStream<TagReadResult> {
         read(urls: paths.map { URL(fileURLWithPath: $0) })
     }
 
-    public func read(urls: [URL]) -> AsyncStream<TagReadResult> {
+    func read(urls: [URL]) -> AsyncStream<TagReadResult> {
         AsyncStream { continuation in
             let task = Task {
                 await withTaskGroup(of: TagReadResult.self) { group in
@@ -90,7 +90,7 @@ public final class TagReader: Sendable {
     }
 
     /// Reads a single file (used by `read`, also handy for tests).
-    public func readOne(index: Int = 0, url: URL) async -> TagReadResult {
+    func readOne(index: Int = 0, url: URL) async -> TagReadResult {
         let t0 = DispatchTime.now().uptimeNanoseconds
         var raw = RawTags()
         var sources: [String] = []
@@ -147,6 +147,12 @@ public final class TagReader: Sendable {
                     _ = await viaAVFoundation()
                 }
             }
+        }
+
+        // ID3v1 cuts values at 30 bytes; the full ones may sit in a Lyrics3/APE block at the end of the file.
+        if url.pathExtension.lowercased() == "mp3", raw.mayBeTruncatedV1,
+           let recovered = try? await Self.offload(timeout: timeout, { try TrailingTags.read(url: url) }) {
+            raw.restoreTruncated(from: recovered)
         }
 
         let failed = sources.isEmpty

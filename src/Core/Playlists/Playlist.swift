@@ -3,21 +3,45 @@ import Foundation
 // MARK: - Data model
 
 struct Track {
-    let number: Int
+    let url: URL
+    /// Track number from the tags; `nil` if the file has none.
+    let number: Int?
     let title: String
-    let duration: TimeInterval
+    let artist: String
+    /// Seconds; `nil` if the file didn't report one.
+    let duration: TimeInterval?
+    /// Short format label (currently the upper-cased file extension).
     let codec: String
 
     var durationText: String {
+        guard let duration else { return "--:--" }
         let total = Int(duration)
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
+
+    var numberText: String {
+        number.map { String(format: "%02d", $0) } ?? ""
+    }
+}
+
+/// Where an album's cover would come from. Only the decision is recorded; nothing is loaded yet.
+enum AlbumCover: Equatable {
+    /// An image file in the album's directory.
+    case file(URL)
+    /// Artwork embedded in this audio file.
+    case embedded(URL)
+    case none
 }
 
 struct Album {
+    /// Directory all tracks of the album live in.
+    let directory: URL
     let artist: String
     let title: String
-    let year: Int
+    let year: String?
+    let cover: AlbumCover
+    /// The tracks have different artists (`artist` is then "Various Artists"), so rows show the artist per track.
+    let hasMultipleArtists: Bool
     let tracks: [Track]
 }
 
@@ -45,6 +69,8 @@ final class Playlist {
     /// Row indexes of the tracks of each album (always headerRow + 1 ... ).
     let trackRows: [Range<Int>]
 
+    static let empty = Playlist(albums: [])
+
     var trackCount: Int { rows.count - albums.count }
 
     init(albums: [Album]) {
@@ -65,6 +91,11 @@ final class Playlist {
         self.rows = rows
         self.headerRow = headers
         self.trackRows = ranges
+    }
+
+    /// A new playlist with `newAlbums` added at the end. Existing row ids stay valid.
+    func appending(_ newAlbums: [Album]) -> Playlist {
+        Playlist(albums: albums + newAlbums)
     }
 
     func track(for row: Row) -> Track? {

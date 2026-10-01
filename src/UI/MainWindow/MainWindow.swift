@@ -28,6 +28,9 @@ struct MainWindow: View {
         } detail: {
             PlayerArea()
         }
+        .dropDestination(for: URL.self) { urls, _ in
+            ImportCoordinator.shared.handleDrop(urls)
+        }
         .navigationTitle(AppConstants.appName)
         .onChange(of: columnVisibility) { _, visibility in
             ConfigStore.shared.update { $0.ui.playlistSelector.shown = (visibility != .detailOnly) }
