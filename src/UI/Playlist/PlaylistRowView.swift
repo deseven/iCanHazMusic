@@ -1,0 +1,73 @@
+import SwiftUI
+
+/// One row of the flattened playlist: an album header or a track.
+struct PlaylistRowView: View {
+    let playlist: Playlist
+    let index: Int
+    let isSelected: Bool
+
+    var body: some View {
+        let row = playlist.rows[index]
+        if let track = playlist.track(for: row) {
+            TrackRowContent(track: track)
+                .frame(height: Layout.trackRowHeight)
+                .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
+                .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
+        } else {
+            AlbumHeaderContent(album: playlist.albums[row.albumIndex], isSelected: isSelected)
+                .frame(height: Layout.albumHeaderRowHeight)
+                .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : Color.primary.opacity(0.06))
+                .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
+        }
+    }
+}
+
+private struct AlbumHeaderContent: View {
+    let album: Album
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: CoverCache.image(for: album))
+                .resizable()
+                .frame(width: Layout.coverSize, height: Layout.coverSize)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(album.artist).font(.system(size: 13, weight: .bold))
+                Text(album.title).font(.system(size: 12))
+                Text(String(album.year))
+                    .font(.system(size: 11))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct TrackRowContent: View {
+    let track: Track
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(String(format: "%02d", track.number))
+                .monospacedDigit()
+                .opacity(0.65)
+                .frame(width: 44, alignment: .trailing)
+            Text(track.title)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12)
+            Text(track.durationText)
+                .monospacedDigit()
+                .frame(width: 60, alignment: .trailing)
+            Text(track.codec)
+                .opacity(0.65)
+                .frame(width: 110, alignment: .leading)
+                .padding(.leading, 12)
+        }
+        .font(.system(size: 12))
+    }
+}

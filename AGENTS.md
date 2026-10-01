@@ -16,8 +16,8 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Folder | What |
 |---|---|
 | `src/App/` | `@main` entry point and `AppDelegate`. |
-| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift`, `playlists/*.json`), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`. |
-| `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`). |
+| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift`, `playlists/*.json`; `Playlist.swift` is the flattened album/track row model; `MockPlaylist.swift` is the temporary fake content shown for any playlist), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`. |
+| `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache`), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`). |
 
 UI may depend on Core, never the other way round. One view per file.
 

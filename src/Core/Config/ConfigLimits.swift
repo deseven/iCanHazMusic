@@ -10,7 +10,7 @@ enum ConfigLimits {
 
     // Sidebar (playlist selector)
     static let sidebarMin = 120
-    static let sidebarMax = 300
+    static let sidebarMax = 250
 
     // Playback block
     static let blockMinWidth = 270

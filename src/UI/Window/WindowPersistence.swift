@@ -32,6 +32,7 @@ final class WindowPersistence {
             self.startObserving(window)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
+
         }
     }
 

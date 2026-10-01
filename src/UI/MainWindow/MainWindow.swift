@@ -18,6 +18,7 @@ struct MainWindow: View {
                 .navigationSplitViewColumnWidth(min: Layout.sidebarMin,
                                                 ideal: initialSidebarWidth,
                                                 max: Layout.sidebarMax)
+                .sidebarMaxWidth(Layout.sidebarMax)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
 
                     // Ignore the intermediate widths while the sidebar animates in/out.

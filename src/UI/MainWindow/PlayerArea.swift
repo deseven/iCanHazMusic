@@ -21,7 +21,7 @@ struct PlayerArea: View {
             let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
 
             HStack(spacing: 0) {
-                PlaylistPlaceholder()
+                PlaylistView()
                     .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
                 SplitDivider(
