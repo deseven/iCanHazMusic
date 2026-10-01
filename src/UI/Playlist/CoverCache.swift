@@ -1,16 +1,33 @@
 import AppKit
 
-/// Generates (and caches) small placeholder covers.
-/// In the real app this will be an async thumbnail loader (ImageIO downsampling + NSCache);
-/// the important point is that a row only asks for an already-scaled image and never
-/// decodes full-size artwork on the main thread.
+/// Covers for the album headers: the cached thumbnail from `CoverStore` if the album has one, else a generated
+/// placeholder (gradient + first letter). Rows only ever get small, already-scaled images (the import made them);
+/// full-size artwork is never decoded here. Both outcomes are kept in an `NSCache`.
 enum CoverCache {
     private static let cache = NSCache<NSString, NSImage>()
 
     static func image(for album: Album) -> NSImage {
-        let key = "\(album.artist)|\(album.title)" as NSString
+        let key = album.key as NSString
         if let cached = cache.object(forKey: key) { return cached }
 
+        let image = storedImage(for: album) ?? placeholder(for: album)
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    /// Forget everything, e.g. after an import, which may have added art for albums that showed a placeholder.
+    static func reset() {
+        cache.removeAllObjects()
+    }
+
+    private static func storedImage(for album: Album) -> NSImage? {
+        guard let data = CoverStore.shared.data(for: album.key), let image = NSImage(data: data) else { return nil }
+        image.size = NSSize(width: Layout.coverSize, height: Layout.coverSize)   // thumbnails are 2x
+        return image
+    }
+
+    private static func placeholder(for album: Album) -> NSImage {
+        let key = "\(album.artist)|\(album.title)" as NSString
         let size = Layout.coverSize
         let px = Int(size * 2)
         let seed = Int(truncatingIfNeeded: (key as String).stableHash % 360)
@@ -36,7 +53,6 @@ enum CoverCache {
 
         let image = NSImage(size: NSSize(width: size, height: size))
         image.addRepresentation(rep)
-        cache.setObject(image, forKey: key)
         return image
     }
 }

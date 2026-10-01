@@ -1,5 +1,18 @@
 import Foundation
 
+/// What makes two files one album: the same album tag (case-insensitive) in the same directory.
+/// Also the key of the album's cover in the cover cache.
+enum AlbumKey {
+    static func make(directory: URL, title: String) -> String {
+        // Unit separator: can't be in an album name for real, and (unlike NUL) survives being a SQLite text key.
+        directory.path + "\u{1F}" + title.lowercased()
+    }
+}
+
+extension Album {
+    var key: String { AlbumKey.make(directory: directory, title: title) }
+}
+
 /// Groups flat track entries into album blocks. Used for both fresh imports and loaded playlists.
 ///
 /// Files belong to the same album only if they have the same album tag *and* live in the same
@@ -24,7 +37,7 @@ enum AlbumBuilder {
 
         for entry in entries {
             let directory = entry.url.deletingLastPathComponent()
-            let key = directory.path + "\u{0}" + entry.album.lowercased()
+            let key = AlbumKey.make(directory: directory, title: entry.album)
             if let i = indexByKey[key] {
                 groups[i].entries.append(entry)
             } else {

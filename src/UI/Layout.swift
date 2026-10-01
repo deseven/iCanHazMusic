@@ -15,7 +15,8 @@ enum Layout {
     static let playlistMinWidth: CGFloat = 280
     static let albumHeaderRowHeight: CGFloat = 68
     static let trackRowHeight: CGFloat = 20
-    static let coverSize: CGFloat = 56
+    /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
+    static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
     /// Extra points of rows rendered above/below the visible area of the playlist.
     static let playlistOverscan: CGFloat = 600
 

@@ -149,35 +149,102 @@ enum AudioFileBackend {
 // MARK: - FLAC embedded picture
 
 /// Neither AVFoundation nor AudioToolbox exposes FLAC `PICTURE` blocks, so for `.flac` the metadata block
-/// headers are walked by hand: 4 bytes per block (type + length), image data is skipped, never read.
+/// headers are walked by hand: 4 bytes per block (type + length). Detection never reads image data;
+/// `readPicture` reads exactly one block.
 enum FlacArtwork {
+    private static let pictureBlockType: UInt8 = 6
+    /// Pictures bigger than this are not worth the memory (and are most likely not a cover).
+    private static let maxPictureBlock: UInt64 = 64 << 20
+
     static func hasPicture(url: URL) throws -> Bool {
         let fh = try FileHandle(forReadingFrom: url)
         defer { try? fh.close() }
+        var found = false
+        try walkBlocks(fh) { type, _, _ in
+            if type == pictureBlockType { found = true; return false }
+            return true
+        }
+        return found
+    }
 
+    /// The image of the best `PICTURE` block: front cover (picture type 3) if there is one, else the first.
+    static func readPicture(url: URL) throws -> Data? {
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+
+        var best: (offset: UInt64, length: UInt64)?
+        var bestIsFront = false
+        try walkBlocks(fh) { type, offset, length in
+            guard type == pictureBlockType, length <= maxPictureBlock else { return true }
+            try fh.seek(toOffset: offset)
+            guard let t = try fh.read(upToCount: 4), t.count == 4 else { return true }
+            let isFront = t.reduce(0, { $0 << 8 | UInt32($1) }) == 3
+            if best == nil || (isFront && !bestIsFront) { best = (offset, length); bestIsFront = isFront }
+            return !isFront                                                     // front cover: good enough
+        }
+        guard let best else { return nil }
+        try fh.seek(toOffset: best.offset)
+        guard let block = try fh.read(upToCount: Int(best.length)) else { return nil }
+        return PictureBlock.imageData(from: block)
+    }
+
+    /// Calls `visit(type, dataOffset, dataLength)` for every metadata block until it returns false or the blocks end.
+    private static func walkBlocks(_ fh: FileHandle, _ visit: (UInt8, UInt64, UInt64) throws -> Bool) throws {
         var offset: UInt64 = 0
-        guard var head = try fh.read(upToCount: 10), head.count >= 4 else { return false }
+        guard var head = try fh.read(upToCount: 10), head.count >= 4 else { return }
         if head.starts(with: [0x49, 0x44, 0x33]), head.count == 10 {          // leading ID3v2 tag: skip it
             let size = head[6...9].reduce(0) { $0 << 7 | UInt64($1 & 0x7F) }
             offset = 10 + size + (head[5] & 0x10 != 0 ? 10 : 0)                 // + footer
             try fh.seek(toOffset: offset)
-            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return false }
+            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return }
             head = h
         }
-        guard head.starts(with: [0x66, 0x4C, 0x61, 0x43]) else { return false }  // "fLaC"
+        guard head.starts(with: [0x66, 0x4C, 0x61, 0x43]) else { return }      // "fLaC"
         if offset == 0 { offset = 4 } else { offset += 4 }
 
         for _ in 0..<128 {                                                      // sanity bound
             try fh.seek(toOffset: offset)
-            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return false }
+            guard let h = try fh.read(upToCount: 4), h.count == 4 else { return }
             let isLast = h[h.startIndex] & 0x80 != 0
             let type = h[h.startIndex] & 0x7F
-            if type == 6 { return true }                                        // PICTURE
-            if isLast || type == 127 { return false }
             let length = UInt64(h[h.startIndex + 1]) << 16 | UInt64(h[h.startIndex + 2]) << 8 | UInt64(h[h.startIndex + 3])
+            if type == 127 { return }
+            if try !visit(type, offset + 4, length) { return }
+            if isLast { return }
             offset += 4 + length
         }
-        return false
+    }
+}
+
+/// The FLAC `METADATA_BLOCK_PICTURE` layout, shared by FLAC files and Vorbis comments:
+/// type, mime, description, width, height, depth, colors, length, data (all integers big-endian u32).
+enum PictureBlock {
+    /// The raw image bytes of a picture block, or nil if `block` doesn't parse as one.
+    static func imageData(from block: Data) -> Data? {
+        let b = [UInt8](block)
+        var i = 0
+        func u32() -> Int? {
+            guard i + 4 <= b.count else { return nil }
+            defer { i += 4 }
+            return Int(b[i]) << 24 | Int(b[i + 1]) << 16 | Int(b[i + 2]) << 8 | Int(b[i + 3])
+        }
+        guard let type = u32(), type <= 20,
+              let mimeLength = u32(), mimeLength <= 256, i + mimeLength <= b.count else { return nil }
+        i += mimeLength
+        guard let descriptionLength = u32(), i + descriptionLength + 16 <= b.count else { return nil }
+        i += descriptionLength + 16                                             // + width, height, depth, colors
+        guard let length = u32(), length > 0, i + length <= b.count else { return nil }
+        return Data(b[i..<(i + length)])
+    }
+
+    /// What an AVFoundation artwork item holds: usually the plain image, but Vorbis comments carry a
+    /// (base64) picture block. Anything that doesn't look like a block is returned unchanged.
+    static func normalize(_ data: Data) -> Data {
+        if data.starts(with: [0, 0, 0]), let image = imageData(from: data) { return image }
+        if data.starts(with: "AAA".utf8),
+           let decoded = Data(base64Encoded: data, options: .ignoreUnknownCharacters),
+           let image = imageData(from: decoded) { return image }
+        return data
     }
 }
 
@@ -232,6 +299,21 @@ enum AVFoundationBackend {
             if items.contains(where: isArtwork) { return true }
         }
         return false
+    }
+
+    /// The image bytes of the first artwork item of the file (nil = none, or unreadable). Not for FLAC, whose
+    /// pictures AVFoundation can't see (see `FlacArtwork`). Reads the image data, so only call it for the one
+    /// file that is going to supply an album's art.
+    static func embeddedArtwork(url: URL) async -> Data? {
+        let asset = AVURLAsset(url: url)
+        guard let formats = try? await asset.load(.availableMetadataFormats) else { return nil }
+        for format in formats {
+            guard let items = try? await asset.loadMetadata(for: format) else { continue }
+            for item in items where isArtwork(item) {
+                if let data = try? await item.load(.dataValue), !data.isEmpty { return PictureBlock.normalize(data) }
+            }
+        }
+        return nil
     }
 
     /// Native keys that carry a picture: ID3 `APIC` (v2.3/2.4) / `PIC` (v2.2), MP4 `covr`, Vorbis/FLAC pictures.

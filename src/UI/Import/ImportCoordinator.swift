@@ -66,6 +66,7 @@ final class ImportCoordinator {
         sheet.present(on: window)
 
         let outcome = await session.run(inputs: urls)
+        CoverCache.reset()   // the import may have found art for albums that currently show a placeholder
         if !outcome.aborted {
             await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
         }

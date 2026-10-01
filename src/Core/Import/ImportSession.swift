@@ -22,6 +22,8 @@ final class ImportSession {
 
     /// Files read in parallel. Local disks saturate early; network shares keep scaling up to about this.
     private static let readConcurrency = 16
+    /// Albums whose art is decoded and shrunk at the same time (CPU bound, so far fewer than file reads).
+    private static let artConcurrency = 4
 
     private(set) var stage: Stage = .gathering
     private(set) var total = 0
@@ -32,12 +34,17 @@ final class ImportSession {
     private(set) var incomplete = 0
     /// No tags at all, or the file couldn't be read.
     private(set) var failed = 0
+    /// Albums that are completely read and had their art looked for.
+    private(set) var albumsProcessed = 0
+    /// Of those, albums whose art was found and put into the cover cache.
+    private(set) var artsProcessed = 0
     private(set) var isAborting = false
 
     @ObservationIgnored private var readingStartedAt: Date?
     @ObservationIgnored private var readingFinishedAt: Date?
     @ObservationIgnored private var gatherTask: Task<[URL], Never>?
     @ObservationIgnored private var readTask: Task<[TagReadResult], Never>?
+    @ObservationIgnored private var artTask: Task<Void, Never>?
 
     /// Files processed per second since reading started (frozen once reading is over).
     func speed(at now: Date) -> Double {
@@ -52,6 +59,7 @@ final class ImportSession {
         isAborting = true
         gatherTask?.cancel()
         readTask?.cancel()
+        artTask?.cancel()
     }
 
     func run(inputs: [URL]) async -> Outcome {
@@ -66,23 +74,40 @@ final class ImportSession {
             return Outcome(albums: [], fileCount: files.count, aborted: isAborting)
         }
 
-        // 2. Read tags
+        // 2. Read tags. As soon as all files of a directory are read, its albums are known and their art is
+        //    processed (concurrently with the rest of the reading), once per album.
         stage = .reading
         readingStartedAt = Date()
         let reader = TagReader(strategy: .auto, concurrency: Self.readConcurrency)
+        let (artJobs, artFeed) = AsyncStream<AlbumArtJob>.makeStream()
+        let art = Task { await processArt(artJobs) }
+        artTask = art
+
         let read = Task { () -> [TagReadResult] in
+            var unread = Dictionary(grouping: files, by: { $0.deletingLastPathComponent().path }).mapValues(\.count)
             var results: [TagReadResult?] = Array(repeating: nil, count: files.count)
+            var finishedFiles: [String: [TagReadResult]] = [:]
             for await result in reader.read(urls: files) {
                 if Task.isCancelled { break }
                 results[result.id] = result
                 record(result)
+
+                let directory = result.url.deletingLastPathComponent()
+                finishedFiles[directory.path, default: []].append(result)
+                unread[directory.path, default: 1] -= 1
+                if unread[directory.path] == 0, let all = finishedFiles.removeValue(forKey: directory.path) {
+                    for job in AlbumArtProcessor.jobs(directory: directory, results: all) { artFeed.yield(job) }
+                }
             }
+            artFeed.finish()
             return results.compactMap { $0 }   // back to playlist order, gaps = aborted
         }
         readTask = read
         let results = await read.value
         readTask = nil
         readingFinishedAt = Date()
+        await art.value
+        artTask = nil
 
         if isAborting {
             return Outcome(albums: [], fileCount: files.count, aborted: true)
@@ -91,8 +116,30 @@ final class ImportSession {
         // 3. Albums
         stage = .appending
         let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results) }.value
-        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums")
+        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed)")
         return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
+    }
+
+    /// Processes the art of the albums as they come in, a few at a time.
+    private func processArt(_ jobs: AsyncStream<AlbumArtJob>) async {
+        await withTaskGroup(of: Bool.self) { group in
+            var running = 0
+            for await job in jobs {
+                if Task.isCancelled { break }
+                if running >= Self.artConcurrency, let found = await group.next() {
+                    running -= 1
+                    recordArt(found: found)
+                }
+                group.addTask { await AlbumArtProcessor.process(job) }
+                running += 1
+            }
+            while let found = await group.next() { recordArt(found: found) }
+        }
+    }
+
+    private func recordArt(found: Bool) {
+        albumsProcessed += 1
+        if found { artsProcessed += 1 }
     }
 
     private func record(_ result: TagReadResult) {

@@ -31,7 +31,7 @@ struct ImportProgressView: View {
     private var title: String {
         switch session.stage {
         case .gathering: "Gathering the list of files..."
-        case .reading: "Reading tags..."
+        case .reading: "Reading tags and album art..."
         case .appending: "Appending to current playlist..."
         }
     }
@@ -46,6 +46,8 @@ struct ImportProgressView: View {
                     row("Successful reads", "\(session.successful)")
                     row("Incomplete tags", "\(session.incomplete)")
                     row("Failed", "\(session.failed)")
+                    row("Albums processed", "\(session.albumsProcessed)")
+                    row("Album arts processed", "\(session.artsProcessed)")
                     row("Speed", String(format: "%.1f files/s", session.speed(at: context.date)))
                 }
             }
