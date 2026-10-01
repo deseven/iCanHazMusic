@@ -24,14 +24,6 @@ struct Track {
     }
 }
 
-/// Where an album's cover would come from. Only the decision is recorded; nothing is loaded yet.
-enum AlbumCover: Equatable {
-    /// An image file in the album's directory.
-    case file(URL)
-    /// Artwork embedded in this audio file.
-    case embedded(URL)
-    case none
-}
 
 struct Album {
     /// Directory all tracks of the album live in.
@@ -39,7 +31,6 @@ struct Album {
     let artist: String
     let title: String
     let year: String?
-    let cover: AlbumCover
     /// The tracks have different artists (`artist` is then "Various Artists"), so rows show the artist per track.
     let hasMultipleArtists: Bool
     let tracks: [Track]
@@ -93,9 +84,15 @@ final class Playlist {
         self.trackRows = ranges
     }
 
-    /// A new playlist with `newAlbums` added at the end. Existing row ids stay valid.
+    /// The tracks as flat entries, in playlist order (this is what gets stored).
+    var entries: [TrackEntry] {
+        albums.flatMap(\.entries)
+    }
+
+    /// A new playlist with the tracks of `newAlbums` added at the end and everything regrouped, exactly as
+    /// a reload would do: an album that is already there absorbs the new tracks, so row ids can shift.
     func appending(_ newAlbums: [Album]) -> Playlist {
-        Playlist(albums: albums + newAlbums)
+        Playlist(albums: AlbumBuilder.build(from: entries + newAlbums.flatMap(\.entries)))
     }
 
     func track(for row: Row) -> Track? {

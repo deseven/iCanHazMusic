@@ -14,6 +14,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Let a playlist write that's still in flight finish first.
+        guard PlaylistStore.shared.hasPendingWrites else { return .terminateNow }
+        Task {
+            await PlaylistStore.shared.flushWrites()
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         ConfigStore.shared.flush()
         Log.info("App terminated")

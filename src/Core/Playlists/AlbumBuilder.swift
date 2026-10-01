@@ -1,6 +1,6 @@
 import Foundation
 
-/// Turns tag read results into album blocks.
+/// Groups flat track entries into album blocks. Used for both fresh imports and loaded playlists.
 ///
 /// Files belong to the same album only if they have the same album tag *and* live in the same
 /// directory; the same album name in two directories gives two blocks. Blocks keep the order in
@@ -10,24 +10,29 @@ enum AlbumBuilder {
 
     /// Rows with `.failed` / `.noTags` are skipped. `results` must already be in playlist order.
     static func build(from results: [TagReadResult]) -> [Album] {
+        build(from: results.filter { isUsable($0.status) }.map(TrackEntry.init(result:)))
+    }
+
+    /// `entries` must already be in playlist order.
+    static func build(from entries: [TrackEntry]) -> [Album] {
         struct Group {
             var directory: URL
-            var results: [TagReadResult] = []
+            var entries: [TrackEntry] = []
         }
         var groups: [Group] = []
         var indexByKey: [String: Int] = [:]
 
-        for result in results where isUsable(result.status) {
-            let directory = result.url.deletingLastPathComponent()
-            let key = directory.path + "\u{0}" + result.tags.album.lowercased()
+        for entry in entries {
+            let directory = entry.url.deletingLastPathComponent()
+            let key = directory.path + "\u{0}" + entry.album.lowercased()
             if let i = indexByKey[key] {
-                groups[i].results.append(result)
+                groups[i].entries.append(entry)
             } else {
                 indexByKey[key] = groups.count
-                groups.append(Group(directory: directory, results: [result]))
+                groups.append(Group(directory: directory, entries: [entry]))
             }
         }
-        return groups.map { makeAlbum(directory: $0.directory, results: $0.results) }
+        return groups.map { makeAlbum(directory: $0.directory, entries: $0.entries) }
     }
 
     static func isUsable(_ status: TagReadStatus) -> Bool {
@@ -37,46 +42,26 @@ enum AlbumBuilder {
         }
     }
 
-    private static func makeAlbum(directory: URL, results: [TagReadResult]) -> Album {
-        let artists = Set(results.map(\.tags.artist))
+    private static func makeAlbum(directory: URL, entries: [TrackEntry]) -> Album {
+        let artists = Set(entries.map(\.artist))
         let multipleArtists = artists.count > 1
-        let tracks = results.map { r in
+        let tracks = entries.map { e in
             Track(
-                url: r.url,
-                number: r.tags.trackNumber,
-                // A missing title is better shown as the file name than as "Unknown Track".
-                title: r.rawFields[.title] != nil ? r.tags.title : r.url.deletingPathExtension().lastPathComponent,
-                artist: r.tags.artist,
-                duration: r.tags.duration,
-                codec: r.url.pathExtension.uppercased()
+                url: e.url,
+                number: e.trackNumber,
+                title: e.title,
+                artist: e.artist,
+                duration: e.duration,
+                codec: e.codec
             )
         }
         return Album(
             directory: directory,
-            artist: multipleArtists ? variousArtists : results[0].tags.artist,
-            title: results[0].tags.album,
-            year: results.lazy.compactMap(\.tags.year).first,
-            cover: cover(for: results, in: directory),
+            artist: multipleArtists ? variousArtists : entries[0].artist,
+            title: entries[0].album,
+            year: entries.lazy.compactMap(\.year).first,
             hasMultipleArtists: multipleArtists,
             tracks: tracks
         )
-    }
-
-    /// Best cover over all tracks: a `cover`/`folder`/... image, then embedded art, then any other image.
-    private static func cover(for results: [TagReadResult], in directory: URL) -> AlbumCover {
-        func rank(_ source: ArtworkSource) -> Int {
-            switch source {
-            case .cover: 0
-            case .embedded: 1
-            case .anyImage: 2
-            case .none: 3
-            }
-        }
-        guard let best = results.min(by: { rank($0.artwork) < rank($1.artwork) }) else { return .none }
-        switch best.artwork {
-        case .cover(let name), .anyImage(let name): return .file(directory.appendingPathComponent(name))
-        case .embedded: return .embedded(best.url)
-        case .none: return .none
-        }
     }
 }

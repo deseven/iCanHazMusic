@@ -30,7 +30,7 @@ enum PlaylistActions {
         ) else { return }
 
         do {
-            try store.rename(name, to: input)
+            try await store.rename(name, to: input)
         } catch {
             await Dialogs.showError(error.localizedDescription)
         }
@@ -50,7 +50,7 @@ enum PlaylistActions {
         ) else { return }
 
         do {
-            try store.delete(name)
+            try await store.delete(name)
         } catch {
             await Dialogs.showError(error.localizedDescription)
         }

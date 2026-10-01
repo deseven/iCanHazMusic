@@ -11,7 +11,8 @@ final class ImportCoordinator {
     /// The running import, if any. Menu items and drops are ignored while this is set.
     private(set) var session: ImportSession?
 
-    var isBusy: Bool { session != nil }
+    /// An import is running, or the active playlist is still loading (adding to it would be unsafe).
+    var isBusy: Bool { session != nil || PlaylistStore.shared.isLoading }
 
     private init() {}
 
@@ -66,7 +67,7 @@ final class ImportCoordinator {
 
         let outcome = await session.run(inputs: urls)
         if !outcome.aborted {
-            PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
+            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
         }
 
         await sheet.dismiss()

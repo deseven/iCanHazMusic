@@ -16,7 +16,7 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Folder | What |
 |---|---|
 | `src/App/` | `@main` entry point and `AppDelegate`. |
-| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift`, `playlists/*.json` plus the in-memory playlist content, which is not stored yet; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups tag results into albums by directory + album tag), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; ported from `PoC/tag-parsing`, see its README; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
+| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift` = playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes; `PlaylistFile.swift` = file format, `TrackEntry.swift` = one flat stored track; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups flat entries into albums by directory + album tag, for imports and loads alike), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; ported from `PoC/tag-parsing`, see its README; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
 | `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache`), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`), `Import/` (`ImportCoordinator` = File menu / drag and drop entry points, `ImportProgressSheet` + `ImportProgressView` = the modal progress sheet). |
 
 UI may depend on Core, never the other way round. One view per file.
@@ -27,6 +27,9 @@ Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (hardcoded 
 - `config.json` – read once at startup, written on every setting change (debounced ~250 ms, flushed on quit).
   Missing/invalid values are reset to defaults and written back.
 - `playlists/{name}.json` – one file per playlist; `main.json` is created automatically if there are none.
+  Format: `{"version": 1, "tracks": [{path, artist, album, title, trackNumber?, year?, duration?, codec}, ...]}`,
+  a flat array in playlist order (albums are rebuilt on load, album art isn't stored). A file that can't be
+  parsed is moved to `{name}.json.broken` and replaced by an empty playlist.
 
 This is the user's real dev data. When testing, prefer seeding/inspecting the files over deleting them, and
 leave the directory in a sane state afterwards.

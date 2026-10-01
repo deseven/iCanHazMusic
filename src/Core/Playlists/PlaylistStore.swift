@@ -34,8 +34,9 @@ enum PlaylistError: LocalizedError {
 
 /// The set of playlists living in `playlists/*.json` and the currently active one.
 ///
-/// The playlist file format isn't defined yet; a playlist is just an (empty) JSON object.
-/// Playlist *content* only lives in memory for now (see `playlist(named:)`), nothing is stored.
+/// Only the active playlist is kept in memory (`activePlaylist`): it's loaded from its file when it becomes
+/// active and dropped when another one is selected or it is deleted. The file format is `PlaylistFile`.
+/// Loading is asynchronous (`isLoading`); content changes are written back in the background.
 @MainActor
 @Observable
 final class PlaylistStore {
@@ -45,14 +46,19 @@ final class PlaylistStore {
     private(set) var names: [String] = []
     private(set) var activeName: String = ""
 
-    /// In-memory content per playlist, keyed by `key(name)`. Missing entry = empty playlist.
-    private var contents: [String: Playlist] = [:]
+    /// Content of the active playlist. Empty while `isLoading`.
+    private(set) var activePlaylist: Playlist = .empty
+    /// The active playlist is being read from disk. It can't be modified until that's done.
+    private(set) var isLoading = false
 
     @ObservationIgnored private let fm = FileManager.default
     @ObservationIgnored private let configStore = ConfigStore.shared
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
+    /// Writes are chained so they hit the disk in the order they were requested.
+    @ObservationIgnored private var writeTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingWrites = 0
 
     private static let maxNameBytes = 200
-    private static let emptyPlaylistData = Data("{}\n".utf8)
 
     private init() {
         do {
@@ -81,6 +87,7 @@ final class PlaylistStore {
             activeName = first
         }
         syncActiveToConfig()
+        if !activeName.isEmpty { startLoad() }
     }
 
     // MARK: - Queries
@@ -89,22 +96,37 @@ final class PlaylistStore {
         existingName(matching: name) != nil
     }
 
-    func playlist(named name: String) -> Playlist {
-        contents[Self.key(name)] ?? .empty
-    }
+    /// Whether a playlist write is still queued or running (the app must not quit yet).
+    var hasPendingWrites: Bool { pendingWrites > 0 }
 
     // MARK: - Mutations
 
-    /// Adds albums at the end of a playlist.
-    func append(_ albums: [Album], to name: String) {
-        guard !albums.isEmpty, let match = existingName(matching: name) else { return }
-        contents[Self.key(match)] = playlist(named: match).appending(albums)
+    /// Adds albums at the end of the active playlist and stores it. Ignored for any other playlist and
+    /// while the active one is still loading.
+    func append(_ albums: [Album], to name: String) async {
+        guard !albums.isEmpty, !isLoading, let match = existingName(matching: name),
+              Self.key(match) == Self.key(activeName) else { return }
+
+        let current = activePlaylist
+        let updated = await Task.detached(priority: .userInitiated) { current.appending(albums) }.value
+        // Something else replaced the content in the meantime (can't happen behind the modal import sheet).
+        guard activePlaylist === current else { return }
+
+        activePlaylist = updated
+        save(updated, as: match)
+    }
+
+    /// Waits until everything queued by `save` is on disk.
+    func flushWrites() async {
+        await writeTask?.value
     }
 
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
+        let changed = Self.key(match) != Self.key(activeName)
         activeName = match
         syncActiveToConfig()
+        if changed { startLoad() }
     }
 
     /// Creates a new empty playlist and makes it active. Returns the final name.
@@ -123,7 +145,9 @@ final class PlaylistStore {
         return name
     }
 
-    func rename(_ oldName: String, to rawName: String) throws {
+    func rename(_ oldName: String, to rawName: String) async throws {
+        // A queued write would otherwise recreate the old file.
+        await flushWrites()
         let newName = try Self.validate(rawName)
         guard let current = existingName(matching: oldName) else { throw PlaylistError.notFound(oldName) }
         guard newName != current else { return }
@@ -145,16 +169,18 @@ final class PlaylistStore {
             throw PlaylistError.io(error)
         }
 
-        if let content = contents.removeValue(forKey: Self.key(current)) {
-            contents[Self.key(newName)] = content
-        }
-
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
-        if wasActive { setActive(newName) }
+        if wasActive {
+            // Same playlist under a new name: keep the loaded content.
+            activeName = existingName(matching: newName) ?? newName
+            syncActiveToConfig()
+            if isLoading { startLoad() }   // the file being read has just moved
+        }
     }
 
-    func delete(_ name: String) throws {
+    func delete(_ name: String) async throws {
+        await flushWrites()
         guard let current = existingName(matching: name) else { throw PlaylistError.notFound(name) }
         guard names.count > 1 else { throw PlaylistError.lastPlaylist }
 
@@ -164,11 +190,9 @@ final class PlaylistStore {
             throw PlaylistError.io(error)
         }
 
-        contents.removeValue(forKey: Self.key(current))
-
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
-        if wasActive, let first = names.first { setActive(first) }
+        if wasActive, let first = names.first { setActive(first) }   // unloads the deleted one
     }
 
     // MARK: - Validation
@@ -203,7 +227,79 @@ final class PlaylistStore {
 
     private func writeEmptyPlaylist(named name: String) throws {
         try fm.createDirectory(at: AppPaths.playlistsDir, withIntermediateDirectories: true)
-        try Self.emptyPlaylistData.write(to: fileURL(name), options: .atomic)
+        try PlaylistFile.emptyData.write(to: fileURL(name), options: .atomic)
+    }
+
+    // MARK: Loading and saving
+
+    /// Drops the current content and reads the active playlist's file. A load that is still running
+    /// for a previously active playlist is cancelled and its result discarded.
+    private func startLoad() {
+        loadTask?.cancel()
+        let name = activeName
+        activePlaylist = .empty
+        isLoading = true
+
+        loadTask = Task {
+            // Don't read a file that has a write queued: that would be stale.
+            await flushWrites()
+            guard !Task.isCancelled else { return }
+
+            let url = fileURL(name)
+            let started = Date()
+            let result = await Task.detached(priority: .userInitiated) { PlaylistFile.load(from: url) }.value
+            guard !Task.isCancelled else { return }
+
+            switch result {
+            case .loaded(let playlist):
+                activePlaylist = playlist
+                let ms = Int(Date().timeIntervalSince(started) * 1000)
+                Log.info("loaded '\(name)': \(playlist.trackCount) tracks in \(playlist.albums.count) albums, \(ms) ms")
+            case .missing:
+                Log.error("playlist file of '\(name)' is gone, starting empty")
+            case .invalid(let reason):
+                Log.error("can't load '\(name)': \(reason)")
+                quarantine(name)
+            }
+            isLoading = false
+        }
+    }
+
+    /// Moves an unusable playlist file aside (`name.json.broken`, ignored by `reload()`) and puts an empty
+    /// playlist in its place, so the next save doesn't overwrite the original.
+    private func quarantine(_ name: String) {
+        let source = fileURL(name)
+        var target = source.appendingPathExtension("broken")
+        if fm.fileExists(atPath: target.path) {
+            target = source.appendingPathExtension("broken-\(Int(Date().timeIntervalSince1970))")
+        }
+        do {
+            try fm.moveItem(at: source, to: target)
+            Log.info("moved the unusable file to \(target.lastPathComponent)")
+            try writeEmptyPlaylist(named: name)
+        } catch {
+            Log.error("can't set aside the unusable file of '\(name)': \(error.localizedDescription)")
+        }
+    }
+
+    /// Queues a background write of the whole playlist file.
+    private func save(_ playlist: Playlist, as name: String) {
+        let url = fileURL(name)
+        let previous = writeTask
+        pendingWrites += 1
+        writeTask = Task {
+            await previous?.value
+            let failure = await Task.detached(priority: .utility) { () -> String? in
+                do {
+                    try PlaylistFile.write(playlist, to: url)
+                    return nil
+                } catch {
+                    return error.localizedDescription
+                }
+            }.value
+            if let failure { Log.error("can't save '\(name)': \(failure)") }
+            pendingWrites -= 1
+        }
     }
 
     private func reload() {
