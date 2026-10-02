@@ -14,7 +14,7 @@ final class ConfigStore {
     private let paths: AppPaths
     private let saveDelay: Duration
     private var saveTask: Task<Void, Never>?
-    static let defaultSaveDelay: Duration = .milliseconds(250)
+    nonisolated static let defaultSaveDelay: Duration = .milliseconds(250)
 
     init(paths: AppPaths, saveDelay: Duration = ConfigStore.defaultSaveDelay) {
         self.paths = paths

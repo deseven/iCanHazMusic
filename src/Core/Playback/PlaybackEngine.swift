@@ -44,7 +44,7 @@ final class PlaybackEngine {
     /// Time the output takes to fade out before pausing/seeking/stopping.
     static let fadeDuration: Double = 0.03
     /// Frames rendered at once by `renderOffline` (the engine's maximum).
-    static let renderSlice = 1024
+    nonisolated static let renderSlice = 1024
 
     var onEvent: ((Event) -> Void)?
 
