@@ -19,8 +19,10 @@ extension AllTests {
             AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 2, interleaved: false)!
         }
 
-        private func decode(_ url: URL, from start: Double = 0, rate: Double = 44100, maxChunks: Int = .max) async -> Decoded {
-            let decoder = TrackDecoder(url: url, startSeconds: start, outputFormat: outputFormat(rate))
+        private func decode(_ url: URL, from start: Double = 0, rate: Double = 44100, maxChunks: Int = .max,
+                            quality: ResampleQuality = .default) async -> Decoded {
+            let decoder = TrackDecoder(url: url, startSeconds: start, outputFormat: outputFormat(rate),
+                                       resampleQuality: quality)
             var result = Decoded()
             while result.chunks < maxChunks {
                 switch await decoder.next() {
@@ -178,6 +180,27 @@ extension AllTests {
               arguments: [48000.0, 96000, 88200, 32000, 22050, 192000])
         func resampleFrom44(rate: Double) async throws {
             try await tone(.sine44, outputRate: rate)
+        }
+
+        @Test("every resample quality gives the exact length and follows the waveform, and the setting is used",
+              arguments: ResampleQuality.allCases)
+        func resampleQualities(quality: ResampleQuality) async throws {
+            let file = ToneFile.sine48
+            let url = try file.url()
+            let d = await decode(url, rate: 44100, quality: quality)
+            #expect(d.failure == nil)
+            #expect(d.samples.frameCount == Int((Double(file.frames) * 44100 / 48000).rounded()))
+            let skip = 400
+            let deviation = maxDeviation(d.samples, from: skip, count: d.samples.frameCount - 2 * skip) { i, c in
+                ToneFile.value(at: Double(i + skip) / 44100, channel: c)
+            }
+            #expect(deviation < 0.05, "\(quality): \(deviation)")
+
+            // The converter really is set up differently (the quality isn't ignored).
+            if quality != .default {
+                let reference = await decode(url, rate: 44100)
+                #expect(reference.samples != d.samples)
+            }
         }
 
         @Test("48, 32 and 96 kHz audio is brought to 44.1 kHz")

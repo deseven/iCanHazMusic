@@ -9,10 +9,10 @@ import Foundation
 ///   share) can be abandoned without holding up the decoders created after it.
 /// - The length is what `AVAudioFile` reports, i.e. the exact number of audio frames of the file. AVFoundation's
 ///   player rounds FLAC up to whole packets and plays up to 1176 frames of padding at the end; the file API does not.
-/// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at `.high`
-///   quality (the frame counts come out exact, so the playback position stays correct). A file whose rate
-///   already is the engine's is passed through untouched. `.max` costs ~25% more in the converter for no
-///   audible gain, see `docs/playback.md`.
+/// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at the
+///   given `ResampleQuality` (`.high` unless told otherwise; the frame counts come out exact at every quality, so
+///   the playback position stays correct). A file whose rate already is the engine's is passed through untouched.
+///   `.max` costs ~25% more in the converter for no audible gain, see `docs/playback.md`.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
 final class TrackDecoder: @unchecked Sendable {
@@ -44,6 +44,7 @@ final class TrackDecoder: @unchecked Sendable {
     let url: URL
     private let startSeconds: Double
     private let outputFormat: AVAudioFormat
+    private let resampleQuality: ResampleQuality
     private let queue = DispatchQueue(label: "wtf.d7.icanhazmusic.decoder", qos: .userInitiated)
 
     private let cancelLock = NSLock()
@@ -63,10 +64,11 @@ final class TrackDecoder: @unchecked Sendable {
     private var converterDone = false
     private var warning: String?
 
-    init(url: URL, startSeconds: Double, outputFormat: AVAudioFormat) {
+    init(url: URL, startSeconds: Double, outputFormat: AVAudioFormat, resampleQuality: ResampleQuality = .default) {
         self.url = url
         self.startSeconds = max(0, startSeconds)
         self.outputFormat = outputFormat
+        self.resampleQuality = resampleQuality
     }
 
     /// Abandons the decoder: the work in progress finishes, nothing new is started.
@@ -132,7 +134,7 @@ final class TrackDecoder: @unchecked Sendable {
                   let converter = AVAudioConverter(from: source, to: outputFormat) else {
                 throw DecoderError("can't convert \(Int(format.sampleRate)) Hz to \(Int(outputFormat.sampleRate)) Hz")
             }
-            converter.sampleRateConverterQuality = AVAudioQuality.high.rawValue
+            converter.sampleRateConverterQuality = resampleQuality.avQuality.rawValue
             converterSourceFormat = source
             self.converter = converter
         }

@@ -30,6 +30,7 @@ struct VirtualPlaylistView: View {
     @Binding var revealRow: Int?
     let playingRow: Int?
     let cursorFollowsPlayback: Bool
+    let showAlbumArt: Bool
     let onActivate: (Int) -> Void
 
     private let layout: PlaylistLayout
@@ -44,15 +45,16 @@ struct VirtualPlaylistView: View {
     @FocusState private var focused: Bool
 
     init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
-         playingRow: Int?, cursorFollowsPlayback: Bool, onActivate: @escaping (Int) -> Void) {
+         playingRow: Int?, cursorFollowsPlayback: Bool, showAlbumArt: Bool, onActivate: @escaping (Int) -> Void) {
         self.playlist = playlist
         self._selection = selection
         self._cursor = cursor
         self._revealRow = revealRow
         self.playingRow = playingRow
         self.cursorFollowsPlayback = cursorFollowsPlayback
+        self.showAlbumArt = showAlbumArt
         self.onActivate = onActivate
-        let layout = PlaylistLayout(playlist: playlist)
+        let layout = PlaylistLayout(playlist: playlist, showAlbumArt: showAlbumArt)
         self.layout = layout
         self._window = State(initialValue: layout.rowRange(minY: 0, maxY: 800,
                                                            overscan: Layout.playlistOverscan))
@@ -66,7 +68,7 @@ struct VirtualPlaylistView: View {
                 Color.clear.frame(height: layout.rowOffsets[shown.lowerBound])
                 ForEach(shown, id: \.self) { i in
                     PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i),
-                                                        isPlaying: i == playingRow)
+                                    isPlaying: i == playingRow, showAlbumArt: showAlbumArt)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             click(i)
@@ -105,6 +107,11 @@ struct VirtualPlaylistView: View {
             }
         }
         .onChange(of: playlist.isFlat) { _, _ in clearSelection() }
+        .onChange(of: showAlbumArt) { _, _ in
+            // The header height changed: the rows' offsets did too.
+            window = layout.rowRange(minY: viewport.rect.minY, maxY: max(viewport.rect.maxY, 800),
+                                     overscan: Layout.playlistOverscan)
+        }
         .onChange(of: playingRow) { _, row in
             guard cursorFollowsPlayback, let row, playlist.rows.indices.contains(row) else { return }
             selection = [row]

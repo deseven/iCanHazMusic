@@ -6,6 +6,7 @@ struct PlaylistRowView: View {
     let index: Int
     let isSelected: Bool
     let isPlaying: Bool
+    let showAlbumArt: Bool
 
     var body: some View {
         let row = playlist.rows[index]
@@ -17,8 +18,9 @@ struct PlaylistRowView: View {
                 .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
                 .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
         } else {
-            AlbumHeaderContent(album: playlist.albums[row.albumIndex], isSelected: isSelected)
-                .frame(height: Layout.albumHeaderRowHeight)
+            AlbumHeaderContent(album: playlist.albums[row.albumIndex], isSelected: isSelected,
+                               showArt: showAlbumArt)
+                .frame(height: showAlbumArt ? Layout.albumHeaderRowHeight : Layout.albumHeaderRowHeightWithoutArt)
                 .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : Color.primary.opacity(0.06))
                 .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
         }
@@ -28,13 +30,17 @@ struct PlaylistRowView: View {
 private struct AlbumHeaderContent: View {
     let album: Album
     let isSelected: Bool
+    /// Off: no cover is shown, and none is loaded.
+    let showArt: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: CoverCache.image(for: album))
-                .resizable()
-                .frame(width: Layout.coverSize, height: Layout.coverSize)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+            if showArt {
+                Image(nsImage: CoverCache.image(for: album))
+                    .resizable()
+                    .frame(width: Layout.coverSize, height: Layout.coverSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
             VStack(alignment: .leading, spacing: 0) {
                 Text(album.artist).font(.system(size: 13, weight: .bold))
                 Text(album.title).font(.system(size: 12))

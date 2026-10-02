@@ -29,8 +29,6 @@ final class ImportSession {
         let aborted: Bool
     }
 
-    /// Files read in parallel. Local disks saturate early; network shares keep scaling up to about this.
-    private static let readConcurrency = 16
     /// Albums whose art is decoded and shrunk at the same time (CPU bound, so far fewer than file reads).
     private static let artConcurrency = 4
 
@@ -50,14 +48,19 @@ final class ImportSession {
     private(set) var isAborting = false
 
     @ObservationIgnored private let coverStore: CoverStore
+    /// Files read in parallel.
+    @ObservationIgnored private let tagParsingConcurrency: Int
     @ObservationIgnored private var readingStartedAt: Date?
     @ObservationIgnored private var readingFinishedAt: Date?
     @ObservationIgnored private var gatherTask: Task<[URL], Never>?
     @ObservationIgnored private var readTask: Task<[TagReadResult], Never>?
     @ObservationIgnored private var artTask: Task<Void, Never>?
 
-    init(coverStore: CoverStore = .shared) {
+    /// `tagParsingConcurrency`: how many files are read at the same time (the app takes it from the settings,
+    /// see `PlaylistStore.effectiveTagParsingConcurrency`).
+    init(coverStore: CoverStore = .shared, tagParsingConcurrency: Int = TagReader.defaultConcurrency) {
         self.coverStore = coverStore
+        self.tagParsingConcurrency = max(1, tagParsingConcurrency)
     }
 
     /// Everything is read, only the playlist is being put together: too late to abort.
@@ -120,7 +123,8 @@ final class ImportSession {
     private func read(_ files: [URL]) async -> [TagReadResult]? {
         stage = .reading
         readingStartedAt = Date()
-        let reader = TagReader(strategy: .auto, concurrency: Self.readConcurrency)
+        Log.info("reading tags of \(files.count) files, \(tagParsingConcurrency) at a time")
+        let reader = TagReader(strategy: .auto, concurrency: tagParsingConcurrency)
         let (artJobs, artFeed) = AsyncStream<AlbumArtJob>.makeStream()
         let art = Task { await processArt(artJobs) }
         artTask = art

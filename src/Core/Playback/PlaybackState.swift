@@ -47,8 +47,13 @@ final class PlaybackState {
     /// Original album art cut to a square. The only one kept in memory; nil while loading or if there is none.
     private(set) var artwork: CGImage?
 
-    var volume: Double = 0.7 {
-        didSet { engine.volume = Float(volume) }
+    /// Linear gain, 0...1. Persisted in the config.
+    var volume = AppConfig.Playback().volume {
+        didSet {
+            engine.volume = Float(volume)
+            guard volume != oldValue else { return }
+            configStore?.update { $0.playback.volume = min(max(volume, ConfigLimits.volumeMin), ConfigLimits.volumeMax) }
+        }
     }
 
     /// When a track starts, the selection moves to it. Acted upon by the playlist view; persisted in the config.
@@ -70,6 +75,16 @@ final class PlaybackState {
             configStore?.update { $0.playback.playbackFollowsCursor = playbackFollowsCursor }
             cursorRequested = false   // what was selected before the option was on is not a request
             playlistDidChange()
+        }
+    }
+
+    /// Sample rate conversion quality; applies to the tracks that start from now on. Persisted in the config.
+    var resampleQuality = ResampleQuality.default {
+        didSet {
+            guard resampleQuality != oldValue else { return }
+            engine.resampleQuality = resampleQuality
+            configStore?.update { $0.playback.resampleQuality = resampleQuality }
+            Log.info("resample quality: \(resampleQuality.rawValue)")
         }
     }
 
@@ -132,7 +147,7 @@ final class PlaybackState {
     /// `positionStep`: `position` is only published when it moves into another multiple of this many seconds
     /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
     /// 4 updates a second); 0 publishes every change.
-    /// `configStore`: where `cursorFollowsPlayback` and `playbackFollowsCursor` are read from and kept; `nil` uses
+    /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality` and `volume` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
          positionStep: Double = 1, configStore: ConfigStore? = nil) {
@@ -144,8 +159,11 @@ final class PlaybackState {
         if let settings = configStore?.config.playback {
             cursorFollowsPlayback = settings.cursorFollowsPlayback
             playbackFollowsCursor = settings.playbackFollowsCursor
+            resampleQuality = settings.resampleQuality
+            volume = settings.volume
         }
         engine.volume = Float(volume)
+        engine.resampleQuality = resampleQuality
         engine.onEvent = { [weak self] event in self?.handle(event) }
         store.playback = self
     }

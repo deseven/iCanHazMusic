@@ -76,6 +76,72 @@ extension AllTests {
             #expect(try JSONDecoder().decode(AppConfig.self, from: data) == config)
         }
 
+        @Test("resample quality is high by default, read by name and reset when unknown")
+        func resampleQuality() throws {
+            #expect(AppConfig().playback.resampleQuality == .high)
+            for quality in ResampleQuality.allCases {
+                let json = #"{"playback": {"resample_quality": "\#(quality.rawValue)"}}"#
+                #expect(try decode(json).playback.resampleQuality == quality)
+            }
+            #expect(try decode(#"{"playback": {"resample_quality": "ultra"}}"#).playback.resampleQuality == .high)
+            #expect(try decode(#"{"playback": {"resample_quality": 3}}"#).playback.resampleQuality == .high)
+        }
+
+        @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")
+        func volume() throws {
+            #expect(AppConfig().playback.volume == 0.7)
+            #expect(try decode(#"{"playback": {"volume": 0.3}}"#).playback.volume == 0.3)
+            #expect(try decode(#"{"playback": {"volume": "loud"}}"#).playback.volume == 0.7)
+
+            for volume in [ConfigLimits.volumeMin, 0.5, ConfigLimits.volumeMax] {
+                var config = AppConfig()
+                config.playback.volume = volume
+                #expect(config.validated() == config)
+            }
+            for volume in [-0.1, 1.5, 70] {
+                var config = AppConfig()
+                config.playback.volume = volume
+                #expect(config.validated().playback.volume == 0.7)
+            }
+        }
+
+        @Test("the playlist section is read leniently, with automatic concurrency and art on by default")
+        func playlistSection() throws {
+            let defaults = AppConfig().playlist
+            #expect(defaults.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
+            #expect(defaults.displayAlbumArt)
+
+            let config = try decode("""
+            {"playlist": {"tag_parsing_concurrency": 8, "display_album_art": false}}
+            """)
+            #expect(config.playlist.tagParsingConcurrency == 8)
+            #expect(!config.playlist.displayAlbumArt)
+
+            let partial = try decode("""
+            {"playlist": {"tag_parsing_concurrency": "many", "display_album_art": false}}
+            """)
+            #expect(partial.playlist.tagParsingConcurrency == defaults.tagParsingConcurrency)
+            #expect(!partial.playlist.displayAlbumArt)
+            #expect(try decode(#"{"playlist": 5}"#).playlist == defaults)
+        }
+
+        @Test("the tag parsing concurrency must be one of the offered values")
+        func invalidConcurrency() {
+            for count in ConfigLimits.tagParsingConcurrencyOptions {
+                var config = AppConfig()
+                config.playlist.tagParsingConcurrency = count
+                #expect(config.validated() == config)
+            }
+            for count in [-1, 3, 33, 64] {
+                var config = AppConfig()
+                config.playlist.tagParsingConcurrency = count
+                config.playlist.displayAlbumArt = false
+                let result = config.validated()
+                #expect(result.playlist.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
+                #expect(!result.playlist.displayAlbumArt)
+            }
+        }
+
         @Test("the default window has no position")
         func defaultPosition() {
             #expect(!AppConfig().ui.window.hasPosition)

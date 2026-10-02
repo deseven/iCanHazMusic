@@ -53,6 +53,9 @@ final class PlaybackEngine {
         didSet { engine.mainMixerNode.outputVolume = min(max(volume, 0), 1) }
     }
 
+    /// Sample rate conversion quality of the tracks opened from now on (what is decoded already stays as it is).
+    var resampleQuality = ResampleQuality.default
+
     // MARK: Internals
 
     private struct Restart {
@@ -338,7 +341,8 @@ final class PlaybackEngine {
     }
 
     private func makeSlot(url: URL, seconds: Double) -> Slot {
-        Slot(url: url, startSeconds: seconds, decoder: TrackDecoder(url: url, startSeconds: seconds, outputFormat: format))
+        Slot(url: url, startSeconds: seconds, decoder: TrackDecoder(url: url, startSeconds: seconds, outputFormat: format,
+                                                              resampleQuality: resampleQuality))
     }
 
     private func cancelSlots() {

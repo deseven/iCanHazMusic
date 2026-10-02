@@ -22,14 +22,21 @@ struct iCanHazMusicApp: App {
         .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .defaultPosition(.center)
+
+        Window("Preferences", id: AppConstants.preferencesWindowID) {
+            PreferencesView()
+        }
+        .windowResizability(.contentSize)
+        .restorationBehavior(.disabled)
+        .defaultPosition(.center)
         .commands {
             AppCommands()
         }
     }
 }
 
-/// Replaces the stock "About" item in the app menu with our own window, adds the import items to File
-/// the Playlist menu and the Playback menu.
+/// Replaces the stock "About" item in the app menu with our own window and adds the Preferences item (⌘,),
+/// the import items to File, the Playlist menu and the Playback menu.
 private struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     private let importer = ImportCoordinator.shared
@@ -65,6 +72,12 @@ private struct AppCommands: Commands {
             Button("About \(AppConstants.appName)") {
                 openWindow(id: AppConstants.aboutWindowID)
             }
+        }
+        CommandGroup(replacing: .appSettings) {
+            Button("Preferences...") {
+                openWindow(id: AppConstants.preferencesWindowID)
+            }
+            .keyboardShortcut(",", modifiers: .command)
         }
     }
 }

@@ -57,7 +57,7 @@ final class ImportCoordinator {
 
         let store = PlaylistStore.shared
         let name = store.activeName
-        let session = ImportSession()
+        let session = ImportSession(tagParsingConcurrency: store.effectiveTagParsingConcurrency)
         self.session = session
         let sheet = ImportProgressSheet(session: session)
         sheet.present(on: window)
@@ -90,7 +90,7 @@ final class ImportCoordinator {
     private func start(_ urls: [URL]) async {
         guard !isBusy, !urls.isEmpty, let window = Dialogs.hostWindow else { return }
 
-        let session = ImportSession()
+        let session = ImportSession(tagParsingConcurrency: PlaylistStore.shared.effectiveTagParsingConcurrency)
         self.session = session
         let sheet = ImportProgressSheet(session: session)
         sheet.present(on: window)

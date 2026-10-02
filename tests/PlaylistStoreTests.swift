@@ -337,6 +337,24 @@ extension AllTests {
             return object?["last_played"] as? Int
         }
 
+        @Test("the playlist settings are read from the config and written back when changed")
+        func playlistSettings() async throws {
+            let env = try await makeEnv()
+            #expect(env.store.displayAlbumArt)
+            #expect(env.store.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
+            #expect(env.store.effectiveTagParsingConcurrency == TagReader.defaultConcurrency)
+
+            env.store.displayAlbumArt = false
+            env.store.tagParsingConcurrency = 8
+            #expect(!env.config.config.playlist.displayAlbumArt)
+            #expect(env.config.config.playlist.tagParsingConcurrency == 8)
+            #expect(env.store.effectiveTagParsingConcurrency == 8)
+
+            let restarted = PlaylistStore(paths: env.paths, configStore: env.config)
+            #expect(!restarted.displayAlbumArt)
+            #expect(restarted.tagParsingConcurrency == 8)
+        }
+
         @Test("setFlat regroups, writes is_flat and survives a restart")
         func setFlat() async throws {
             let env = try await makeEnv()

@@ -57,6 +57,29 @@ final class PlaylistStore {
     /// disk, or taken over from the background). The view reacts to this by showing `lastPlayedRow`.
     private(set) var openCount = 0
 
+    /// Album blocks of grouped playlists show the album art (it is cached either way). Persisted in the config.
+    var displayAlbumArt = true {
+        didSet {
+            guard displayAlbumArt != oldValue else { return }
+            configStore.update { $0.playlist.displayAlbumArt = displayAlbumArt }
+        }
+    }
+
+    /// Files whose tags are read at the same time on an import; `ConfigLimits.tagParsingConcurrencyAuto` (0) =
+    /// automatic. Persisted in the config.
+    var tagParsingConcurrency = ConfigLimits.tagParsingConcurrencyAuto {
+        didSet {
+            guard tagParsingConcurrency != oldValue else { return }
+            configStore.update { $0.playlist.tagParsingConcurrency = tagParsingConcurrency }
+        }
+    }
+
+    /// `tagParsingConcurrency` with the automatic setting resolved.
+    var effectiveTagParsingConcurrency: Int {
+        tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto
+            ? TagReader.defaultConcurrency : tagParsingConcurrency
+    }
+
     /// The playlist playback runs from, if any (set through `playbackStarted`/`playbackEnded`).
     private(set) var playingName: String?
     /// The playing playlist while it isn't the active one.
@@ -84,6 +107,8 @@ final class PlaylistStore {
     init(paths: AppPaths, configStore: ConfigStore) {
         self.paths = paths
         self.configStore = configStore
+        displayAlbumArt = configStore.config.playlist.displayAlbumArt
+        tagParsingConcurrency = configStore.config.playlist.tagParsingConcurrency
         do {
             try fm.createDirectory(at: paths.playlistsDir, withIntermediateDirectories: true)
         } catch {

@@ -69,10 +69,16 @@ struct AppConfig: Codable, Equatable {
         var cursorFollowsPlayback = true
         /// The track under the cursor plays next, instead of the one after the current track.
         var playbackFollowsCursor = true
+        /// Quality of the sample rate conversion.
+        var resampleQuality = ResampleQuality.default
+        /// Linear gain, `ConfigLimits.volumeMin...volumeMax`.
+        var volume = 0.7
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
             case playbackFollowsCursor = "playback_follows_cursor"
+            case resampleQuality = "resample_quality"
+            case volume
         }
 
         init() {}
@@ -82,6 +88,29 @@ struct AppConfig: Codable, Equatable {
             let d = Playback()
             cursorFollowsPlayback = c.value(.cursorFollowsPlayback, default: d.cursorFollowsPlayback)
             playbackFollowsCursor = c.value(.playbackFollowsCursor, default: d.playbackFollowsCursor)
+            resampleQuality = c.value(.resampleQuality, default: d.resampleQuality)
+            volume = c.value(.volume, default: d.volume)
+        }
+    }
+
+    struct Playlist: Codable, Equatable {
+        /// Files whose tags are read at the same time; `ConfigLimits.tagParsingConcurrencyAuto` (0) = automatic.
+        var tagParsingConcurrency = ConfigLimits.tagParsingConcurrencyAuto
+        /// Show the album art in the album blocks of grouped playlists (it is cached either way).
+        var displayAlbumArt = true
+
+        enum CodingKeys: String, CodingKey {
+            case tagParsingConcurrency = "tag_parsing_concurrency"
+            case displayAlbumArt = "display_album_art"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = Playlist()
+            tagParsingConcurrency = c.value(.tagParsingConcurrency, default: d.tagParsingConcurrency)
+            displayAlbumArt = c.value(.displayAlbumArt, default: d.displayAlbumArt)
         }
     }
 
@@ -89,11 +118,13 @@ struct AppConfig: Codable, Equatable {
 
     var ui = UI()
     var playback = Playback()
+    var playlist = Playlist()
     var activePlaylist = AppConfig.defaultPlaylistName
 
     enum CodingKeys: String, CodingKey {
         case ui
         case playback
+        case playlist
         case activePlaylist = "active_playlist"
     }
 
@@ -104,6 +135,7 @@ struct AppConfig: Codable, Equatable {
         let d = AppConfig()
         ui = c.value(.ui, default: d.ui)
         playback = c.value(.playback, default: d.playback)
+        playlist = c.value(.playlist, default: d.playlist)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
 
@@ -129,6 +161,14 @@ struct AppConfig: Codable, Equatable {
 
         if !(ConfigLimits.blockMinWidth...ConfigLimits.blockMaxWidth).contains(ui.playbackStatusWidth) {
             result.ui.playbackStatusWidth = defaults.ui.playbackStatusWidth
+        }
+
+        if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(playback.volume) {
+            result.playback.volume = defaults.playback.volume
+        }
+
+        if !ConfigLimits.tagParsingConcurrencyOptions.contains(playlist.tagParsingConcurrency) {
+            result.playlist.tagParsingConcurrency = defaults.playlist.tagParsingConcurrency
         }
 
         if activePlaylist.isEmpty {

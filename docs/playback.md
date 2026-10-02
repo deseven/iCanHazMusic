@@ -82,7 +82,7 @@ Measured on Apple silicon, 44.1 kHz FLAC resampled to a 96 kHz device (engine al
   `taskpolicy -b` reproduces the slow case from a terminal. To check where a process runs, read `proc_pid_rusage`
   (`rusage_info_v6`: `ri_user_ptime`/`ri_system_ptime` vs `ri_user_time`/`ri_system_time`, `ri_cycles`,
   `ri_instructions`, `ri_energy_nj`), no root needed. Instructions per second is the figure to compare.
-- **Sample rate converter quality is `.high`, not `.max`.** `.max` costs ~25% more in the converter (13.5 vs 10.1 M
+- **Sample rate converter quality defaults to `.high`, not `.max`** (selectable in Preferences, `playback.resample_quality`). `.max` costs ~25% more in the converter (13.5 vs 10.1 M
   instructions per second of audio, ~8% of the whole engine). Tone measurements through `AVAudioConverter` (FFT,
   44.1 -> 96 kHz): identical up to the measurement floor (-94 dBc) at 1 and 10 kHz, 18 kHz level -0.013 dB and spurious
   components -129 dBc (`.max`: -139 dBc); the two differ only above ~19 kHz (transition band) and in the rejection of

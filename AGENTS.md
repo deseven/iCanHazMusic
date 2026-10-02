@@ -42,12 +42,14 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
     - `PlaybackEngine` – gapless playback of a current + next track through one `AVAudioPlayerNode`, with fades, exact position, offline rendering for tests.
     - `TrackDecoder` – one file -> stereo float32 chunks at the output rate (own queue, exact length, seeking, resampling).
     - `ChannelDownmix`
+    - `ResampleQuality` – `low`/`medium`/`high`/`max` (config `playback.resample_quality`, default `high`); `PlaybackState.resampleQuality` hands it to `PlaybackEngine.resampleQuality`, which gives it to each new `TrackDecoder` (so it applies to tracks opened afterwards).
     - `CodecLabel` – format description such as `MP3 CBR 320k` / `FLAC 24/96` from the opened file, which playback writes back to the playlist together with the real duration.
     - `PlaybackState` – playlist logic and what the playback block shows, on top of the engine. Also `playingRow` (play symbol) and the Playback menu options `cursorFollowsPlayback`/`playbackFollowsCursor` (config `playback.*`; the UI reports the cursor row via `cursorRow`, which may be in another playlist than the playing one: playback then moves over to it when that track starts).
   - `Constants.swift`, `Log.swift`, `StableHash.swift`
 - `UI/` – Views and AppKit glue.
   - `Layout.swift` – layout constants.
   - `MainWindow/`, `Playback/`, `About/`
+  - `Preferences/` – `PreferencesView`, the Preferences window (⌘,, a `Window` scene): vertical tabs General / Playback / Playlist / Integrations / Hotkeys (General, Integrations and Hotkeys are empty so far). Controls bind straight to the setting's owner (`PlaybackState.resampleQuality`, `PlaylistStore.tagParsingConcurrency`/`displayAlbumArt`), which persists it via `ConfigStore`.
   - `Playlist/` – virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` (row offsets), row views, `CoverCache` (cached thumbnail from `CoverStore` or generated placeholder). The row context menu/keys (Play, Reveal in Finder, Reload Tag(s) = ⌘R behind the import sheet, Remove from Playlist = Backspace) live in `VirtualPlaylistView` + `PlaylistItemActions`.
   - `Dialogs/` – `Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows.
   - `Window/` – `WindowPersistence.swift`, `WindowAccessor.swift`.
@@ -56,6 +58,8 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
 ## Runtime data
 Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (`AppPaths`, see `Constants.swift`). Pass `--workdir /some/dir` (or `--workdir=/some/dir`) to the app to use another directory instead, e.g. a scratch copy:
 - `config.json` – read once at startup, written on every setting change (debounced ~250 ms, flushed on quit). Missing/invalid values are reset to defaults and written back.
+  - `playback.volume` (0...1, default 0.7): the volume slider's value, restored on startup.
+  - Preferences: `playback.resample_quality` (`low`/`medium`/`high`/`max`), `playlist.tag_parsing_concurrency` (`0` = auto = physical cores / 2, else one of `ConfigLimits.tagParsingConcurrencyOptions`; read when an import starts), `playlist.display_album_art` (off: grouped playlists show no covers and load none, the album headers get shorter; art is cached on import regardless).
 - `.cache/covers.sqlite` – album art thumbnails (key = `AlbumKey`, value = JPEG/PNG bytes, 2x the album block cover), rebuilt on import, safe to delete. The thumbnail size is stored in `PRAGMA user_version`; a different size drops the table.
 - `playlists/{name}.json` – one file per playlist; `main.json` is created automatically if there are none.
   - Format: `{"version": 1, "is_flat": false, "next_id": N, "last_played"?: id, "tracks": [{id, path, artist, album, title, trackNumber?, year?, duration?, codec}, ...]}`, a flat array in playlist order (albums are rebuilt on load, album art isn't stored).

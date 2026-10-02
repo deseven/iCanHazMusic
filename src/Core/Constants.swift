@@ -9,6 +9,7 @@ enum AppConstants {
 
     static let mainWindowID = "main"
     static let aboutWindowID = "about"
+    static let preferencesWindowID = "preferences"
 
     // MARK: - URLs
 

@@ -15,4 +15,12 @@ enum ConfigLimits {
     // Playback block
     static let blockMinWidth = 270
     static let blockMaxWidth = 1200
+
+    // Playback volume (linear gain)
+    static let volumeMin = 0.0
+    static let volumeMax = 1.0
+
+    // Tag parsing: files read at the same time. 0 = automatic (see `TagReader.defaultConcurrency`).
+    static let tagParsingConcurrencyAuto = 0
+    static let tagParsingConcurrencyOptions = [tagParsingConcurrencyAuto, 1, 2, 4, 8, 16, 32]
 }

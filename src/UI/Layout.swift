@@ -14,6 +14,8 @@ enum Layout {
     // Playlist column
     static let playlistMinWidth: CGFloat = 280
     static let albumHeaderRowHeight: CGFloat = 68
+    /// Album header when the album art is turned off: just the three lines of text.
+    static let albumHeaderRowHeightWithoutArt: CGFloat = 52
     static let trackRowHeight: CGFloat = 20
     /// First column of a track row: holds the play symbol of the playing track.
     static let trackStatusColumnWidth: CGFloat = 22
@@ -28,6 +30,11 @@ enum Layout {
     static let blockPadding: CGFloat = 16
     static let artToControlsGap: CGFloat = 14
     static let infoToButtonsMinGap: CGFloat = 12
+
+    // Preferences window
+    static let preferencesWidth: CGFloat = 610
+    static let preferencesHeight: CGFloat = 380
+    static let preferencesTabsWidth: CGFloat = 170
 
     // Import progress sheet
     static let importSheetWidth: CGFloat = 380

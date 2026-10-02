@@ -400,6 +400,46 @@ extension AllTests {
             #expect(config.config.playback.playbackFollowsCursor)
         }
 
+        @Test("the resample quality is read from the config, handed to the engine and written back when changed")
+        func resampleQualityPersists() async throws {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            let store = PlaylistStore(paths: paths, configStore: config)
+
+            let plain = PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil)
+            #expect(plain.resampleQuality == .high)
+
+            config.update { $0.playback.resampleQuality = .max }
+            let rig = EngineRig(lookahead: 60)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
+            #expect(state.resampleQuality == .max)
+            #expect(rig.engine.resampleQuality == .max)
+
+            state.resampleQuality = .low
+            #expect(rig.engine.resampleQuality == .low)
+            #expect(config.config.playback.resampleQuality == .low)
+        }
+
+        @Test("the volume is read from the config, handed to the engine and written back when changed")
+        func volumePersists() async throws {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            let store = PlaylistStore(paths: paths, configStore: config)
+            #expect(PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil).volume == 0.7)
+
+            config.update { $0.playback.volume = 0.25 }
+            let rig = EngineRig(lookahead: 60)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
+            #expect(state.volume == 0.25)
+            #expect(rig.engine.volume == 0.25)
+
+            state.volume = 0.9
+            #expect(rig.engine.volume == 0.9)
+            #expect(config.config.playback.volume == 0.9)
+        }
+
         @Test("the playlist ends after its last track: stopped, nothing shown, nothing held")
         func endOfPlaylist() async throws {
             let env = try await standard()
