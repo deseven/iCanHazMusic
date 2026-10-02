@@ -322,7 +322,11 @@ final class PlaylistStore {
             // Same playlist under a new name: keep the loaded content.
             activeName = finalName
             syncActiveToConfig()
-            if isLoading { startLoad() }   // the file being read has just moved
+            if isLoading {
+                startLoad()   // the file being read has just moved; the load counts as the opening
+            } else {
+                openCount += 1   // the view is rebuilt for the new name, so it has to be pointed at the track again
+            }
         }
     }
 
