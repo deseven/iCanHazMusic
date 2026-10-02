@@ -20,10 +20,14 @@ import SwiftUI
 /// `cursor` is the row the selection last moved to (the moving end of a range). `playingRow` gets the play
 /// symbol; when it changes and `cursorFollowsPlayback` is on, the selection and cursor move to it and it is
 /// scrolled into view.
+///
+/// `revealRow` is a request from the parent to scroll to a row (the selection is set by the parent, which owns it);
+/// the view resets it to `nil` once it has taken it up.
 struct VirtualPlaylistView: View {
     let playlist: Playlist
     @Binding var selection: Set<Int>
     @Binding var cursor: Int?
+    @Binding var revealRow: Int?
     let playingRow: Int?
     let cursorFollowsPlayback: Bool
     let onActivate: (Int) -> Void
@@ -39,11 +43,12 @@ struct VirtualPlaylistView: View {
     @State private var eventMonitor: Any?
     @FocusState private var focused: Bool
 
-    init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, playingRow: Int?,
-         cursorFollowsPlayback: Bool, onActivate: @escaping (Int) -> Void) {
+    init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
+         playingRow: Int?, cursorFollowsPlayback: Bool, onActivate: @escaping (Int) -> Void) {
         self.playlist = playlist
         self._selection = selection
         self._cursor = cursor
+        self._revealRow = revealRow
         self.playingRow = playingRow
         self.cursorFollowsPlayback = cursorFollowsPlayback
         self.onActivate = onActivate
@@ -107,6 +112,7 @@ struct VirtualPlaylistView: View {
             cursor = row
             reveal(row, deferred: true)
         }
+        .onChange(of: revealRow) { _, _ in showRevealedRow() }
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -124,7 +130,7 @@ struct VirtualPlaylistView: View {
         }
         .onAppear {
             installEventMonitor()
-            showPlayingRow()
+            showRevealedRow()
         }
         .onDisappear {
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
@@ -132,14 +138,21 @@ struct VirtualPlaylistView: View {
         }
     }
 
-    /// A playlist opened while playback runs from it: scroll to the playing track (the selection is set by the
-    /// parent, which owns it).
-    private func showPlayingRow() {
-        guard let row = playingRow, playlist.rows.indices.contains(row) else { return }
+    /// The parent asked for a row to be shown (a playlist was opened, see `PlayerArea`): scroll to it, in the middle
+    /// of the view. The scroll view may not have been found yet if the playlist is shown for the first time, so
+    /// this tries a few more times.
+    private func showRevealedRow() {
+        guard let row = revealRow else { return }
+        revealRow = nil
+        guard playlist.rows.indices.contains(row) else { return }
         anchor = row
-        let top = max(0, layout.rowOffsets[row] - Layout.albumHeaderRowHeight)   // the album header above stays visible
-        window = layout.rowRange(minY: top, maxY: top + 800, overscan: Layout.playlistOverscan)
-        DispatchQueue.main.async { scrollPosition.scrollTo(y: top) }
+        scrollToCenter(row, attempts: 5)
+    }
+
+    private func scrollToCenter(_ row: Int, attempts: Int) {
+        DispatchQueue.main.async {
+            if !scrollToReveal(row, centered: true), attempts > 1 { scrollToCenter(row, attempts: attempts - 1) }
+        }
     }
 
     // MARK: Context menu
@@ -279,13 +292,17 @@ struct VirtualPlaylistView: View {
         }
     }
 
-    private func scrollToReveal(_ i: Int) {
-        guard layout.rowOffsets.indices.contains(i + 1),
-              let scrollView = scrollBox.scrollView, let anchor = scrollBox.anchor else { return }
+    /// `centered`: the row ends up in the middle of the view even if it is visible already (a row near the
+    /// start or the end of the playlist is as close to it as the content allows).
+    /// Returns `false` if the scroll view isn't known yet, so it can be tried again.
+    @discardableResult
+    private func scrollToReveal(_ i: Int, centered: Bool = false) -> Bool {
+        guard layout.rowOffsets.indices.contains(i + 1) else { return true }
+        guard let scrollView = scrollBox.scrollView, let anchor = scrollBox.anchor else { return false }
         let clip = scrollView.contentView
         guard clip.isFlipped else {
             Log.error("playlist scroll view is not flipped, can't scroll to row \(i)")
-            return
+            return true
         }
 
         // The row in the clip view's coordinates (the same ones as its bounds, which move when scrolling).
@@ -296,12 +313,14 @@ struct VirtualPlaylistView: View {
         let visibleBottom = clip.bounds.maxY - insets.bottom
 
         var origin = clip.bounds.origin
-        if rowRect.minY < visibleTop {
+        if centered {
+            origin.y += rowRect.midY - (visibleTop + visibleBottom) / 2
+        } else if rowRect.minY < visibleTop {
             origin.y -= visibleTop - rowRect.minY
         } else if rowRect.maxY > visibleBottom {
             origin.y += rowRect.maxY - visibleBottom
         } else {
-            return
+            return true
         }
         origin = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
 
@@ -311,6 +330,7 @@ struct VirtualPlaylistView: View {
                                  overscan: Layout.playlistOverscan)
         clip.scroll(to: origin)
         scrollView.reflectScrolledClipView(clip)
+        return true
     }
 }
 

@@ -34,10 +34,10 @@ extension AllTests {
             #expect(done, "playlist did not finish loading")
         }
 
-        private func playlistJSON(_ entries: [TrackEntry]) throws -> String {
+        private func playlistJSON(_ entries: [TrackEntry], lastPlayed: TrackID? = nil) throws -> String {
             let dir = try TempDir()
             let url = dir.path("x.json")
-            try PlaylistFile.write(Make.playlist(entries), to: url)
+            try PlaylistFile.write(Make.playlist(entries), lastPlayed: lastPlayed, to: url)
             return try String(contentsOf: url, encoding: .utf8)
         }
 
@@ -271,7 +271,7 @@ extension AllTests {
 
             await env.store.flushWrites()
             #expect(!env.store.hasPendingWrites)
-            guard case .loaded(let onDisk) = PlaylistFile.load(from: env.file("main")) else {
+            guard case .loaded(let onDisk, _) = PlaylistFile.load(from: env.file("main")) else {
                 Issue.record("expected a valid file")
                 return
             }
@@ -280,7 +280,7 @@ extension AllTests {
             await env.store.append(Make.albums(Make.entries(dir: "B", album: "B", count: 2)), to: "MAIN")
             await env.store.flushWrites()
             #expect(env.store.activePlaylist.albums.map(\.title) == ["A", "B"])
-            guard case .loaded(let again) = PlaylistFile.load(from: env.file("main")) else { return }
+            guard case .loaded(let again, _) = PlaylistFile.load(from: env.file("main")) else { return }
             #expect(again.trackCount == 5)
         }
 
@@ -327,8 +327,14 @@ extension AllTests {
         // MARK: Editing
 
         private func onDisk(_ env: Env, _ name: String = "main") -> Playlist? {
-            if case .loaded(let playlist) = PlaylistFile.load(from: env.file(name)) { return playlist }
+            if case .loaded(let playlist, _) = PlaylistFile.load(from: env.file(name)) { return playlist }
             return nil
+        }
+
+        /// The `last_played` value as it is in the file.
+        private func storedLastPlayed(_ env: Env, _ name: String = "main") throws -> TrackID? {
+            let object = try JSONSerialization.jsonObject(with: Data(contentsOf: env.file(name))) as? [String: Any]
+            return object?["last_played"] as? Int
         }
 
         @Test("setFlat regroups, writes is_flat and survives a restart")
@@ -362,13 +368,13 @@ extension AllTests {
         func remove() async throws {
             let env = try await makeEnv()
             await env.store.append(Make.albums(Make.entries(dir: "A", album: "A", count: 3)), to: "main")
-            await env.store.remove(entries: [0, 2], from: "main")
+            await env.store.remove(ids: [1, 3], from: "main")
             #expect(env.store.activePlaylist.entries.map(\.path) == ["/Music/A/02.mp3"])
             await env.store.flushWrites()
             #expect(onDisk(env)?.trackCount == 1)
 
-            await env.store.remove(entries: [], from: "main")
-            await env.store.remove(entries: [0], from: "other")
+            await env.store.remove(ids: [], from: "main")
+            await env.store.remove(ids: [2], from: "other")
             #expect(env.store.activePlaylist.trackCount == 1)
         }
 
@@ -387,24 +393,203 @@ extension AllTests {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
             let store = env.store
-            let url = URL(fileURLWithPath: "/Music/A/02.mp3")
 
-            store.updateTrack(album: 0, track: 1, url: url, duration: 7, codec: "X")   // nothing is playing
+            store.updateTrack(id: 2, duration: 7, codec: "X")   // nothing is playing
             #expect(store.activePlaylist.albums[0].tracks[1].duration == 100)
 
             store.playbackStarted()
-            store.updateTrack(album: 0, track: 1, url: url, duration: 7, codec: "X")
+            store.updateTrack(id: 99, duration: 7, codec: "X")  // no such track
+            #expect(store.activePlaylist.albums[0].tracks[1].duration == 100)
+            store.updateTrack(id: 2, duration: 7, codec: "X")
             #expect(store.activePlaylist.albums[0].tracks[1].duration == 7)
             await store.flushWrites()
             #expect(onDisk(env, "a")?.albums[0].tracks[1].codec == "X")
 
             store.setActive("b")
             await settle(store)
-            store.updateTrack(album: 0, track: 1, url: url, duration: 8, codec: "Y")
+            store.updateTrack(id: 2, duration: 8, codec: "Y")
             #expect(store.playingPlaylist?.albums[0].tracks[1].duration == 8)
             await store.flushWrites()
             #expect(onDisk(env, "a")?.albums[0].tracks[1].codec == "Y")
             #expect(store.activePlaylist.trackCount == 0)
+        }
+
+        // MARK: Last played
+
+        @Test("setLastPlayed records the track of the playing playlist and stores it in the file")
+        func lastPlayed() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["main": json])
+            let store = env.store
+            #expect(store.lastPlayedRow == nil)
+
+            store.setLastPlayed(2)                          // nothing is playing
+            #expect(store.lastPlayedRow == nil)
+
+            store.playbackStarted()
+            store.setLastPlayed(99)                         // no such track
+            #expect(store.lastPlayedRow == nil)
+
+            store.setLastPlayed(2)
+            #expect(store.lastPlayedRow == 2)               // row 0 is the album header
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env) == 2)
+
+            let restarted = PlaylistStore(paths: env.paths, configStore: env.config)
+            await settle(restarted)
+            #expect(restarted.lastPlayedRow == 2)
+        }
+
+        @Test("a last_played in the file is available once loaded; one that doesn't exist is not")
+        func lastPlayedFromFile() async throws {
+            let entries = Make.entries(dir: "A", album: "A", count: 3)
+            let env = try await makeEnv(playlists: ["a": try playlistJSON(entries, lastPlayed: 3),
+                                                   "b": try playlistJSON(entries, lastPlayed: 3),
+                                                   "c": try playlistJSON(entries)], active: "a")
+            #expect(env.store.lastPlayedRow == 3)
+
+            env.store.setActive("c")
+            await settle(env.store)
+            #expect(env.store.lastPlayedRow == nil)
+
+            env.store.setActive("b")
+            await settle(env.store)
+            #expect(env.store.lastPlayedRow == 3)
+
+            let gone = try playlistJSON(entries, lastPlayed: 3).replacingOccurrences(of: "\"last_played\":3", with: "\"last_played\":77")
+            let other = try await makeEnv(playlists: ["main": gone])
+            #expect(other.store.lastPlayedRow == nil)
+        }
+
+        @Test("the last played track of a playlist is kept while another one is browsed and when coming back")
+        func lastPlayedKept() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
+            let store = env.store
+            store.playbackStarted()
+            store.setLastPlayed(3)
+
+            store.setActive("b")
+            await settle(store)
+            #expect(store.lastPlayedRow == nil)
+
+            store.setActive("a")                            // taken back from the background
+            #expect(store.lastPlayedRow == 3)
+
+            store.playbackEnded()
+            store.setActive("b")
+            await settle(store)
+            store.setActive("a")                            // read from the file again
+            await settle(store)
+            #expect(store.lastPlayedRow == 3)
+        }
+
+        @Test("a track of the background playlist that starts is stored with that playlist")
+        func lastPlayedBackground() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
+            let store = env.store
+            store.playbackStarted()
+            store.setActive("b")
+            await settle(store)
+
+            store.setLastPlayed(2)
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env, "a") == 2)
+            #expect(try storedLastPlayed(env, "b") == nil)
+            #expect(store.lastPlayedRow == nil)             // that's not what is shown
+        }
+
+        @Test("removing the last played track forgets it; removing others keeps it")
+        func lastPlayedRemoval() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["main": json])
+            let store = env.store
+            store.playbackStarted()
+            store.setLastPlayed(2)
+
+            await store.remove(ids: [1], from: "main")
+            #expect(store.lastPlayedRow == 1)               // the same track, one row up
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env) == 2)
+
+            await store.remove(ids: [2], from: "main")
+            #expect(store.lastPlayedRow == nil)
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env) == nil)
+        }
+
+        @Test("the last played track survives tag reloads, regrouping and appends")
+        func lastPlayedEdits() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["main": json])
+            let store = env.store
+            store.playbackStarted()
+            store.setLastPlayed(2)
+
+            await store.applyTags([Make.result("/Music/A/02.mp3", title: "New", album: "Other")], to: "main")
+            func lastPlayedTitle() -> String? {
+                store.lastPlayedRow.flatMap { store.activePlaylist.track(for: store.activePlaylist.rows[$0])?.title }
+            }
+            #expect(lastPlayedTitle() == "New")
+
+            await store.setFlat(true)
+            #expect(lastPlayedTitle() == "New")
+
+            await store.append(Make.albums(Make.entries(dir: "B", album: "B", count: 1)), to: "main")
+            #expect(lastPlayedTitle() == "New")
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env) == 2)
+        }
+
+        @Test("renaming keeps the last played track, and later saves still write it")
+        func lastPlayedRename() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["main": json])
+            let store = env.store
+            store.playbackStarted()
+            store.setLastPlayed(3)
+            try await store.rename("main", to: "renamed")
+            #expect(store.lastPlayedRow == 3)
+            #expect(try storedLastPlayed(env, "renamed") == 3)
+
+            await store.append(Make.albums(Make.entries(dir: "B", album: "B", count: 1)), to: "renamed")
+            await store.flushWrites()
+            #expect(try storedLastPlayed(env, "renamed") == 3)
+        }
+
+        @Test("many quick changes end with the newest one on disk")
+        func lastPlayedBurst() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 10))
+            let env = try await makeEnv(playlists: ["main": json])
+            let store = env.store
+            store.playbackStarted()
+            for id in 1...10 { store.setLastPlayed(id) }
+            await store.flushWrites()
+            #expect(!store.hasPendingWrites)
+            #expect(try storedLastPlayed(env) == 10)
+            #expect(onDisk(env)?.trackCount == 10)
+        }
+
+        @Test("openCount goes up when a playlist has been loaded or taken back from the background")
+        func openCount() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a", wait: false)
+            let store = env.store
+            #expect(store.openCount == 0)
+            await settle(store)
+            #expect(store.openCount == 1)
+
+            store.playbackStarted()
+            store.setActive("b")
+            #expect(store.openCount == 1)                   // still loading
+            await settle(store)
+            #expect(store.openCount == 2)
+
+            store.setActive("a")                            // back at once
+            #expect(store.openCount == 3)
+            store.setActive("a")                            // already shown
+            #expect(store.openCount == 3)
         }
 
         // MARK: Rename

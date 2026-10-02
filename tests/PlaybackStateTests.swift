@@ -871,7 +871,7 @@ extension AllTests {
             #expect(env.state.info?.codec == "FLAC 16/44.1")
 
             await env.store.flushWrites()
-            guard case .loaded(let onDisk) = PlaylistFile.load(from: env.dir.path("work/playlists/main.json")) else {
+            guard case .loaded(let onDisk, _) = PlaylistFile.load(from: env.dir.path("work/playlists/main.json")) else {
                 Issue.record("expected a valid file")
                 return
             }
@@ -925,7 +925,7 @@ extension AllTests {
             let position = env.state.position
             #expect(env.state.playingRow == 3)
 
-            await env.store.remove(entries: [0, 1], from: "main")
+            await env.store.remove(ids: [1, 2], from: "main")   // A1, A2
             #expect(env.state.status == .playing)
             #expect(env.state.info?.title == "A3")
             #expect(env.state.playingRow == 1)
@@ -939,7 +939,7 @@ extension AllTests {
             let env = try await standard()
             env.state.play(albumIndex: 0, trackIndex: 1)
             try await env.run(2 * Self.slice)
-            await env.store.remove(entries: [1], from: "main")
+            await env.store.remove(ids: [2], from: "main")
             #expect(env.state.status == .stopped)
             #expect(env.state.info == nil)
             #expect(env.store.playingName == nil)
@@ -951,8 +951,104 @@ extension AllTests {
             let env = try await standard()
             env.state.play(albumIndex: 0, trackIndex: 0)
             try await env.run(2 * Self.slice)
-            await env.store.remove(entries: [1], from: "main")   // A2
+            await env.store.remove(ids: [2], from: "main")   // A2
             try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("the same file twice in the playlist: the one that plays is followed, whichever is removed")
+        func removeDuplicates() async throws {
+            let first = try entry(.a, title: "First", album: "X", track: 1)
+            let env = try await makeEnv([first,
+                                         try entry(.b, title: "B", album: "X", track: 2),
+                                         try entry(.a, title: "Second", album: "X", track: 3)])
+            let ids = env.store.activePlaylist.albums[0].tracks.map(\.id)
+            env.state.play(albumIndex: 0, trackIndex: 2)       // the second copy
+            try await env.run(2 * Self.slice)
+            #expect(env.state.playingRow == 3)
+
+            await env.store.remove(ids: [ids[0]], from: "main")
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "Second")
+            #expect(env.state.playingRow == 2)
+
+            await env.store.remove(ids: [ids[1]], from: "main")   // and the one between them
+            #expect(env.state.info?.title == "Second")
+            #expect(env.state.playingRow == 1)
+        }
+
+        @Test("the tracks that start are the playlist's last played one, in the file too")
+        func lastPlayed() async throws {
+            let env = try await standard()
+            #expect(env.store.lastPlayedRow == nil)
+            env.state.play(albumIndex: 0, trackIndex: 1)       // A2, row 2
+            #expect(env.store.lastPlayedRow == 2)
+
+            try await env.run(RampFile.b.frames + 2 * Self.slice)   // on to A3
+            #expect(env.state.info?.title == "A3")
+            #expect(env.store.lastPlayedRow == 3)
+
+            env.state.stop()
+            #expect(env.store.lastPlayedRow == 3)              // stays after the playback ended
+            await env.store.flushWrites()
+            let data = try Data(contentsOf: env.dir.path("work/playlists/main.json"))
+            let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(object["last_played"] as? Int == 3)
+        }
+
+        @Test("a track that moves to another row is still the last played one")
+        func lastPlayedMoves() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 2)       // A3, row 3
+            await env.store.remove(ids: [1], from: "main")
+            #expect(env.store.lastPlayedRow == 2)
+            await env.store.setFlat(true)
+            #expect(env.store.lastPlayedRow == 1)
+        }
+
+        @Test("placing the cursor in another playlist doesn't make playback go there")
+        func placeCursorOtherPlaylist() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.placeCursor(at: 1)                       // what opening the playlist does
+            #expect(env.state.cursorRow == 1)
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.store.playingName == "main")
+
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("placing the cursor drops a request made before it")
+        func placeCursorDropsRequest() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.cursorRow = 1                            // a request for C1 in the other playlist
+            env.state.placeCursor(at: nil)
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.store.playingName == "main")
+        }
+
+        @Test("a cursor that was placed is not a request, but moving it afterwards is")
+        func placeCursorThenMove() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.placeCursor(at: 5)                       // B1
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A2")
+
+            env.state.cursorRow = 3                            // A3: the user's choice
+            try await env.run(RampFile.b.frames)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("the cursor can be placed while stopped, and then starts a track like a click would")
+        func placeCursorStopped() async throws {
+            let env = try await standard()
+            env.state.placeCursor(at: 3)
+            #expect(env.state.cursorRow == 3)
+            #expect(env.state.status == .stopped)
+            env.state.play(row: 3)
             #expect(env.state.info?.title == "A3")
         }
 

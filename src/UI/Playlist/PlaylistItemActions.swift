@@ -39,7 +39,7 @@ enum PlaylistItemActions {
     /// Takes the selected tracks (all tracks of selected albums) out of the playlist. Playback stops if it was
     /// playing one of them.
     static func remove(_ selection: Set<Int>) async {
-        let removed = store.activePlaylist.entryIndices(selection)
-        await store.remove(entries: removed, from: store.activeName)
+        let removed = store.activePlaylist.trackIDs(selection)
+        await store.remove(ids: removed, from: store.activeName)
     }
 }

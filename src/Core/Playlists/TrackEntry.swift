@@ -1,12 +1,23 @@
 import Foundation
 
+/// Identity of a track within its playlist: a positive number that stays with the track through everything that
+/// happens to the playlist (regrouping, removing other tracks, reloading tags, ...) and is never reused, so the
+/// same file added twice has two IDs. Only meaningful together with the playlist it belongs to.
+///
+/// `unassignedTrackID` is what a track coming from outside (an import) has until the playlist takes it in and
+/// gives it a real one.
+typealias TrackID = Int
+let unassignedTrackID: TrackID = 0
+
 /// One track as it is stored in a playlist file: flat, with everything the album grouping needs.
 /// This is also the input of `AlbumBuilder`, so a fresh import and a loaded playlist go through
 /// the same grouping.
 ///
 /// Decoding is lenient: only `path` is required, everything else falls back to the values
-/// the tag reader would have used. Optional values are omitted from the file when unknown.
+/// the tag reader would have used (a missing `id` is `unassignedTrackID`, which the playlist fills in).
+/// Optional values are omitted from the file when unknown.
 struct TrackEntry: Codable {
+    var id: TrackID
     /// Full file path.
     var path: String
     var artist: String
@@ -27,8 +38,9 @@ struct TrackEntry: Codable {
         URL(fileURLWithPath: path, isDirectory: false)
     }
 
-    init(path: String, artist: String, album: String, title: String,
+    init(id: TrackID = unassignedTrackID, path: String, artist: String, album: String, title: String,
          trackNumber: Int?, year: String?, duration: TimeInterval?, codec: String) {
+        self.id = id
         self.path = path
         self.artist = artist
         self.album = album
@@ -56,6 +68,7 @@ struct TrackEntry: Codable {
 
     init(album: Album, track: Track) {
         self.init(
+            id: track.id,
             path: track.url.path,
             artist: track.artist,
             album: album.title,
@@ -80,6 +93,7 @@ struct TrackEntry: Codable {
             return s
         }
 
+        id = (try? c.decodeIfPresent(TrackID.self, forKey: .id)) ?? unassignedTrackID
         self.path = path
         artist = string(.artist) ?? TagFallback.artist
         album = string(.album) ?? TagFallback.album

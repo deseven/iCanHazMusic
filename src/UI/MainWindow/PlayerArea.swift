@@ -5,8 +5,10 @@ struct PlayerArea: View {
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
 
-    /// Selected rows of the active playlist (reset when another playlist is shown, to the playing track if it plays).
+    /// Selected rows of the active playlist (reset when another playlist is opened, to its last played track).
     @State private var selection: Set<Int> = []
+    /// A row the playlist view is asked to scroll to; it resets this once it has.
+    @State private var revealRow: Int?
 
     /// Width the user asked for by dragging the divider. The effective width is this value
     /// clamped to what the current window size allows (so it "comes back" when the window grows).
@@ -25,7 +27,7 @@ struct PlayerArea: View {
             let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
 
             HStack(spacing: 0) {
-                PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow)
+                PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow, revealRow: $revealRow)
                     .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
                 SplitDivider(
@@ -43,16 +45,30 @@ struct PlayerArea: View {
         }
         .frame(minWidth: Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth)
         .onChange(of: store.activeName) { _, _ in
-            // A playlist that playback runs from comes back with its playing track selected (not a request to
-            // jump anywhere: the cursor is on the playing track).
-            let playing = playback.playingRow
-            selection = playing.map { [$0] } ?? []
-            playback.cursorRow = nil     // first: a cursor of the old playlist is not a cursor of this one,
-            playback.cursorRow = playing // even if the row numbers happen to be the same
+            // Rows of the old playlist mean nothing in the new one, which is still being read. (One that is ready
+            // at once is dealt with by `playlistOpened`.)
+            guard store.isLoading else { return }
+            selection = []
+            playback.placeCursor(at: nil)
+        }
+        .onChange(of: store.openCount) { _, _ in playlistOpened() }
+        .onAppear {
+            if !store.isLoading { playlistOpened() }   // the playlist was ready before this view was
         }
         .onChange(of: preferredBlockWidth) { _, width in
             ConfigStore.shared.update { $0.ui.playbackStatusWidth = Int(width.rounded()) }
         }
+    }
+
+    /// A playlist has been opened (also at launch): its last played track, which is the playing one while playback
+    /// runs from it, is selected and scrolled to; if there is none, nothing is selected. This is just a convenience:
+    /// it doesn't depend on `cursorFollowsPlayback`, and the cursor is placed there without asking playback to go
+    /// to it (`playbackFollowsCursor`).
+    private func playlistOpened() {
+        let row = playback.playingRow ?? store.lastPlayedRow
+        selection = row.map { [$0] } ?? []
+        playback.placeCursor(at: row)
+        revealRow = row
     }
 
     /// Starts at the first selected row (an album header starts its first track).

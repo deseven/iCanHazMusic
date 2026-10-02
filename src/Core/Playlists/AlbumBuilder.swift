@@ -64,6 +64,7 @@ enum AlbumBuilder {
         let multipleArtists = artists.count > 1
         let tracks = entries.map { e in
             Track(
+                id: e.id,
                 url: e.url,
                 number: e.trackNumber,
                 title: e.title,

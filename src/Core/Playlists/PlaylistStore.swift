@@ -53,6 +53,9 @@ final class PlaylistStore {
     private(set) var activePlaylist: Playlist = .empty
     /// The active playlist is being read from disk. It can't be modified until that's done.
     private(set) var isLoading = false
+    /// Counts how often a playlist has been opened: became the active one with its content in place (loaded from
+    /// disk, or taken over from the background). The view reacts to this by showing `lastPlayedRow`.
+    private(set) var openCount = 0
 
     /// The playlist playback runs from, if any (set through `playbackStarted`/`playbackEnded`).
     private(set) var playingName: String?
@@ -69,6 +72,12 @@ final class PlaylistStore {
     /// Writes are chained so they hit the disk in the order they were requested.
     @ObservationIgnored private var writeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWrites = 0
+    /// Number of the newest save queued for each file (key: `key(name)`): older ones still waiting in the chain
+    /// are covered by it and skipped.
+    @ObservationIgnored private var saveSerial: [String: Int] = [:]
+    /// The `last_played` of every playlist that has been loaded (key: `key(name)`); a playlist's file is only
+    /// ever written while it is in memory, so what is stored here is what its file gets.
+    @ObservationIgnored private var lastPlayedByKey: [String: TrackID] = [:]
 
     private static let maxNameBytes = 200
 
@@ -121,6 +130,12 @@ final class PlaylistStore {
         return nil
     }
 
+    /// The row of the active playlist's last played track (see `setLastPlayed`), if it is loaded and has it.
+    var lastPlayedRow: Int? {
+        guard !isLoading, let id = lastPlayedByKey[Self.key(activeName)] else { return nil }
+        return activePlaylist.row(of: id)
+    }
+
     /// Playback runs from the playlist that is currently shown (and it is loaded).
     var playingIsActive: Bool {
         guard let playing = playingName, !isLoading else { return false }
@@ -159,11 +174,11 @@ final class PlaylistStore {
         }
     }
 
-    /// Removes the tracks at these positions of the active playlist's `entries` (see `Playlist.entryIndices`).
-    /// Playback stops if its track is among them.
-    func remove(entries removed: Set<Int>, from name: String) async {
+    /// Removes these tracks from the active playlist (see `Playlist.trackIDs`). Playback stops if its track is
+    /// among them.
+    func remove(ids removed: Set<TrackID>, from name: String) async {
         guard !removed.isEmpty else { return }
-        await replaceActive(name, removed: removed) { $0.removing(entries: removed) }
+        await replaceActive(name) { $0.removing(ids: removed) }
     }
 
     /// Takes over freshly read tags into the active playlist and regroups it (see `Playlist.updatingTags`).
@@ -179,21 +194,29 @@ final class PlaylistStore {
     }
 
     /// Records what playback found out about the file it plays: the real duration and format. Applied to the
-    /// playlist playback runs from (shown or not), only if it still has that track at that position.
-    func updateTrack(album: Int, track: Int, url: URL, duration: TimeInterval, codec: String) {
+    /// playlist playback runs from (shown or not), if it still has that track.
+    func updateTrack(id: TrackID, duration: TimeInterval, codec: String) {
         guard let playing = playingName else { return }
         if Self.key(playing) == Self.key(activeName) {
             guard !isLoading,
-                  let updated = activePlaylist.replacingTrack(album: album, track: track, url: url,
-                                                              duration: duration, codec: codec) else { return }
+                  let updated = activePlaylist.replacingTrack(id: id, duration: duration, codec: codec) else { return }
             activePlaylist = updated
             save(updated, as: activeName)
         } else if let held = background, Self.key(held.name) == Self.key(playing),
-                  let updated = held.playlist.replacingTrack(album: album, track: track, url: url,
-                                                             duration: duration, codec: codec) {
+                  let updated = held.playlist.replacingTrack(id: id, duration: duration, codec: codec) {
             background = (held.name, updated)
             save(updated, as: held.name)
         }
+    }
+
+    /// Playback has started this track of the playlist it runs from: it is that playlist's last played one, which
+    /// is stored with it (and shown again when the playlist is opened).
+    func setLastPlayed(_ id: TrackID) {
+        guard let playing = playingName, let playlist = playingPlaylist, playlist.position(of: id) != nil else { return }
+        let key = Self.key(playing)
+        guard lastPlayedByKey[key] != id else { return }
+        lastPlayedByKey[key] = id
+        save(playlist, as: playing)
     }
 
     /// Waits until everything queued by `save` is on disk.
@@ -216,6 +239,7 @@ final class PlaylistStore {
             activePlaylist = held.playlist
             isLoading = false
             background = nil
+            openCount += 1
         } else {
             startLoad()
         }
@@ -264,6 +288,7 @@ final class PlaylistStore {
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
         let finalName = existingName(matching: newName) ?? newName
+        if let last = lastPlayedByKey.removeValue(forKey: Self.key(current)) { lastPlayedByKey[Self.key(finalName)] = last }
         if let playing = playingName, Self.key(playing) == Self.key(current) { playingName = finalName }
         if let held = background, Self.key(held.name) == Self.key(current) {
             background = (finalName, held.playlist)
@@ -291,16 +316,16 @@ final class PlaylistStore {
             playback?.stop()   // also releases the playlist held for the playback
         }
 
+        lastPlayedByKey[Self.key(current)] = nil
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
         if wasActive, let first = names.first { setActive(first) }   // unloads the deleted one
     }
 
     /// Replaces the content of the active playlist with `transform` of it (run off the main thread), stores it
-    /// and tells playback, which has to find its track again (`removed`: positions of `entries` that are gone).
+    /// and tells playback, which has to find its track again by its ID. A last played track that is gone is forgotten.
     /// Ignored for any other playlist and while the active one is still loading.
-    private func replaceActive(_ name: String, removed: Set<Int> = [],
-                               _ transform: @escaping (Playlist) -> Playlist) async {
+    private func replaceActive(_ name: String, _ transform: @escaping (Playlist) -> Playlist) async {
         guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName) else { return }
 
         let current = activePlaylist
@@ -308,9 +333,11 @@ final class PlaylistStore {
         guard activePlaylist === current else { return }   // something else replaced the content in the meantime
 
         activePlaylist = updated
+        let key = Self.key(match)
+        if let last = lastPlayedByKey[key], updated.position(of: last) == nil { lastPlayedByKey[key] = nil }
         save(updated, as: match)
-        if let playing = playingName, Self.key(playing) == Self.key(match) {
-            playback?.playlistWasReplaced(from: current, to: updated, removed: removed)
+        if let playing = playingName, Self.key(playing) == key {
+            playback?.playlistWasReplaced(from: current, to: updated)
         }
     }
 
@@ -369,18 +396,23 @@ final class PlaylistStore {
             let result = await Task.detached(priority: .userInitiated) { PlaylistFile.load(from: url) }.value
             guard !Task.isCancelled else { return }
 
+            let key = Self.key(name)
             switch result {
-            case .loaded(let playlist):
+            case .loaded(let playlist, let lastPlayed):
                 activePlaylist = playlist
+                lastPlayedByKey[key] = lastPlayed
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 Log.info("loaded '\(name)': \(playlist.trackCount) tracks in \(playlist.albums.count) albums, \(ms) ms")
             case .missing:
+                lastPlayedByKey[key] = nil
                 Log.error("playlist file of '\(name)' is gone, starting empty")
             case .invalid(let reason):
+                lastPlayedByKey[key] = nil
                 Log.error("can't load '\(name)': \(reason)")
                 quarantine(name)
             }
             isLoading = false
+            openCount += 1
         }
     }
 
@@ -401,22 +433,29 @@ final class PlaylistStore {
         }
     }
 
-    /// Queues a background write of the whole playlist file.
+    /// Queues a background write of the whole playlist file (with its `last_played`). If another save of the same
+    /// file is queued behind this one by the time its turn comes, this one is skipped: the newer one writes it all.
     private func save(_ playlist: Playlist, as name: String) {
         let url = fileURL(name)
+        let key = Self.key(name)
+        let lastPlayed = lastPlayedByKey[key]
+        let serial = (saveSerial[key] ?? 0) + 1
+        saveSerial[key] = serial
         let previous = writeTask
         pendingWrites += 1
         writeTask = Task {
             await previous?.value
-            let failure = await Task.detached(priority: .utility) { () -> String? in
-                do {
-                    try PlaylistFile.write(playlist, to: url)
-                    return nil
-                } catch {
-                    return error.localizedDescription
-                }
-            }.value
-            if let failure { Log.error("can't save '\(name)': \(failure)") }
+            if saveSerial[key] == serial {
+                let failure = await Task.detached(priority: .utility) { () -> String? in
+                    do {
+                        try PlaylistFile.write(playlist, lastPlayed: lastPlayed, to: url)
+                        return nil
+                    } catch {
+                        return error.localizedDescription
+                    }
+                }.value
+                if let failure { Log.error("can't save '\(name)': \(failure)") }
+            }
             pendingWrites -= 1
         }
     }

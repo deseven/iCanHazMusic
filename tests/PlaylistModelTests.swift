@@ -6,7 +6,7 @@ extension AllTests {
     @MainActor @Suite("Track")
     struct TrackTests {
         private func track(number: Int?, duration: TimeInterval?) -> Track {
-            Track(url: URL(fileURLWithPath: "/a.mp3"), number: number, title: "t", artist: "a", duration: duration, codec: "MP3")
+            Track(id: 1, url: URL(fileURLWithPath: "/a.mp3"), number: number, title: "t", artist: "a", duration: duration, codec: "MP3")
         }
 
         @Test("duration text")
@@ -355,27 +355,132 @@ extension AllTests {
 
         // MARK: Editing
 
-        @Test("entry positions of selected rows: headers stand for their tracks")
-        func entryIndices() {
-            let p = playlist   // 0 header A, 1-2 tracks, 3 header B, 4 track
-            #expect(p.entryIndices([1]) == [0])
-            #expect(p.entryIndices([4, 2]) == [1, 2])
-            #expect(p.entryIndices([0]) == [0, 1])
-            #expect(p.entryIndices([3, 1]) == [0, 2])
-            #expect(p.entryIndices([]).isEmpty)
-            #expect(p.entryIndex(album: 1, track: 0) == 2)
+        @Test("IDs of selected rows: headers stand for their tracks")
+        func trackIDs() {
+            let p = playlist   // 0 header A, 1-2 tracks (IDs 1, 2), 3 header B, 4 track (ID 3)
+            #expect(p.trackIDs([1]) == [1])
+            #expect(p.trackIDs([4, 2]) == [2, 3])
+            #expect(p.trackIDs([0]) == [1, 2])
+            #expect(p.trackIDs([3, 1]) == [1, 3])
+            #expect(p.trackIDs([]).isEmpty)
 
             let flat = Playlist(albums: AlbumBuilder.build(from: flatEntries, flat: true), isFlat: true)
-            #expect(flat.entryIndices([0, 2]) == [0, 2])
+            #expect(flat.trackIDs([0, 2]) == [1, 3])
         }
 
         @Test("removing tracks regroups the rest; an emptied album disappears")
         func removing() {
-            let p = playlist.removing(entries: [2])
+            let p = playlist.removing(ids: [3])
             #expect(p.albums.map(\.title) == ["A"])
             #expect(p.entries.map(\.path) == ["/Music/A/01.mp3", "/Music/A/02.mp3"])
-            #expect(playlist.removing(entries: [0, 1, 2]).rows.isEmpty)
-            #expect(playlist.removing(entries: [7]).trackCount == 3)
+            #expect(playlist.removing(ids: [1, 2, 3]).rows.isEmpty)
+            #expect(playlist.removing(ids: [7]).trackCount == 3)
+        }
+
+        // MARK: IDs
+
+        @Test("every track gets its own ID, counting from 1 in playlist order")
+        func idsAssigned() {
+            let p = playlist
+            #expect(p.albums.flatMap(\.tracks).map(\.id) == [1, 2, 3])
+            #expect(p.nextID == 4)
+            #expect(Playlist.empty.nextID == 1)
+        }
+
+        @Test("the same file twice is two tracks with two IDs")
+        func sameFileTwice() {
+            let entry = Make.entry("/Music/A/1.mp3", album: "A")
+            let p = Make.playlist([entry, entry])
+            let ids = p.albums.flatMap(\.tracks).map(\.id)
+            #expect(Set(ids).count == 2)
+            #expect(p.row(of: ids[0]) == 1)
+            #expect(p.row(of: ids[1]) == 2)
+        }
+
+        @Test("IDs that are there are kept; missing, invalid and repeated ones are replaced")
+        func idsRepaired() {
+            func entry(_ n: Int, id: TrackID) -> TrackEntry {
+                var e = Make.entry("/Music/A/\(n).mp3", album: "A")
+                e.id = id
+                return e
+            }
+            let p = Make.playlist([entry(1, id: 7), entry(2, id: unassignedTrackID), entry(3, id: 7), entry(4, id: -2), entry(5, id: 3)])
+            let ids = p.albums.flatMap(\.tracks).map(\.id)
+            #expect(ids[0] == 7)
+            #expect(ids[4] == 3)
+            #expect(Set(ids).count == 5)
+            #expect(ids.allSatisfy { $0 > 0 })
+            #expect(p.nextID == (ids.max() ?? 0) + 1)
+            #expect(ids[1...3].allSatisfy { $0 > 7 })      // new numbers come after the highest one in use
+        }
+
+        @Test("a stored counter is honored, but never lower than the IDs in use")
+        func counter() {
+            let albums = Make.albums([Make.entry("/Music/A/1.mp3", album: "A")])
+            #expect(Playlist(albums: albums, nextID: 50).albums[0].tracks[0].id == 50)
+            #expect(Playlist(albums: albums, nextID: 50).nextID == 51)
+            let numbered = Playlist(albums: albums)   // ID 1
+            #expect(Playlist(albums: numbered.albums, nextID: 1).nextID == 2)
+        }
+
+        @Test("IDs survive regrouping, removing others, reloading tags and playback's updates")
+        func idsStable() {
+            let p = playlist   // IDs 1, 2 in A, 3 in B
+            func id(_ q: Playlist, _ path: String) -> TrackID? {
+                q.albums.flatMap(\.tracks).first { $0.url.path == path }?.id
+            }
+
+            let flat = p.settingFlat(true)
+            #expect(id(flat, "/Music/B/01.mp3") == 3)
+            #expect(id(flat.settingFlat(false), "/Music/A/02.mp3") == 2)
+
+            let removed = p.removing(ids: [1])
+            #expect(id(removed, "/Music/A/02.mp3") == 2)
+            #expect(id(removed, "/Music/B/01.mp3") == 3)
+            #expect(removed.nextID == 4)
+
+            let retagged = p.updatingTags(from: [Make.result("/Music/A/02.mp3", title: "New", album: "Other")])
+            #expect(retagged.track(id: 2)?.title == "New")
+            #expect(retagged.track(id: 2)?.url.path == "/Music/A/02.mp3")
+
+            let updated = p.replacingTrack(id: 3, duration: 9, codec: "X")
+            #expect(updated?.track(id: 3)?.duration == 9)
+            #expect(updated?.nextID == 4)
+        }
+
+        @Test("an ID is not handed out again after its track was removed")
+        func neverReused() {
+            let p = playlist.removing(ids: [3])   // the highest one is gone
+            let more = p.appending(Make.albums([Make.entry("/Music/C/1.mp3", album: "C")]))
+            #expect(more.track(id: 4)?.url.path == "/Music/C/1.mp3")
+            #expect(more.track(id: 3) == nil)
+        }
+
+        @Test("appending keeps the IDs of the tracks that are there and numbers the new ones")
+        func appendingIDs() {
+            let p = playlist
+            let result = p.appending(Make.albums([Make.entry("/Music/A/03.mp3", album: "A"),
+                                                  Make.entry("/Music/C/1.mp3", album: "C")]))
+            #expect(result.albums[0].tracks.map(\.id) == [1, 2, 4])
+            #expect(result.albums[1].tracks.map(\.id) == [3])
+            #expect(result.albums[2].tracks.map(\.id) == [5])
+            #expect(result.nextID == 6)
+        }
+
+        @Test("lookup by ID: position, row, track")
+        func lookup() {
+            let p = playlist   // rows: 0 header A, 1-2 tracks (IDs 1, 2), 3 header B, 4 track (ID 3)
+            #expect(p.position(of: 2) == TrackPosition(album: 0, track: 1))
+            #expect(p.position(of: 3) == TrackPosition(album: 1, track: 0))
+            #expect(p.row(of: 1) == 1)
+            #expect(p.row(of: 3) == 4)
+            #expect(p.track(id: 3)?.url.path == "/Music/B/01.mp3")
+            #expect(p.position(of: 99) == nil)
+            #expect(p.row(of: 99) == nil)
+            #expect(p.track(id: 99) == nil)
+
+            let flat = p.settingFlat(true)
+            #expect(flat.row(of: 3) == 2)
         }
 
         @Test("reloaded tags are taken over, keep the duration and format, and can split an album")
@@ -403,8 +508,7 @@ extension AllTests {
         @Test("replacing a track's duration and format keeps the rows")
         func replacingTrack() {
             let p = playlist
-            let url = URL(fileURLWithPath: "/Music/A/02.mp3")
-            let updated = p.replacingTrack(album: 0, track: 1, url: url, duration: 12.5, codec: "FLAC 16/44.1")
+            let updated = p.replacingTrack(id: 2, duration: 12.5, codec: "FLAC 16/44.1")
             #expect(updated?.albums[0].tracks[1].duration == 12.5)
             #expect(updated?.albums[0].tracks[1].codec == "FLAC 16/44.1")
             #expect(updated?.albums[0].tracks[0].duration == 100)
@@ -412,9 +516,7 @@ extension AllTests {
             #expect(updated?.trackRows == p.trackRows)
             #expect(p.albums[0].tracks[1].duration == 100)           // immutable
 
-            #expect(p.replacingTrack(album: 0, track: 0, url: url, duration: 1, codec: "x") == nil)   // another file there
-            #expect(p.replacingTrack(album: 5, track: 0, url: url, duration: 1, codec: "x") == nil)
-            #expect(p.replacingTrack(album: 0, track: 9, url: url, duration: 1, codec: "x") == nil)
+            #expect(p.replacingTrack(id: 99, duration: 1, codec: "x") == nil)
         }
 
         @Test("appending doesn't change the original")
@@ -432,7 +534,12 @@ extension AllTests {
         }
 
         private func loaded(_ result: PlaylistFile.LoadResult) -> Playlist? {
-            if case .loaded(let p) = result { return p }
+            if case .loaded(let p, _) = result { return p }
+            return nil
+        }
+
+        private func lastPlayed(_ result: PlaylistFile.LoadResult) -> TrackID? {
+            if case .loaded(_, let last) = result { return last }
             return nil
         }
 
@@ -500,6 +607,56 @@ extension AllTests {
 
             let text = try String(contentsOf: url, encoding: .utf8)
             #expect(text.contains("\"/M/A/1.mp3\""))                 // slashes aren't escaped
+        }
+
+        @Test("IDs, next_id and last_played are stored and come back")
+        func idsRoundTrip() throws {
+            let dir = try TempDir()
+            let playlist = Make.playlist(Make.entries(dir: "A", album: "A", count: 3)).removing(ids: [3])
+            let url = dir.path("p.json")
+            try PlaylistFile.write(playlist, lastPlayed: 2, to: url)
+
+            let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            #expect(object["next_id"] as? Int == 4)
+            #expect(object["last_played"] as? Int == 2)
+            let tracks = try #require(object["tracks"] as? [[String: Any]])
+            #expect(tracks.map { $0["id"] as? Int } == [1, 2])
+
+            let result = PlaylistFile.load(from: url)
+            let back = try #require(loaded(result))
+            #expect(back.albums[0].tracks.map(\.id) == [1, 2])
+            #expect(back.nextID == 4)                       // 3 isn't handed out again
+            #expect(lastPlayed(result) == 2)
+
+            try PlaylistFile.write(playlist, to: url)       // nothing played
+            let none = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            #expect(none["last_played"] == nil)
+            #expect(lastPlayed(PlaylistFile.load(from: url)) == nil)
+        }
+
+        @Test("a last_played that isn't in the playlist (or isn't a number) is ignored")
+        func lastPlayedInvalid() throws {
+            let dir = try TempDir()
+            for value in ["99", "\"x\"", "null", "-1"] {
+                let json = #"{"version": 1, "last_played": "# + value + #", "tracks": [{"id": 1, "path": "/M/A/1.mp3"}]}"#
+                #expect(lastPlayed(try load(json, in: dir)) == nil, "last_played \(value)")
+            }
+            let valid = #"{"version": 1, "last_played": 5, "tracks": [{"id": 5, "path": "/M/A/1.mp3"}]}"#
+            #expect(lastPlayed(try load(valid, in: dir)) == 5)
+        }
+
+        @Test("a file from before IDs gets them on load, counting on from the highest")
+        func legacyFile() throws {
+            let dir = try TempDir()
+            let json = #"{"version": 1, "tracks": [{"path": "/M/A/1.mp3"}, {"path": "/M/A/2.mp3"}, {"path": "/M/A/1.mp3"}]}"#
+            let p = try #require(loaded(try load(json, in: dir)))
+            #expect(p.albums[0].tracks.map(\.id) == [1, 2, 3])   // the same file twice, two IDs
+            #expect(p.nextID == 4)
+
+            let partial = #"{"version": 1, "next_id": 3, "tracks": [{"path": "/M/A/1.mp3"}, {"id": 9, "path": "/M/A/2.mp3"}, {"id": 9, "path": "/M/A/3.mp3"}]}"#
+            let q = try #require(loaded(try load(partial, in: dir)))
+            #expect(q.albums[0].tracks.map(\.id) == [10, 9, 11])
+            #expect(q.nextID == 12)
         }
 
         @Test("albums are rebuilt on load, even for scattered tracks")

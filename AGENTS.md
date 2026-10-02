@@ -22,9 +22,10 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
     - `ConfigStore.swift` – `config.json`.
     - `ConfigLimits.swift` – validation limits.
   - `Playlists/`
-    - `PlaylistStore.swift` – playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes. It also does the edits that replace the active content: `remove`, `applyTags` (reloaded tags), `setFlat`, plus `updateTrack` (duration/format pushed from playback), all telling `PlaybackState.playlistWasReplaced` so the playing track is found again.
+    - `PlaylistStore.swift` – playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes. It also does the edits that replace the active content: `remove(ids:)`, `applyTags` (reloaded tags), `setFlat`, plus `updateTrack(id:…)` (duration/format pushed from playback), all telling `PlaybackState.playlistWasReplaced` so the playing track is found again by its ID. It keeps each loaded playlist's `last_played` (`setLastPlayed`, called by playback whenever a track starts; `lastPlayedRow`; saves are coalesced) outside the immutable `Playlist`, and counts `openCount` (a playlist became active with its content in place), which the UI reacts to by selecting and scrolling to the last played row.
     - `PlaylistFile.swift` – file format.
-    - `TrackEntry.swift` – one flat stored track.
+    - `TrackEntry.swift` – one flat stored track, and `TrackID`.
+      - **Track IDs**: every track has a positive number unique within its playlist, stable through regrouping, removals, tag reloads and playback updates, never reused (`next_id`). The same file added twice = two IDs. `Playlist` hands them out itself (an import's tracks come in with `unassignedTrackID`; missing/duplicate IDs in a file are repaired on load) and looks tracks up by them (`position(of:)`, `row(of:)`, `track(id:)`). Refer to tracks by ID wherever a reference has to outlive a playlist edit; `(album, track)` positions (`TrackPosition`) and row numbers are only valid for one `Playlist` instance.
     - `Playlist.swift` – the flattened album/track row model.
     - `AlbumBuilder.swift` – groups flat entries into albums by directory + album tag, for imports and loads alike. With `flat: true` every track is an album of its own: a *flat* playlist has no header rows, but positions/playback still work on `(album, track)`.
     - `AlbumKey` – that identity as a string, also the cover cache key.
@@ -57,7 +58,9 @@ Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (`AppPaths`
 - `config.json` – read once at startup, written on every setting change (debounced ~250 ms, flushed on quit). Missing/invalid values are reset to defaults and written back.
 - `.cache/covers.sqlite` – album art thumbnails (key = `AlbumKey`, value = JPEG/PNG bytes, 2x the album block cover), rebuilt on import, safe to delete. The thumbnail size is stored in `PRAGMA user_version`; a different size drops the table.
 - `playlists/{name}.json` – one file per playlist; `main.json` is created automatically if there are none.
-  - Format: `{"version": 1, "is_flat": false, "tracks": [{path, artist, album, title, trackNumber?, year?, duration?, codec}, ...]}`, a flat array in playlist order (albums are rebuilt on load, album art isn't stored).
+  - Format: `{"version": 1, "is_flat": false, "next_id": N, "last_played"?: id, "tracks": [{id, path, artist, album, title, trackNumber?, year?, duration?, codec}, ...]}`, a flat array in playlist order (albums are rebuilt on load, album art isn't stored).
+  - `id` / `next_id`: see Track IDs above; files from before IDs existed get them on load.
+  - `last_played`: ID of the track that was started last; ignored if the playlist has no such track. Opening a playlist selects it and scrolls to it (`PlayerArea.playlistOpened`, `PlaybackState.placeCursor` puts the cursor there without that being a request for `playbackFollowsCursor`).
   - `is_flat` (missing = false) is the Playlist menu's "Don't group by albums": no album blocks, `artist – title` rows, no track numbers.
   - `duration` and `codec` are corrected by playback when the opened file says otherwise.
   - A file that can't be parsed is moved to `{name}.json.broken` and replaced by an empty playlist.

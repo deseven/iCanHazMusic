@@ -28,10 +28,7 @@ final class PlaybackState {
         let codec: String
     }
 
-    private struct Position: Equatable {
-        var album: Int
-        var track: Int
-    }
+    private typealias Position = TrackPosition
 
     /// A track to play: in the playing playlist, or (`foreign`) in the active one when that is another playlist
     /// (the user moved the cursor there, see `playbackFollowsCursor`). Playback only switches to that playlist when
@@ -80,10 +77,21 @@ final class PlaybackState {
     /// onto the playing track (which is what `cursorFollowsPlayback` does) is not a request to jump anywhere.
     var cursorRow: Int? {
         didSet {
-            guard cursorRow != oldValue, playbackFollowsCursor else { return }
+            guard cursorRow != oldValue, !placingCursor, playbackFollowsCursor else { return }
             cursorRequested = cursorTarget().map { $0.foreign || $0.pos != currentPos } ?? false
             playlistDidChange()
         }
+    }
+
+    /// Puts the cursor on a row of the active playlist (or nowhere) without that being the user's wish: when a
+    /// playlist is opened its last played track is selected, which must not make playback jump there. Whatever
+    /// cursor request was pending belongs to the playlist shown before and is dropped.
+    func placeCursor(at row: Int?) {
+        placingCursor = true
+        cursorRow = row
+        placingCursor = false
+        cursorRequested = false
+        playlistDidChange()
     }
 
     /// The row of the active playlist that is playing (or paused), if playback runs from the active playlist.
@@ -111,6 +119,7 @@ final class PlaybackState {
     @ObservationIgnored private var nextURL: URL?
     /// The user moved the cursor to a track that hasn't been played since: it is due next (see `playbackFollowsCursor`).
     @ObservationIgnored private var cursorRequested = false
+    @ObservationIgnored private var placingCursor = false
     @ObservationIgnored private var tickTask: Task<Void, Never>?
     /// What the opened file says about the current track has been compared with the playlist's values.
     @ObservationIgnored private var fileInfoChecked = false
@@ -240,41 +249,11 @@ final class PlaybackState {
     }
 
     /// The active playlist's content was replaced (tracks removed, tags reloaded, grouping switched) while it is the
-    /// one playing: the playing track has to be found again in `new`. It is the same file, the n-th time it
-    /// occurs in the playlist; if it is gone (`removed` = positions in `old.entries`), playback stops.
-    func playlistWasReplaced(from old: Playlist, to new: Playlist, removed: Set<Int>) {
+    /// one playing: the playing track has to be found again in `new` by its ID; if it is gone, playback stops.
+    func playlistWasReplaced(from old: Playlist, to new: Playlist) {
         guard status != .stopped else { return }
         cursorRequested = false   // the rows it pointed at are different now
-        guard let pos = currentPos, let track = track(at: pos, in: old) else {
-            stop()
-            return
-        }
-        let index = old.entryIndex(album: pos.album, track: pos.track)
-        guard !removed.contains(index) else {
-            stop()
-            return
-        }
-
-        var occurrence = 0   // among the surviving tracks of the same file before this one
-        var i = 0
-        loop: for album in old.albums {
-            for other in album.tracks {
-                if i >= index { break loop }
-                if other.url == track.url, !removed.contains(i) { occurrence += 1 }
-                i += 1
-            }
-        }
-        var found: Position?
-        search: for (a, album) in new.albums.enumerated() {
-            for (t, other) in album.tracks.enumerated() where other.url == track.url {
-                if occurrence == 0 {
-                    found = Position(album: a, track: t)
-                    break search
-                }
-                occurrence -= 1
-            }
-        }
-        guard let moved = found else {
+        guard let pos = currentPos, let id = track(at: pos, in: old)?.id, let moved = new.position(of: id) else {
             stop()
             return
         }
@@ -407,7 +386,7 @@ final class PlaybackState {
 
         let durationDiffers = track.duration.map { abs($0 - file.duration) > Self.durationTolerance } ?? true
         guard durationDiffers || track.codec != file.codec else { return }
-        store.updateTrack(album: pos.album, track: pos.track, url: file.url, duration: file.duration, codec: file.codec)
+        store.updateTrack(id: track.id, duration: file.duration, codec: file.codec)
         refreshInfo()
     }
 
@@ -441,6 +420,7 @@ final class PlaybackState {
               let track = track(at: pos, in: playlist) else { return }
         let album = playlist.albums[pos.album]
 
+        store.setLastPlayed(track.id)
         fileInfoChecked = false
         info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
                          year: album.year, codec: track.codec)
