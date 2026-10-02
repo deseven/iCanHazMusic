@@ -7,7 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // via LaunchServices, the app isn't brought to front on its own and its window opens
         // behind the launching app.
         NSApp.activate()
-        Log.info("App started, working directory: \(AppPaths.workDir.path)")
+        Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

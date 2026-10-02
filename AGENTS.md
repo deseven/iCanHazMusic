@@ -6,7 +6,8 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Path | What |
 |---|---|
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
-| `PoC/` | Standalone proof-of-concepts, each with its own `build.sh`. Not part of the package. |
+| `tests/` | Swift Testing suite (`swift test`), see *Tests* below. |
+| `docs/` | Background notes (`tag-parsing.md` = what the macOS tag APIs do and why the reader is built the way it is). |
 | `old-src/` | Legacy PureBasic version. Reference only, don't touch. |
 | `build.sh` | Builds the `.app` bundle in `dist/` (see below). |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
@@ -16,13 +17,14 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Folder | What |
 |---|---|
 | `src/App/` | `@main` entry point and `AppDelegate`. |
-| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift` = playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes; `PlaylistFile.swift` = file format, `TrackEntry.swift` = one flat stored track; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups flat entries into albums by directory + album tag, for imports and loads alike; `AlbumKey` = that identity as a string, also the cover cache key), `Artwork/` (`AlbumArtProcessor` = per album: pick the source by the `ArtworkSource` priority, extract the image bytes once, shrink, cache; `Thumbnailer` = ImageIO resize to a square `AppConstants.coverThumbnailPixels` JPEG/PNG; `CoverStore` = SQLite cache `.cache/covers.sqlite`, key -> image bytes), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; ported from `PoC/tag-parsing`, see its README; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort; as soon as all files of a directory are read, its albums' art is processed concurrently with the remaining reads), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
+| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift` = playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes; `PlaylistFile.swift` = file format, `TrackEntry.swift` = one flat stored track; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups flat entries into albums by directory + album tag, for imports and loads alike; `AlbumKey` = that identity as a string, also the cover cache key), `Artwork/` (`AlbumArtProcessor` = per album: pick the source by the `ArtworkSource` priority, extract the image bytes once, shrink, cache; `Thumbnailer` = ImageIO resize to a square `AppConstants.coverThumbnailPixels` JPEG/PNG; `CoverStore` = SQLite cache `.cache/covers.sqlite`, key -> image bytes), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; see `docs/tag-parsing.md`; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort; as soon as all files of a directory are read, its albums' art is processed concurrently with the remaining reads), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
 | `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache` = cached thumbnail from `CoverStore` or generated placeholder), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`), `Import/` (`ImportCoordinator` = File menu / drag and drop entry points, `ImportProgressSheet` + `ImportProgressView` = the modal progress sheet). |
 
 UI may depend on Core, never the other way round. One view per file.
 
 ## Runtime data
-Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (hardcoded in `AppPaths`, see `Constants.swift`):
+Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (`AppPaths`, see `Constants.swift`). Pass
+`--workdir /some/dir` (or `--workdir=/some/dir`) to the app to use another directory instead, e.g. a scratch copy:
 
 - `config.json` – read once at startup, written on every setting change (debounced ~250 ms, flushed on quit).
   Missing/invalid values are reset to defaults and written back.
@@ -43,9 +45,21 @@ leave the directory in a sane state afterwards.
 - Fast typecheck without SwiftPM:
   `swiftc -typecheck -parse-as-library -target arm64-apple-macos15.4 $(find src -name '*.swift')`
   (src is now nested, so a plain `src/*.swift` glob no longer matches; list the files explicitly with `find`.)
-- There is no test target. Logic that doesn't need UI can be exercised with a throwaway `main.swift` compiled
-  together with the needed `src/**/*.swift` files (everything except `App/iCanHazMusicApp.swift`, which has `@main`).
-  Put such scratch files in `tmp/` (git-ignored; never use `dist/`, `build.sh` wipes it) and delete them afterwards.
+- Tests only: `./build.sh test` (generates the fixtures, then `swift test`; no artifacts). `dev-release` and `release`
+  run the same two steps after the build and abort on a failure; plain `./build.sh` (dev) skips them.
+- Scratch experiments go to `tmp/` (git-ignored; never use `dist/`, `build.sh` wipes it); delete them afterwards.
+
+## Tests
+`swift test` runs the Swift Testing suite in `tests/` (`@testable import iCanHazMusic`, all suites are nested in
+`AllTests` and run serialized on the main actor; mark new suites `@MainActor @Suite(...)` inside `extension AllTests`).
+- Audio/image fixtures are generated, not committed: run `./tests/prepare-fixtures.sh` once (needs `ffmpeg`,
+  `brew install ffmpeg`; it exits with an error if it is missing). Output goes to `tests/fixtures/generated/` (git-ignored).
+  Tests using them fail with a hint if they weren't generated. Every tagged fixture carries the values in `Fixtures`
+  (`TTitle`/`TArtist`/`TAlbum`/2020/track 3, 2 seconds long); add new fixtures to the script and document them there.
+- Tests never touch the real working directory: `ConfigStore(paths:)`, `PlaylistStore(paths:configStore:)`,
+  `CoverStore(url:thumbnailPixels:)` and `ImportSession(coverStore:)` take their locations as parameters, tests use
+  `TempDir` (`tests/Support/Fixtures.swift`). Don't touch `.shared` singletons from tests.
+- Not covered: `PlaybackState` (AVQueuePlayer + `PlaylistStore.shared`) and the SwiftUI/AppKit layer.
 
 ### Quirks worth knowing
 - SwiftUI does not honor the sidebar's ideal width (it always starts at 140). Don't fight it; the width is saved

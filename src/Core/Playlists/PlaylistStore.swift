@@ -43,7 +43,7 @@ enum PlaylistError: LocalizedError {
 @MainActor
 @Observable
 final class PlaylistStore {
-    static let shared = PlaylistStore()
+    static let shared = PlaylistStore(paths: .current, configStore: .shared)
 
     /// Playlist names, sorted alphabetically.
     private(set) var names: [String] = []
@@ -60,7 +60,8 @@ final class PlaylistStore {
     @ObservationIgnored private var background: (name: String, playlist: Playlist)?
 
     @ObservationIgnored private let fm = FileManager.default
-    @ObservationIgnored private let configStore = ConfigStore.shared
+    @ObservationIgnored private let paths: AppPaths
+    @ObservationIgnored private let configStore: ConfigStore
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     /// Writes are chained so they hit the disk in the order they were requested.
     @ObservationIgnored private var writeTask: Task<Void, Never>?
@@ -68,11 +69,13 @@ final class PlaylistStore {
 
     private static let maxNameBytes = 200
 
-    private init() {
+    init(paths: AppPaths, configStore: ConfigStore) {
+        self.paths = paths
+        self.configStore = configStore
         do {
-            try fm.createDirectory(at: AppPaths.playlistsDir, withIntermediateDirectories: true)
+            try fm.createDirectory(at: paths.playlistsDir, withIntermediateDirectories: true)
         } catch {
-            Log.error("can't create \(AppPaths.playlistsDir.path): \(error.localizedDescription)")
+            Log.error("can't create \(paths.playlistsDir.path): \(error.localizedDescription)")
         }
 
         reload()
@@ -202,7 +205,7 @@ final class PlaylistStore {
             if sameFile {
                 // Only the letter case differs; on a case-insensitive volume that's the same file,
                 // so go through a temporary name.
-                let temp = AppPaths.playlistsDir.appendingPathComponent(".rename-\(UUID().uuidString)")
+                let temp = paths.playlistsDir.appendingPathComponent(".rename-\(UUID().uuidString)")
                 try fm.moveItem(at: fileURL(current), to: temp)
                 try fm.moveItem(at: temp, to: fileURL(newName))
             } else {
@@ -274,11 +277,11 @@ final class PlaylistStore {
     }
 
     private func fileURL(_ name: String) -> URL {
-        AppPaths.playlistsDir.appendingPathComponent(name + ".json")
+        paths.playlistsDir.appendingPathComponent(name + ".json")
     }
 
     private func writeEmptyPlaylist(named name: String) throws {
-        try fm.createDirectory(at: AppPaths.playlistsDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: paths.playlistsDir, withIntermediateDirectories: true)
         try PlaylistFile.emptyData.write(to: fileURL(name), options: .atomic)
     }
 
@@ -356,7 +359,7 @@ final class PlaylistStore {
 
     private func reload() {
         let urls = (try? fm.contentsOfDirectory(
-            at: AppPaths.playlistsDir,
+            at: paths.playlistsDir,
             includingPropertiesForKeys: nil,
             options: .skipsHiddenFiles
         )) ?? []

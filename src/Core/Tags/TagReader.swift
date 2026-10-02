@@ -127,6 +127,14 @@ final class TagReader: Sendable {
             effective = url.pathExtension.lowercased() == "mp3" ? .avFoundation : .hybrid
         }
 
+        // AVFoundation returns garbage for an ID3v1 tag that follows an APEv2 tag; AudioFile gets it right.
+        // Then AVFoundation isn't consulted at all (not even as a fallback), it would only fill gaps with that garbage.
+        let isMP3 = url.pathExtension.lowercased() == "mp3"
+        if isMP3, effective != .audioFile,
+           (try? await Self.offload(timeout: timeout, { try TrailingTags.hasApeBeforeV1(url: url) })) == true {
+            effective = .audioFile
+        }
+
         switch effective {
         case .audioFile:
             _ = await viaAudioFile()

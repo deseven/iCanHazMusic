@@ -7,14 +7,18 @@ import Foundation
 ///   changes (window drag, divider drag) don't hammer the disk; `flush()` forces a write.
 @MainActor
 final class ConfigStore {
-    static let shared = ConfigStore()
+    static let shared = ConfigStore(paths: .current)
 
     private(set) var config: AppConfig
 
+    private let paths: AppPaths
+    private let saveDelay: Duration
     private var saveTask: Task<Void, Never>?
-    private static let saveDelay: Duration = .milliseconds(250)
+    static let defaultSaveDelay: Duration = .milliseconds(250)
 
-    private init() {
+    init(paths: AppPaths, saveDelay: Duration = ConfigStore.defaultSaveDelay) {
+        self.paths = paths
+        self.saveDelay = saveDelay
         config = AppConfig()
         load()
     }
@@ -39,11 +43,11 @@ final class ConfigStore {
     // MARK: - Loading
 
     private func load() {
-        let url = AppPaths.configURL
+        let url = paths.configURL
         do {
-            try FileManager.default.createDirectory(at: AppPaths.workDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: paths.workDir, withIntermediateDirectories: true)
         } catch {
-            Log.error("can't create \(AppPaths.workDir.path): \(error.localizedDescription)")
+            Log.error("can't create \(paths.workDir.path): \(error.localizedDescription)")
         }
 
         let existing = try? Data(contentsOf: url)
@@ -70,8 +74,9 @@ final class ConfigStore {
 
     private func scheduleSave() {
         saveTask?.cancel()
+        let saveDelay = self.saveDelay
         saveTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.saveDelay)
+            try? await Task.sleep(for: saveDelay)
             guard !Task.isCancelled, let self else { return }
             self.saveTask = nil
             self.write()
@@ -81,14 +86,14 @@ final class ConfigStore {
     private func write() {
         guard let data = Self.encode(config) else { return }
         do {
-            try FileManager.default.createDirectory(at: AppPaths.workDir, withIntermediateDirectories: true)
-            try data.write(to: AppPaths.configURL, options: .atomic)
+            try FileManager.default.createDirectory(at: paths.workDir, withIntermediateDirectories: true)
+            try data.write(to: paths.configURL, options: .atomic)
         } catch {
             Log.error("can't write config: \(error.localizedDescription)")
         }
     }
 
-    private static func encode(_ config: AppConfig) -> Data? {
+    static func encode(_ config: AppConfig) -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         guard var data = try? encoder.encode(config) else { return nil }

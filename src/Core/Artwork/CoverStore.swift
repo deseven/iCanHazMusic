@@ -10,7 +10,7 @@ import SQLite3
 /// Failures are logged and swallowed (reads return nil, writes are dropped): a broken cache must never break
 /// the app, albums simply fall back to the generated placeholder.
 final class CoverStore: @unchecked Sendable {
-    static let shared = CoverStore(url: AppPaths.coverCacheURL, thumbnailPixels: AppConstants.coverThumbnailPixels)
+    static let shared = CoverStore(url: AppPaths.current.coverCacheURL, thumbnailPixels: AppConstants.coverThumbnailPixels)
 
     private let url: URL
     private let thumbnailPixels: Int

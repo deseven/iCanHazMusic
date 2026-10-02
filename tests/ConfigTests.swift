@@ -1,0 +1,255 @@
+import Foundation
+import Testing
+@testable import iCanHazMusic
+
+extension AllTests {
+    @MainActor @Suite("AppConfig")
+    struct AppConfigTests {
+        private func decode(_ json: String) throws -> AppConfig {
+            try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        }
+
+        @Test("an empty object gives the defaults")
+        func emptyObject() throws {
+            #expect(try decode("{}") == AppConfig())
+        }
+
+        @Test("reads the snake_case keys")
+        func readsKeys() throws {
+            let config = try decode("""
+            {"active_playlist": "rock",
+             "ui": {"window": {"width": 1000, "height": 700, "x": 10, "y": 20},
+                    "playlist_selector": {"shown": false, "width": 200},
+                    "playback_status_width": 400}}
+            """)
+            #expect(config.activePlaylist == "rock")
+            #expect(config.ui.window.width == 1000)
+            #expect(config.ui.window.height == 700)
+            #expect(config.ui.window.x == 10)
+            #expect(config.ui.window.y == 20)
+            #expect(config.ui.window.hasPosition)
+            #expect(config.ui.playlistSelector.shown == false)
+            #expect(config.ui.playlistSelector.width == 200)
+            #expect(config.ui.playbackStatusWidth == 400)
+        }
+
+        @Test("a malformed value only resets that value")
+        func lenientDecoding() throws {
+            let config = try decode("""
+            {"active_playlist": 5,
+             "ui": {"window": {"width": "wide", "height": 700},
+                    "playlist_selector": "nope",
+                    "playback_status_width": 333}}
+            """)
+            let defaults = AppConfig()
+            #expect(config.activePlaylist == defaults.activePlaylist)
+            #expect(config.ui.window.width == defaults.ui.window.width)
+            #expect(config.ui.window.height == 700)
+            #expect(config.ui.playlistSelector == defaults.ui.playlistSelector)
+            #expect(config.ui.playbackStatusWidth == 333)
+        }
+
+        @Test("the default window has no position")
+        func defaultPosition() {
+            #expect(!AppConfig().ui.window.hasPosition)
+            var window = AppConfig.UI.Window()
+            window.x = 0
+            #expect(window.hasPosition)
+        }
+
+        @Test("round-trips through JSON")
+        func roundTrip() throws {
+            var config = AppConfig()
+            config.activePlaylist = "jazz"
+            config.ui.window.width = 1234
+            config.ui.playlistSelector.shown = false
+            let data = try JSONEncoder().encode(config)
+            #expect(try JSONDecoder().decode(AppConfig.self, from: data) == config)
+        }
+
+        // MARK: validated()
+
+        @Test("valid values are kept")
+        func validKept() {
+            var config = AppConfig()
+            config.ui.window.width = 1200
+            config.ui.window.height = 900
+            config.ui.window.x = 5
+            config.ui.window.y = 5
+            config.ui.playlistSelector.width = 180
+            config.ui.playbackStatusWidth = 500
+            config.activePlaylist = "x"
+            #expect(config.validated() == config)
+        }
+
+        @Test("limits are inclusive")
+        func limitsInclusive() {
+            var config = AppConfig()
+            config.ui.window.width = ConfigLimits.windowMinWidth
+            config.ui.window.height = ConfigLimits.windowMaxSide
+            config.ui.playlistSelector.width = ConfigLimits.sidebarMax
+            config.ui.playbackStatusWidth = ConfigLimits.blockMinWidth
+            #expect(config.validated() == config)
+        }
+
+        @Test("a window size outside the limits resets size and position")
+        func invalidWindow() {
+            for (w, h) in [(ConfigLimits.windowMinWidth - 1, 700), (900, ConfigLimits.windowMinHeight - 1),
+                           (ConfigLimits.windowMaxSide + 1, 700)] {
+                var config = AppConfig()
+                config.ui.window.width = w
+                config.ui.window.height = h
+                config.ui.window.x = 50
+                config.ui.window.y = 60
+                #expect(config.validated().ui.window == AppConfig().ui.window)
+            }
+        }
+
+        @Test("sidebar and playback block widths are reset independently")
+        func invalidWidths() {
+            var config = AppConfig()
+            config.ui.window.width = 1000
+            config.ui.playlistSelector.width = ConfigLimits.sidebarMin - 1
+            config.ui.playbackStatusWidth = ConfigLimits.blockMaxWidth + 1
+            let result = config.validated()
+            #expect(result.ui.playlistSelector.width == AppConfig().ui.playlistSelector.width)
+            #expect(result.ui.playbackStatusWidth == AppConfig().ui.playbackStatusWidth)
+            #expect(result.ui.window.width == 1000)
+        }
+
+        @Test("an empty active playlist name is reset")
+        func emptyActivePlaylist() {
+            var config = AppConfig()
+            config.activePlaylist = ""
+            #expect(config.validated().activePlaylist == AppConfig.defaultPlaylistName)
+        }
+    }
+
+    @MainActor @Suite("ConfigStore")
+    struct ConfigStoreTests {
+        private func makePaths(_ dir: TempDir) -> AppPaths {
+            AppPaths(workDir: dir.path("work"))
+        }
+
+        private func readConfig(_ paths: AppPaths) throws -> AppConfig {
+            try JSONDecoder().decode(AppConfig.self, from: Data(contentsOf: paths.configURL))
+        }
+
+        @Test("writes the defaults when there is no config yet")
+        func createsDefaults() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            let store = ConfigStore(paths: paths)
+            #expect(store.config == AppConfig())
+            #expect(try readConfig(paths) == AppConfig())
+        }
+
+        @Test("the file is pretty printed with sorted keys and a trailing newline")
+        func fileFormat() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            _ = ConfigStore(paths: paths)
+            let text = try String(contentsOf: paths.configURL, encoding: .utf8)
+            #expect(text.hasSuffix("}\n"))
+            #expect(text.contains("\n  \"active_playlist\""))
+            let activeAt = try #require(text.range(of: "active_playlist"))
+            let uiAt = try #require(text.range(of: "\"ui\""))
+            #expect(activeAt.lowerBound < uiAt.lowerBound)
+        }
+
+        @Test("loads an existing config and fixes invalid values in the file")
+        func loadsAndNormalizes() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            try dir.write("work/config.json", Data("""
+            {"active_playlist": "rock", "ui": {"playback_status_width": 99999,
+             "playlist_selector": {"width": 150, "shown": false}}}
+            """.utf8))
+
+            let store = ConfigStore(paths: paths)
+            #expect(store.config.activePlaylist == "rock")
+            #expect(store.config.ui.playlistSelector.width == 150)
+            #expect(store.config.ui.playlistSelector.shown == false)
+            #expect(store.config.ui.playbackStatusWidth == AppConfig().ui.playbackStatusWidth)
+
+            let onDisk = try readConfig(paths)
+            #expect(onDisk == store.config)
+        }
+
+        @Test("a broken file results in the defaults being written")
+        func brokenFile() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            try dir.write("work/config.json", Data("{ this is not json".utf8))
+
+            let store = ConfigStore(paths: paths)
+            #expect(store.config == AppConfig())
+            #expect(try readConfig(paths) == AppConfig())
+        }
+
+        @Test("an unchanged, valid file is not rewritten")
+        func validFileUntouched() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            _ = ConfigStore(paths: paths)
+            let before = try Data(contentsOf: paths.configURL)
+            let attributesBefore = try FileManager.default.attributesOfItem(atPath: paths.configURL.path)
+
+            _ = ConfigStore(paths: paths)
+            #expect(try Data(contentsOf: paths.configURL) == before)
+            let attributesAfter = try FileManager.default.attributesOfItem(atPath: paths.configURL.path)
+            #expect(attributesAfter[.modificationDate] as? Date == attributesBefore[.modificationDate] as? Date)
+        }
+
+        @Test("update applies the change, flush writes it")
+        func updateAndFlush() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            let store = ConfigStore(paths: paths, saveDelay: .seconds(60))
+
+            store.update { $0.activePlaylist = "jazz" }
+            #expect(store.config.activePlaylist == "jazz")
+            #expect(try readConfig(paths).activePlaylist == AppConfig.defaultPlaylistName)   // still pending
+
+            store.flush()
+            #expect(try readConfig(paths).activePlaylist == "jazz")
+
+            let reloaded = ConfigStore(paths: paths)
+            #expect(reloaded.config.activePlaylist == "jazz")
+        }
+
+        @Test("writes happen on their own after the save delay")
+        func debouncedWrite() async throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            let store = ConfigStore(paths: paths, saveDelay: .milliseconds(30))
+
+            store.update { $0.ui.window.width = 1111 }
+            store.update { $0.ui.window.width = 1222 }
+            let written = await waitUntil { (try? readConfig(paths))?.ui.window.width == 1222 }
+            #expect(written)
+        }
+
+        @Test("an update that changes nothing schedules no write")
+        func noopUpdate() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            let store = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            try FileManager.default.removeItem(at: paths.configURL)
+
+            store.update { $0.activePlaylist = AppConfig.defaultPlaylistName }
+            store.flush()
+            #expect(!FileManager.default.fileExists(atPath: paths.configURL.path))
+        }
+
+        @Test("flush without pending changes does nothing")
+        func flushWithoutChanges() throws {
+            let dir = try TempDir()
+            let paths = makePaths(dir)
+            let store = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            try FileManager.default.removeItem(at: paths.configURL)
+            store.flush()
+            #expect(!FileManager.default.fileExists(atPath: paths.configURL.path))
+        }
+    }
+}

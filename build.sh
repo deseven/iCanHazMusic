@@ -29,6 +29,7 @@ mode="dev"
 case "${1:-}" in
     dev-release) mode="dev-release" ;;
     release)     mode="release" ;;
+    test)        mode="test" ;;
     *)           mode="dev" ;;
 esac
 
@@ -42,7 +43,7 @@ fi
 can_sign=false
 can_notarize=false
 
-if [ -n "${ICHM_SIGNING_IDENTITY:-}" ] && [ "$mode" != "dev" ]; then
+if [ -n "${ICHM_SIGNING_IDENTITY:-}" ] && [ "$mode" != "dev" ] && [ "$mode" != "test" ]; then
     can_sign=true
     if [ -n "${ICHM_NOTARY_PROFILE:-}" ]; then
         can_notarize=true
@@ -112,6 +113,14 @@ do_clean_dist() {
 
 do_resolve_deps() {
     swift package resolve
+}
+
+do_prepare_fixtures() {
+    "$loc/tests/prepare-fixtures.sh"
+}
+
+do_run_tests() {
+    swift test --filter AllTests
 }
 
 do_clean_build() {
@@ -235,8 +244,9 @@ do_upload() {
 # ── Calculate total steps per mode ───────────────────────────────────
 case "$mode" in
     dev)         totalSteps=5 ;;
+    test)        totalSteps=2 ;;
     dev-release)
-        totalSteps=9
+        totalSteps=11
         if [ "$can_notarize" = true ]; then
             totalSteps=$((totalSteps + 2))
         fi
@@ -245,7 +255,7 @@ case "$mode" in
         fi
         ;;
     release)
-        totalSteps=9
+        totalSteps=11
         if [ "$can_sign" = true ]; then
             totalSteps=$((totalSteps + 1))
         fi
@@ -263,6 +273,15 @@ esac
 do_init_log
 do_clean_dist
 
+# `test` mode: run the test suite and finish, no artifacts are produced.
+if [ "$mode" = "test" ]; then
+    run_step "Preparing test fixtures..."         "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
+    run_step "Running tests..."                   "tests failed"                              do_run_tests
+    echo ""
+    echo -e "  ${greenColor}${bold}Tests passed!${noColor}"
+    exit 0
+fi
+
 run_step "Resolving dependencies..."            "failed to resolve dependencies"           do_resolve_deps
 run_step "Cleaning build artifacts..."           "failed to clean build artifacts"          do_clean_build
 run_step "Compiling Swift sources (arm64)..."    "failed to compile $shortName for arm64"   do_compile_arm64
@@ -276,6 +295,8 @@ run_step "Creating APP bundle..."                 "failed to create app bundle" 
 run_step "Code-signing APP bundle..."             "failed to code-sign app bundle"           do_codesign
 
 if [ "$mode" != "dev" ]; then
+    run_step "Preparing test fixtures..."      "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
+    run_step "Running tests..."                "tests failed"                              do_run_tests
     if [ "$mode" = "release" ]; then
         run_step "Creating distribution ZIP..."    "failed to pack $shortName.zip"            do_create_zip "$shortName.zip"
         run_step "Creating distribution DMG..."    "failed to create dmg"                     do_create_dmg
@@ -326,5 +347,9 @@ case "$mode" in
         echo -e "  ${dimColor}signing: $(if [ "$can_sign" = true ]; then echo "${greenColor}Developer ID${noColor}"; else echo "${redColor}ad-hoc${noColor}"; fi)"
         echo -e "  ${dimColor}notarized: $(if [ "$can_notarize" = true ]; then echo "${greenColor}yes${noColor}"; else echo "${redColor}no${noColor}"; fi)"
         echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$shortName.zip  dist/$shortName.dmg${noColor}"
+        ;;
+    test)
+        echo -e "  ${dimColor}mode: test${noColor}"
+        echo -e "  ${dimColor}no artifacts produced${noColor}"
         ;;
 esac

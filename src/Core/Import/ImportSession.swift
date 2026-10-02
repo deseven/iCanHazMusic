@@ -40,11 +40,16 @@ final class ImportSession {
     private(set) var artsProcessed = 0
     private(set) var isAborting = false
 
+    @ObservationIgnored private let coverStore: CoverStore
     @ObservationIgnored private var readingStartedAt: Date?
     @ObservationIgnored private var readingFinishedAt: Date?
     @ObservationIgnored private var gatherTask: Task<[URL], Never>?
     @ObservationIgnored private var readTask: Task<[TagReadResult], Never>?
     @ObservationIgnored private var artTask: Task<Void, Never>?
+
+    init(coverStore: CoverStore = .shared) {
+        self.coverStore = coverStore
+    }
 
     /// Files processed per second since reading started (frozen once reading is over).
     func speed(at now: Date) -> Double {
@@ -130,7 +135,8 @@ final class ImportSession {
                     running -= 1
                     recordArt(found: found)
                 }
-                group.addTask { await AlbumArtProcessor.process(job) }
+                let store = coverStore
+                group.addTask { await AlbumArtProcessor.process(job, into: store) }
                 running += 1
             }
             while let found = await group.next() { recordArt(found: found) }

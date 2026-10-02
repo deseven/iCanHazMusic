@@ -39,6 +39,18 @@ enum TrailingTags {
         return found
     }
 
+    /// Whether an APEv2 footer sits directly in front of an ID3v1 tag at the end of the file. AVFoundation
+    /// mistakes the `TAG` inside `APETAGEX` for the ID3v1 marker and returns garbage fields for such files,
+    /// while AudioToolbox reads them correctly. Blocking, reads 160 bytes.
+    static func hasApeBeforeV1(url: URL) throws -> Bool {
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+        let end = try fh.seekToEnd()
+        let tail = v1Size + 32
+        guard end >= tail, let data = try bytes(fh, at: end - tail, count: Int(tail)) else { return false }
+        return data.prefix(8) == Data("APETAGEX".utf8) && data.dropFirst(32).prefix(3) == Data("TAG".utf8)
+    }
+
     // MARK: Lyrics3v2
 
     /// `LYRICSBEGIN` + fields (`ID` + 5 digit size + data) + 6 digit size + `LYRICS200`; the size covers the

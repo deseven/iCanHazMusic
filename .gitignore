@@ -11,5 +11,6 @@ old-src/
 Package.resolved
 .env
 dist/
-PoC/*/build/
 tmp/
+tests/fixtures/generated/
+tests/fixtures/.generated.tmp/

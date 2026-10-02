@@ -31,7 +31,8 @@ enum ExternalArtwork {
     struct Listing: Sendable {
         /// Best `cover|folder|album|front` image: cover > folder > album > front, then jpg > jpeg > png.
         var preferred: String?
-        /// First image of any name (natural order), used only when nothing else was found.
+        /// First image of any name (natural order) other than `preferred`, the last resort when the preferred
+        /// one (or the embedded art) turns out to be unusable.
         var anyImage: String?
 
         static let empty = Listing()
@@ -54,7 +55,7 @@ enum ExternalArtwork {
                 if best == nil || rank < best!.rank { best = (rank, name) }
             }
         }
-        let first = images.min { $0.localizedStandardCompare($1) == .orderedAscending }
+        let first = images.filter { $0 != best?.name }.min { $0.localizedStandardCompare($1) == .orderedAscending }
         return Listing(preferred: best?.name, anyImage: first)
     }
 }

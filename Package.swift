@@ -13,5 +13,13 @@ let package = Package(
             dependencies: [],
             path: "src"
         ),
+        .testTarget(
+            name: "iCanHazMusicTests",
+            dependencies: [
+                .target(name: "iCanHazMusic"),
+            ],
+            path: "tests",
+            exclude: ["fixtures", "prepare-fixtures.sh"]
+        ),
     ]
 )
