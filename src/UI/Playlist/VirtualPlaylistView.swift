@@ -33,6 +33,7 @@ struct VirtualPlaylistView: View {
     @State private var window: Range<Int>
     @State private var scrollPosition = ScrollPosition()
     @State private var viewport = ViewportBox()
+    @State private var scrollBox = ScrollBox()
     @State private var anchor: Int?   // fixed end of a shift-range
     @State private var pointer = PointerBox()
     @State private var eventMonitor: Any?
@@ -74,6 +75,7 @@ struct VirtualPlaylistView: View {
                 }
                 Color.clear.frame(height: layout.totalHeight - layout.rowOffsets[shown.upperBound])
             }
+            .background(ScrollViewFinder(box: scrollBox))
         }
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: Range<Int>.self) { [layout] geo in
@@ -103,7 +105,7 @@ struct VirtualPlaylistView: View {
             selection = [row]
             anchor = row
             cursor = row
-            reveal(row)
+            reveal(row, deferred: true)
         }
         .focusable()
         .focused($focused)
@@ -260,19 +262,87 @@ struct VirtualPlaylistView: View {
         reveal(to)
     }
 
-    private func reveal(_ i: Int) {
-        let top = layout.rowOffsets[i], bottom = layout.rowOffsets[i + 1]
-        let vp = viewport.rect
-        if top < vp.minY {
-            scrollPosition.scrollTo(y: top)
-        } else if bottom > vp.maxY {
-            scrollPosition.scrollTo(y: bottom - vp.height)
+    /// Scrolls the minimum needed to bring row `i` into view.
+    ///
+    /// This moves the `NSScrollView` behind the SwiftUI `ScrollView` directly: `ScrollPosition.scrollTo(y:)` lands
+    /// 52 px away from where it is told to (the title bar inset: its offsets don't share an origin with
+    /// `visibleRect`), which only a delayed correction could fix, visibly jumping. The row is located in the clip
+    /// view's own coordinates and the content moved by exactly what is missing, inside the insets.
+    ///
+    /// `deferred`: for changes not caused by a key press (a transport command), which is still being applied by
+    /// SwiftUI; the scroll happens on the next run-loop turn.
+    private func reveal(_ i: Int, deferred: Bool = false) {
+        if deferred {
+            DispatchQueue.main.async { scrollToReveal(i) }
+        } else {
+            scrollToReveal(i)
         }
+    }
+
+    private func scrollToReveal(_ i: Int) {
+        guard layout.rowOffsets.indices.contains(i + 1),
+              let scrollView = scrollBox.scrollView, let anchor = scrollBox.anchor else { return }
+        let clip = scrollView.contentView
+        guard clip.isFlipped else {
+            Log.error("playlist scroll view is not flipped, can't scroll to row \(i)")
+            return
+        }
+
+        // The row in the clip view's coordinates (the same ones as its bounds, which move when scrolling).
+        let rowRect = clip.convert(NSRect(x: 0, y: layout.rowOffsets[i], width: 1,
+                                          height: layout.rowOffsets[i + 1] - layout.rowOffsets[i]), from: anchor)
+        let insets = scrollView.contentInsets
+        let visibleTop = clip.bounds.minY + insets.top
+        let visibleBottom = clip.bounds.maxY - insets.bottom
+
+        var origin = clip.bounds.origin
+        if rowRect.minY < visibleTop {
+            origin.y -= visibleTop - rowRect.minY
+        } else if rowRect.maxY > visibleBottom {
+            origin.y += rowRect.maxY - visibleBottom
+        } else {
+            return
+        }
+        origin = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+
+        // Rows have to exist where we're going, whether or not SwiftUI has caught up with the scroll by then.
+        let height = clip.bounds.height
+        window = layout.rowRange(minY: layout.rowOffsets[i] - height, maxY: layout.rowOffsets[i + 1] + height,
+                                 overscan: Layout.playlistOverscan)
+        clip.scroll(to: origin)
+        scrollView.reflectScrolledClipView(clip)
     }
 }
 
 private final class ViewportBox {
     var rect: CGRect = .zero
+}
+
+/// The `NSScrollView` behind the playlist's `ScrollView`, and a view that has the content's frame (the origin
+/// row offsets are measured from).
+private final class ScrollBox {
+    weak var scrollView: NSScrollView?
+    weak var anchor: NSView?
+}
+
+/// Placed in the scrolled content (as its background): finds the enclosing `NSScrollView` once it is in the
+/// window.
+private struct ScrollViewFinder: NSViewRepresentable {
+    let box: ScrollBox
+
+    private final class FlippedView: NSView {
+        override var isFlipped: Bool { true }   // y grows downwards, like the row offsets
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        FlippedView()
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        box.anchor = view
+        guard box.scrollView == nil else { return }
+        DispatchQueue.main.async { box.scrollView = view.enclosingScrollView }
+    }
 }
 
 /// The row under the mouse pointer (a plain reference: changes don't re-render).

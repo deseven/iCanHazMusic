@@ -15,7 +15,7 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 ### `src/`
 Split into UI and logic (still one SwiftPM target, so no `public` needed). UI may depend on Core, never the other way round. One view per file.
 
-- `App/` – `@main` entry point and `AppDelegate`.
+- `App/` – `@main` entry point, `AppDelegate` and `DockMenu` (the Dock icon's right-click menu: current track and transport commands, only shown while playing/paused, like in the old version; built fresh on every open).
 - `Core/` – Logic. **Foundation only: never import SwiftUI/AppKit here.**
   - `Config/`
     - `Config.swift`
