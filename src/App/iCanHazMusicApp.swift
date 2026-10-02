@@ -28,10 +28,12 @@ struct iCanHazMusicApp: App {
     }
 }
 
-/// Replaces the stock "About" item in the app menu with our own window and adds the import items to File.
+/// Replaces the stock "About" item in the app menu with our own window, adds the import items to File
+/// and the Playback menu.
 private struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     private let importer = ImportCoordinator.shared
+    private let playback = PlaybackState.shared
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -46,6 +48,10 @@ private struct AppCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: .command)
             .disabled(importer.isBusy)
+        }
+        CommandMenu("Playback") {
+            Toggle("Cursor follows playback", isOn: Bindable(playback).cursorFollowsPlayback)
+            Toggle("Playback follows cursor", isOn: Bindable(playback).playbackFollowsCursor)
         }
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppConstants.appName)") {

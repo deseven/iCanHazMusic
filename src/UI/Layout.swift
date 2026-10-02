@@ -15,6 +15,8 @@ enum Layout {
     static let playlistMinWidth: CGFloat = 280
     static let albumHeaderRowHeight: CGFloat = 68
     static let trackRowHeight: CGFloat = 20
+    /// First column of a track row: holds the play symbol of the playing track.
+    static let trackStatusColumnWidth: CGFloat = 22
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
     static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
     /// Extra points of rows rendered above/below the visible area of the playlist.

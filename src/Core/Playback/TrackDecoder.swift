@@ -9,9 +9,10 @@ import Foundation
 ///   share) can be abandoned without holding up the decoders created after it.
 /// - The length is what `AVAudioFile` reports, i.e. the exact number of audio frames of the file. AVFoundation's
 ///   player rounds FLAC up to whole packets and plays up to 1176 frames of padding at the end; the file API does not.
-/// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at its
-///   highest quality (the frame counts come out exact, so the playback position stays correct). A file whose rate
-///   already is the engine's is passed through untouched.
+/// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at `.high`
+///   quality (the frame counts come out exact, so the playback position stays correct). A file whose rate
+///   already is the engine's is passed through untouched. `.max` costs ~25% more in the converter for no
+///   audible gain, see `docs/playback.md`.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
 final class TrackDecoder: @unchecked Sendable {
@@ -127,7 +128,7 @@ final class TrackDecoder: @unchecked Sendable {
                   let converter = AVAudioConverter(from: source, to: outputFormat) else {
                 throw DecoderError("can't convert \(Int(format.sampleRate)) Hz to \(Int(outputFormat.sampleRate)) Hz")
             }
-            converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
+            converter.sampleRateConverterQuality = AVAudioQuality.high.rawValue
             converterSourceFormat = source
             self.converter = converter
         }

@@ -49,6 +49,33 @@ extension AllTests {
             #expect(config.ui.playbackStatusWidth == 333)
         }
 
+        @Test("the playback section is read leniently, with both options on by default")
+        func playbackSection() throws {
+            let defaults = AppConfig().playback
+            #expect(defaults.cursorFollowsPlayback && defaults.playbackFollowsCursor)
+
+            let config = try decode("""
+            {"playback": {"cursor_follows_playback": false, "playback_follows_cursor": false}}
+            """)
+            #expect(!config.playback.cursorFollowsPlayback)
+            #expect(!config.playback.playbackFollowsCursor)
+
+            let partial = try decode("""
+            {"playback": {"cursor_follows_playback": false, "playback_follows_cursor": "yes"}}
+            """)
+            #expect(!partial.playback.cursorFollowsPlayback)
+            #expect(partial.playback.playbackFollowsCursor)
+            #expect(try decode(#"{"playback": 5}"#).playback == defaults)
+        }
+
+        @Test("playback settings survive a round trip")
+        func playbackRoundTrip() throws {
+            var config = AppConfig()
+            config.playback.cursorFollowsPlayback = false
+            let data = try JSONEncoder().encode(config)
+            #expect(try JSONDecoder().decode(AppConfig.self, from: data) == config)
+        }
+
         @Test("the default window has no position")
         func defaultPosition() {
             #expect(!AppConfig().ui.window.hasPosition)

@@ -25,7 +25,7 @@ struct PlayerArea: View {
             let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
 
             HStack(spacing: 0) {
-                PlaylistView(selection: $selection)
+                PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow)
                     .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
                 SplitDivider(
@@ -44,6 +44,7 @@ struct PlayerArea: View {
         .frame(minWidth: Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth)
         .onChange(of: store.activeName) { _, _ in
             selection = []
+            playback.cursorRow = nil
         }
         .onChange(of: preferredBlockWidth) { _, width in
             ConfigStore.shared.update { $0.ui.playbackStatusWidth = Int(width.rounded()) }

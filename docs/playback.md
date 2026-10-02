@@ -58,6 +58,27 @@ from about 1 s, tiny differences before that) and Vorbis (every seek lands a con
 - The device may run at any rate (96 kHz on the dev machine): every file is resampled there, nothing is bit-perfect.
   Neither `AVPlayer` nor the engine switches the device rate; that would need CoreAudio HAL access (and exclusive mode).
 
+## CPU usage
+
+Measured on Apple silicon, 44.1 kHz FLAC resampled to a 96 kHz device (engine alone, no UI, ~43 M instructions/s).
+
+- **Where the CPU % comes from depends on how the process is launched.** The same binary, doing the same work (same
+  instruction count), shows ~0.9% when started from a terminal and ~2.3% when started through LaunchServices (`open`,
+  Finder): the kernel runs most of the latter (~80% of its CPU time) on efficiency cores at ~1.2 GHz instead of on
+  performance cores, so the same instructions take longer, while the energy drawn is about a third. Don't compare CPU %
+  between runs launched differently, and don't compare against another player without checking how it was launched.
+  `taskpolicy -b` reproduces the slow case from a terminal. To check where a process runs, read `proc_pid_rusage`
+  (`rusage_info_v6`: `ri_user_ptime`/`ri_system_ptime` vs `ri_user_time`/`ri_system_time`, `ri_cycles`,
+  `ri_instructions`, `ri_energy_nj`), no root needed. Instructions per second is the figure to compare.
+- **Sample rate converter quality is `.high`, not `.max`.** `.max` costs ~25% more in the converter (13.5 vs 10.1 M
+  instructions per second of audio, ~8% of the whole engine). Tone measurements through `AVAudioConverter` (FFT,
+  44.1 -> 96 kHz): identical up to the measurement floor (-94 dBc) at 1 and 10 kHz, 18 kHz level -0.013 dB and spurious
+  components -129 dBc (`.max`: -139 dBc); the two differ only above ~19 kHz (transition band) and in the rejection of
+  ultrasonic aliases (-115 vs -131 dBFS for a 60 kHz tone at 192 -> 96 kHz). `.medium` is measurably worse (-0.7 dB at
+  18 kHz, -71 dBFS alias at 192 -> 96 kHz) and saves little more.
+- The decoder (FLAC decode + resampling) is the bulk of the engine's cost. The feeder's lookahead (5, 20, 60 s) makes
+  no difference to it.
+
 ## Not covered by tests
 
 Only the real output device can't be tested: engine start/stop on playback start/end, a changed output device or rate

@@ -117,6 +117,9 @@ final class PlaybackEngine {
     private var boundaryTask: Task<Void, Never>?
     private var configObserver: NSObjectProtocol?
     private var renderBuffer: AVAudioPCMBuffer?
+    /// The last position read while the device engine was running. Once the system stops the engine (device
+    /// change), the player node's timeline is gone and `position` can no longer be computed.
+    private var lastPosition: (slot: Slot, seconds: Double)?
 
     init(output: Output = .device, lookahead: Double = 5) {
         self.output = output
@@ -171,6 +174,7 @@ final class PlaybackEngine {
         if slot.decodeFinished {
             seconds = min(seconds, slot.startSeconds + Double(slot.scheduledFrames) / sampleRate)
         }
+        if case .device = output, engine.isRunning { lastPosition = (slot, seconds) }
         return seconds
     }
 
@@ -331,6 +335,7 @@ final class PlaybackEngine {
     private func cancelSlots() {
         for slot in slots { slot.decoder.cancel() }
         slots.removeAll()
+        lastPosition = nil
     }
 
     /// Back to idle: nothing queued, nothing playing.
@@ -377,7 +382,12 @@ final class PlaybackEngine {
     /// The output device or its format changed and the system stopped the engine: continue from the same place.
     private func configurationChanged() {
         guard case .device = output, isActive, let url = pendingRestart?.url ?? slots.first?.url else { return }
-        let seconds = pendingRestart?.seconds ?? position
+        // The engine has already been stopped by the system, so the live position is unreliable (it falls back to
+        // the start of the track): use the last one read while it was running.
+        var seconds = pendingRestart?.seconds ?? position
+        if pendingRestart?.seconds == nil, let last = lastPosition, last.slot === slots.first {
+            seconds = last.seconds
+        }
         Log.info("audio configuration changed, restarting the output")
 
         fadeTask?.cancel()
@@ -418,6 +428,7 @@ final class PlaybackEngine {
         feedTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                _ = self.position   // keeps `lastPosition` fresh
                 if await self.feedStep() { continue }
                 try? await Task.sleep(for: .milliseconds(100))
             }

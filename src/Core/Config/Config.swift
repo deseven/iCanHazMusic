@@ -64,13 +64,36 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
+    struct Playback: Codable, Equatable {
+        /// The selection moves to the track that starts playing.
+        var cursorFollowsPlayback = true
+        /// The track under the cursor plays next, instead of the one after the current track.
+        var playbackFollowsCursor = true
+
+        enum CodingKeys: String, CodingKey {
+            case cursorFollowsPlayback = "cursor_follows_playback"
+            case playbackFollowsCursor = "playback_follows_cursor"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = Playback()
+            cursorFollowsPlayback = c.value(.cursorFollowsPlayback, default: d.cursorFollowsPlayback)
+            playbackFollowsCursor = c.value(.playbackFollowsCursor, default: d.playbackFollowsCursor)
+        }
+    }
+
     static let defaultPlaylistName = "main"
 
     var ui = UI()
+    var playback = Playback()
     var activePlaylist = AppConfig.defaultPlaylistName
 
     enum CodingKeys: String, CodingKey {
         case ui
+        case playback
         case activePlaylist = "active_playlist"
     }
 
@@ -80,6 +103,7 @@ struct AppConfig: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppConfig()
         ui = c.value(.ui, default: d.ui)
+        playback = c.value(.playback, default: d.playback)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
 

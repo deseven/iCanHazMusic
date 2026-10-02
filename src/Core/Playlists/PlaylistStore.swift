@@ -121,6 +121,12 @@ final class PlaylistStore {
         return nil
     }
 
+    /// Playback runs from the playlist that is currently shown (and it is loaded).
+    var playingIsActive: Bool {
+        guard let playing = playingName, !isLoading else { return false }
+        return Self.key(playing) == Self.key(activeName)
+    }
+
     /// Playback has started from the active playlist: keep it in memory until `playbackEnded`.
     func playbackStarted() {
         guard !isLoading, !activeName.isEmpty else { return }

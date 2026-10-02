@@ -12,9 +12,16 @@ import SwiftUI
 ///
 /// Selection (all custom): click = select, ⌘-click = toggle, ⇧-click = range,
 /// ↑/↓ = move (with ⇧ to extend), double click = `onActivate` with the row id.
+///
+/// `cursor` is the row the selection last moved to (the moving end of a range). `playingRow` gets the play
+/// symbol; when it changes and `cursorFollowsPlayback` is on, the selection and cursor move to it and it is
+/// scrolled into view.
 struct VirtualPlaylistView: View {
     let playlist: Playlist
     @Binding var selection: Set<Int>
+    @Binding var cursor: Int?
+    let playingRow: Int?
+    let cursorFollowsPlayback: Bool
     let onActivate: (Int) -> Void
 
     private let layout: PlaylistLayout
@@ -23,12 +30,15 @@ struct VirtualPlaylistView: View {
     @State private var scrollPosition = ScrollPosition()
     @State private var viewport = ViewportBox()
     @State private var anchor: Int?   // fixed end of a shift-range
-    @State private var cursor: Int?   // moving end (keyboard)
     @FocusState private var focused: Bool
 
-    init(playlist: Playlist, selection: Binding<Set<Int>>, onActivate: @escaping (Int) -> Void) {
+    init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, playingRow: Int?,
+         cursorFollowsPlayback: Bool, onActivate: @escaping (Int) -> Void) {
         self.playlist = playlist
         self._selection = selection
+        self._cursor = cursor
+        self.playingRow = playingRow
+        self.cursorFollowsPlayback = cursorFollowsPlayback
         self.onActivate = onActivate
         let layout = PlaylistLayout(playlist: playlist)
         self.layout = layout
@@ -41,7 +51,8 @@ struct VirtualPlaylistView: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: layout.rowOffsets[window.lowerBound])
                 ForEach(window, id: \.self) { i in
-                    PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i))
+                    PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i),
+                                                        isPlaying: i == playingRow)
                         .contentShape(Rectangle())
                         .onTapGesture {
                             click(i)
@@ -70,6 +81,13 @@ struct VirtualPlaylistView: View {
             window = layout.rowRange(minY: top, maxY: top + max(viewport.rect.height, 800),
                                      overscan: Layout.playlistOverscan)
             DispatchQueue.main.async { scrollPosition.scrollTo(y: top) }
+        }
+        .onChange(of: playingRow) { _, row in
+            guard cursorFollowsPlayback, let row, playlist.rows.indices.contains(row) else { return }
+            selection = [row]
+            anchor = row
+            cursor = row
+            reveal(row)
         }
         .focusable()
         .focused($focused)

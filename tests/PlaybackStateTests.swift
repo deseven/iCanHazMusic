@@ -147,6 +147,188 @@ extension AllTests {
             #expect(env.rig.deviation(of: .tiny, from: 0, at: a.frames + b.frames + c.frames, count: RampFile.tiny.frames) == 0)
         }
 
+        // MARK: Cursor
+
+        @Test("the playing row follows the track, and is nil while stopped")
+        func playingRow() async throws {
+            let env = try await standard()
+            #expect(env.state.playingRow == nil)
+
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            #expect(env.state.playingRow == 2)                          // header, A1, A2
+
+            try await env.run(RampFile.b.frames + 2000)
+            #expect(env.state.info?.title == "A3")
+            #expect(env.state.playingRow == 3)
+
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            #expect(env.state.playingRow == 6)
+
+            env.state.stop()
+            #expect(env.state.playingRow == nil)
+        }
+
+        @Test("the playing row is nil while another playlist is shown")
+        func playingRowOtherPlaylist() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(env.state.playingRow == 1)
+
+            try env.store.create(named: "other")
+            #expect(env.state.status == .playing)
+            #expect(env.state.playingRow == nil)
+
+            env.store.setActive("main")
+            #expect(env.state.playingRow == 1)
+        }
+
+        @Test("with playback following the cursor, the track under the cursor plays next")
+        func playbackFollowsCursor() async throws {
+            let env = try await standard()
+            #expect(env.state.playbackFollowsCursor)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 3                                     // A3, skipping A2
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("a cursor on an album header means the first track of that album")
+        func cursorOnHeader() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = env.store.activePlaylist.headerRow[1]
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "B1")
+        }
+
+        @Test("moving the cursor after the next track was prepared replaces it")
+        func cursorMovesLate() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)                           // A2 is queued by now
+            env.state.cursorRow = 5                                     // B1
+            env.state.cursorRow = 3                                     // and then A3
+
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("the cursor is followed once: after the selected track, playback continues in playlist order")
+        func cursorFollowedOnce() async throws {
+            let env = try await standard()
+            env.state.cursorFollowsPlayback = false
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 3                                     // A3, skipping A2
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A3")
+            // The cursor still sits on A3, but nobody moved it: on to the next album, not back to A3.
+            try await env.run(RampFile.c.frames - 1000)
+            #expect(env.state.info?.title == "B1")
+        }
+
+        @Test("moving the cursor again makes a new request")
+        func cursorMovedAgain() async throws {
+            let env = try await standard()
+            env.state.cursorFollowsPlayback = false
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 3
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A3")
+
+            env.state.cursorRow = 1                                     // A1 again
+            try await env.run(RampFile.c.frames)
+            #expect(env.state.info?.title == "A1")
+        }
+
+        @Test("moving the cursor back onto the playing track cancels the request")
+        func cursorBackOnPlaying() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 3
+            env.state.cursorRow = 1
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A2")
+        }
+
+        @Test("starting a track explicitly drops a pending request")
+        func playDropsRequest() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 5                                     // B1
+            env.state.play(albumIndex: 0, trackIndex: 1)                // A2, the cursor stays on B1
+
+            try await env.run(RampFile.b.frames + 2000)
+            #expect(env.state.info?.title == "A3")                      // by the playlist order, not the request
+        }
+
+        @Test("a cursor on the playing track changes nothing")
+        func cursorOnPlaying() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 1
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A2")
+        }
+
+        @Test("with playback not following the cursor, the playlist order rules")
+        func playbackDoesNotFollowCursor() async throws {
+            let env = try await standard()
+            env.state.playbackFollowsCursor = false
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 3
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "A2")
+
+            // Switching it on takes effect for what is selected after that: back to the first track.
+            env.state.playbackFollowsCursor = true
+            env.state.cursorRow = 1
+            try await env.run(RampFile.b.frames)
+            #expect(env.state.info?.title == "A1")
+        }
+
+        @Test("next track goes to the cursor too")
+        func nextTrackFollowsCursor() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.cursorRow = 6
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "B2")
+        }
+
+        @Test("the cursor is ignored while another playlist is shown")
+        func cursorOtherPlaylist() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try env.store.create(named: "other")
+            env.state.cursorRow = 0
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "A2")
+        }
+
+        @Test("the two options are read from the config and written back when changed")
+        func followOptionsPersist() async throws {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            config.update { $0.playback.playbackFollowsCursor = false }
+            let store = PlaylistStore(paths: paths, configStore: config)
+            let rig = EngineRig(lookahead: 60)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
+            #expect(state.cursorFollowsPlayback)
+            #expect(!state.playbackFollowsCursor)
+
+            state.cursorFollowsPlayback = false
+            state.playbackFollowsCursor = true
+            #expect(!config.config.playback.cursorFollowsPlayback)
+            #expect(config.config.playback.playbackFollowsCursor)
+        }
+
         @Test("the playlist ends after its last track: stopped, nothing shown, nothing held")
         func endOfPlaylist() async throws {
             let env = try await standard()

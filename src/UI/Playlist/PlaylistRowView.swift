@@ -5,11 +5,13 @@ struct PlaylistRowView: View {
     let playlist: Playlist
     let index: Int
     let isSelected: Bool
+    let isPlaying: Bool
 
     var body: some View {
         let row = playlist.rows[index]
         if let track = playlist.track(for: row) {
-            TrackRowContent(track: track, showArtist: playlist.albums[row.albumIndex].hasMultipleArtists)
+            TrackRowContent(track: track, showArtist: playlist.albums[row.albumIndex].hasMultipleArtists,
+                            isPlaying: isPlaying)
                 .frame(height: Layout.trackRowHeight)
                 .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
                 .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
@@ -51,9 +53,18 @@ private struct TrackRowContent: View {
     let track: Track
     /// Compilation albums: "artist – title" instead of just the title.
     let showArtist: Bool
+    let isPlaying: Bool
 
     var body: some View {
         HStack(spacing: 0) {
+            // The placeholder keeps the column's width in every row; an empty `Group` would collapse.
+            Color.clear
+                .frame(width: Layout.trackStatusColumnWidth)
+                .overlay {
+                    if isPlaying {
+                        Image(systemName: "play.fill").font(.system(size: 9))
+                    }
+                }
             Text(track.numberText)
                 .monospacedDigit()
                 .opacity(0.65)

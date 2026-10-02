@@ -15,7 +15,7 @@ import Observation
 @MainActor
 @Observable
 final class PlaybackState {
-    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine())
+    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared)
 
     enum Status { case stopped, playing, paused }
 
@@ -46,6 +46,46 @@ final class PlaybackState {
         didSet { engine.volume = Float(volume) }
     }
 
+    /// When a track starts, the selection moves to it. Acted upon by the playlist view; persisted in the config.
+    var cursorFollowsPlayback = true {
+        didSet {
+            guard cursorFollowsPlayback != oldValue else { return }
+            configStore?.update { $0.playback.cursorFollowsPlayback = cursorFollowsPlayback }
+        }
+    }
+
+    /// When the user moves the cursor (`cursorRow`) away from the playing track, the track under it plays after
+    /// the current one, instead of the one that follows it in the playlist. This happens once: after that track
+    /// has started, playback continues in playlist order until the cursor is moved again (it is the user's
+    /// action that is followed, not the cursor's position). Only applies while the playing playlist is the one
+    /// shown. Persisted in the config.
+    var playbackFollowsCursor = true {
+        didSet {
+            guard playbackFollowsCursor != oldValue else { return }
+            configStore?.update { $0.playback.playbackFollowsCursor = playbackFollowsCursor }
+            cursorRequested = false   // what was selected before the option was on is not a request
+            playlistDidChange()
+        }
+    }
+
+    /// The row (of the active playlist) the user last clicked or moved to, set by the playlist view. Moving it
+    /// onto the playing track (which is what `cursorFollowsPlayback` does) is not a request to jump anywhere.
+    var cursorRow: Int? {
+        didSet {
+            guard cursorRow != oldValue, playbackFollowsCursor else { return }
+            cursorRequested = cursorPosition().map { $0 != currentPos } ?? false
+            playlistDidChange()
+        }
+    }
+
+    /// The row of the active playlist that is playing (or paused), if playback runs from the active playlist.
+    var playingRow: Int? {
+        guard status != .stopped, let pos = currentPos, store.playingIsActive else { return nil }
+        let ranges = store.activePlaylist.trackRows
+        guard ranges.indices.contains(pos.album) else { return nil }
+        return ranges[pos.album].lowerBound + pos.track
+    }
+
     var isStopped: Bool { status == .stopped }
 
     // MARK: Internals
@@ -54,9 +94,13 @@ final class PlaybackState {
     @ObservationIgnored private let store: PlaylistStore
     @ObservationIgnored private let tickInterval: Duration?
     @ObservationIgnored private let positionStep: Double
+    @ObservationIgnored private let configStore: ConfigStore?
 
-    @ObservationIgnored private var currentPos: Position?
+    /// Observed through `playingRow`.
+    private var currentPos: Position?
     @ObservationIgnored private var nextPos: Position?
+    /// The user moved the cursor to a track that hasn't been played since: it is due next (see `playbackFollowsCursor`).
+    @ObservationIgnored private var cursorRequested = false
     @ObservationIgnored private var tickTask: Task<Void, Never>?
 
     /// `Album.key` of the album the loaded (or loading) artwork belongs to.
@@ -67,12 +111,19 @@ final class PlaybackState {
     /// `positionStep`: `position` is only published when it moves into another multiple of this many seconds
     /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
     /// 4 updates a second); 0 publishes every change.
+    /// `configStore`: where `cursorFollowsPlayback` and `playbackFollowsCursor` are read from and kept; `nil` uses
+    /// the defaults and persists nothing.
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
-         positionStep: Double = 1) {
+         positionStep: Double = 1, configStore: ConfigStore? = nil) {
         self.store = store
         self.engine = engine
         self.tickInterval = tickInterval
         self.positionStep = positionStep
+        self.configStore = configStore
+        if let settings = configStore?.config.playback {
+            cursorFollowsPlayback = settings.cursorFollowsPlayback
+            playbackFollowsCursor = settings.playbackFollowsCursor
+        }
         engine.volume = Float(volume)
         engine.onEvent = { [weak self] event in self?.handle(event) }
         store.playback = self
@@ -88,6 +139,7 @@ final class PlaybackState {
               playlist.albums[albumIndex].tracks.indices.contains(trackIndex) else { return }
 
         store.playbackStarted()
+        cursorRequested = false   // an explicit choice of a track overrides what was selected before
         begin(at: Position(album: albumIndex, track: trackIndex))
     }
 
@@ -118,6 +170,7 @@ final class PlaybackState {
         stopTicking()
         currentPos = nil
         nextPos = nil
+        cursorRequested = false
         artworkTask?.cancel()
         artworkTask = nil
         artworkKey = nil
@@ -131,7 +184,7 @@ final class PlaybackState {
     /// Does nothing on the last track of the playlist.
     func nextTrack() {
         syncWithEngine()
-        guard let pos = currentPos, let next = following(pos) else { return }
+        guard let pos = currentPos, let next = nextPosition(after: pos) else { return }
         begin(at: next)
     }
 
@@ -164,13 +217,13 @@ final class PlaybackState {
         engine.seek(to: target)
     }
 
-    /// The playing playlist got more tracks (they are only ever added at the end, which keeps the position
-    /// valid). The track after the current one may be a different one now, or exist at all if the current one
-    /// was the last.
+    /// What plays after the current track may have changed: the playing playlist got more tracks (they are only
+    /// ever added at the end, which keeps the position valid) or the cursor moved. The next track may be a
+    /// different one now, or exist at all if the current one was the last.
     func playlistDidChange() {
         guard status != .stopped else { return }
         syncWithEngine()
-        guard let pos = currentPos, following(pos) != nextPos else { return }
+        guard let pos = currentPos, nextPosition(after: pos) != nextPos else { return }
         prepareNext(after: pos)
     }
 
@@ -184,7 +237,7 @@ final class PlaybackState {
         }
 
         currentPos = pos
-        nextPos = following(pos)
+        nextPos = nextPosition(after: pos)
         let next = nextPos.flatMap { self.track(at: $0, in: playlist) }
         engine.start(track.url, next: next?.url)
 
@@ -195,7 +248,7 @@ final class PlaybackState {
 
     /// Hands the track following `pos` (if there is one) to the engine.
     private func prepareNext(after pos: Position) {
-        guard let playlist = store.playingPlaylist, let next = following(pos),
+        guard let playlist = store.playingPlaylist, let next = nextPosition(after: pos),
               let track = track(at: next, in: playlist) else {
             nextPos = nil
             engine.setNext(nil)
@@ -214,14 +267,14 @@ final class PlaybackState {
             advanceToNext()
         case .finished:
             // The queue ran out: the end of the playlist, or (very short tracks) it was refilled too late.
-            if let last = nextPos ?? currentPos, let next = following(last) {
+            if let last = nextPos ?? currentPos, let next = nextPosition(after: last) {
                 begin(at: next)
             } else {
                 stop()
             }
         case .failed(let url, let wasCurrent, _):
             if wasCurrent, let pos = currentPos {
-                if let next = following(pos) { begin(at: next) } else { stop() }
+                if let next = nextPosition(after: pos) { begin(at: next) } else { stop() }
             } else if let failed = nextPos, let playlist = store.playingPlaylist,
                       track(at: failed, in: playlist)?.url == url {
                 prepareNext(after: failed)
@@ -281,6 +334,7 @@ final class PlaybackState {
 
     /// Fills in everything shown about the (new) current track.
     private func trackDidChange() {
+        if cursorRequested, cursorPosition() == currentPos { cursorRequested = false }   // the request is served
         guard let pos = currentPos, let playlist = store.playingPlaylist,
               let track = track(at: pos, in: playlist) else { return }
         let album = playlist.albums[pos.album]
@@ -320,7 +374,23 @@ final class PlaybackState {
         return playlist.albums[pos.album].tracks[pos.track]
     }
 
-    /// The track that plays after `pos`: the next one of the album, else the first of the next album.
+    /// The track that plays after `pos`: the one the user moved the cursor to if `playbackFollowsCursor` is on
+    /// (an album header stands for its first track), otherwise `following(pos)`.
+    private func nextPosition(after pos: Position) -> Position? {
+        if playbackFollowsCursor, cursorRequested, let target = cursorPosition(), target != pos { return target }
+        return following(pos)
+    }
+
+    /// `cursorRow` as a position of the playing playlist, if that is the one shown.
+    private func cursorPosition() -> Position? {
+        guard let row = cursorRow, store.playingIsActive else { return nil }
+        let rows = store.activePlaylist.rows
+        guard rows.indices.contains(row) else { return nil }
+        return Position(album: rows[row].albumIndex, track: rows[row].trackIndex ?? 0)
+    }
+
+    /// The track that plays after `pos` in playlist order: the next one of the album, else the first of the
+    /// next album.
     private func following(_ pos: Position) -> Position? {
         guard let playlist = store.playingPlaylist, playlist.albums.indices.contains(pos.album) else { return nil }
         if pos.track + 1 < playlist.albums[pos.album].tracks.count {
