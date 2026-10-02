@@ -16,7 +16,7 @@ root="$(cd "$(dirname "$0")" && pwd)"
 out="$root/fixtures/generated"
 tmp="$root/fixtures/.generated.tmp"
 rm -rf "$tmp"
-mkdir -p "$tmp/formats" "$tmp/art" "$tmp/broken"
+mkdir -p "$tmp/formats" "$tmp/art" "$tmp/broken" "$tmp/playback"
 
 ff() { ffmpeg -v error -y "$@"; }
 
@@ -95,6 +95,72 @@ echo "not an image" > "$a/broken.jpg"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a libmp3lame -c:v copy -id3v2_version 3 -disposition:v attached_pic $T "$f/t_cover.mp3"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a aac -c:v copy -disposition:v attached_pic $T "$f/t_cover.m4a"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a flac -c:v copy -disposition:v attached_pic $T "$f/t_cover.flac"
+
+# ---------------------------------------------------------------- playback: sample-exact ramps
+# Playback tests compare what the engine renders with the file content, sample by sample. A sine wave would hide
+# an off-by-some-samples error, so these files hold a sawtooth that is different in every channel and every
+# file (`salt`): the value of frame n of channel c is ((n * step_c + salt) mod 2^bits) - 2^(bits-1), as an
+# integer. Lengths are deliberately not multiples of the FLAC block size (4096).
+p="$tmp/playback"
+mkdir -p "$p"
+
+# ramp <file> <rate> <channels> <frames> <salt> <ffmpeg sample_fmt> <bits> [extra output options...]
+ramp() {
+    ramp_file="$1"; ramp_rate="$2"; ramp_ch="$3"; ramp_frames="$4"; ramp_salt="$5"; ramp_fmt="$6"; ramp_bits="$7"
+    shift 7
+    ramp_range=$(( 1 << ramp_bits )); ramp_half=$(( ramp_range / 2 ))
+    ramp_exprs=""
+    ramp_c=0
+    while [ "$ramp_c" -lt "$ramp_ch" ]; do
+        ramp_step=$(( 7 + 6 * ramp_c ))
+        ramp_e="mod(n*$ramp_step+$ramp_salt\\,$ramp_range)/$ramp_half-1"
+        if [ -z "$ramp_exprs" ]; then ramp_exprs="$ramp_e"; else ramp_exprs="$ramp_exprs|$ramp_e"; fi
+        ramp_c=$(( ramp_c + 1 ))
+    done
+    case "$ramp_ch" in 1) ramp_layout=mono ;; 2) ramp_layout=stereo ;; 6) ramp_layout=5.1 ;; esac
+    # The length is given as a duration with enough digits to hit `frames` exactly (checked by the tests).
+    ramp_dur=$(awk -v f="$ramp_frames" -v r="$ramp_rate" 'BEGIN { printf "%.9f", f / r }')
+    ff -f lavfi -i "aevalsrc=exprs=$ramp_exprs:s=$ramp_rate:c=$ramp_layout:d=$ramp_dur" -sample_fmt "$ramp_fmt" "$@" "$ramp_file"
+}
+
+ramp "$p/a.flac"        44100 2 136710 0     s16 16 -c:a flac
+ramp "$p/b.flac"        44100 2 110250 5000  s16 16 -c:a flac
+ramp "$p/c.flac"        44100 2 88200  9000  s16 16 -c:a flac
+ramp "$p/tiny.flac"     44100 2 2205   100   s16 16 -c:a flac
+ramp "$p/tiny2.flac"    44100 2 1500   200   s16 16 -c:a flac
+ramp "$p/r48.flac"      48000 2 96000  300   s16 16 -c:a flac
+ramp "$p/r96_24.flac"   96000 2 192000 400   s32 24 -c:a flac -bits_per_raw_sample 24
+ramp "$p/mono22.flac"   22050 1 33075  500   s16 16 -c:a flac
+ramp "$p/surround.flac" 44100 6 66150  600   s16 16 -c:a flac
+ramp "$p/a.wav"         44100 2 136710 0     s16 16 -c:a pcm_s16le
+ramp "$p/a.aiff"        44100 2 136710 0     s16 16 -c:a pcm_s16be
+ramp "$p/a.caf"         44100 2 136710 0     s16 16 -c:a pcm_s16le
+ramp "$p/a_alac.m4a"    44100 2 136710 0     s16p 16 -c:a alac
+# tone <file> <rate> <channels> <frames> <frequency> <ffmpeg sample_fmt> [extra output options...]
+# A sine wave, 0.5 amplitude in the first channel and 0.25 in the second (so swapped channels are noticed).
+# Used where the exact samples can't be predicted (resampling) but the waveform can: the tests compare the
+# rendered audio with the analytic sine, and a click shows up as a step between two neighbouring samples.
+tone() {
+    tone_file="$1"; tone_rate="$2"; tone_ch="$3"; tone_frames="$4"; tone_freq="$5"; tone_fmt="$6"
+    shift 6
+    tone_exprs="0.5*sin(2*PI*$tone_freq*t)"
+    if [ "$tone_ch" -ge 2 ]; then tone_exprs="$tone_exprs|0.25*sin(2*PI*$tone_freq*t)"; fi
+    case "$tone_ch" in 1) tone_layout=mono ;; 2) tone_layout=stereo ;; esac
+    tone_dur=$(awk -v f="$tone_frames" -v r="$tone_rate" 'BEGIN { printf "%.9f", f / r }')
+    ff -f lavfi -i "aevalsrc=exprs=$tone_exprs:s=$tone_rate:c=$tone_layout:d=$tone_dur" -sample_fmt "$tone_fmt" "$@" "$tone_file"
+}
+
+tone "$p/sine44.flac"      44100 2 132300 1000 s16 -c:a flac
+tone "$p/sine48.flac"      48000 2 96000  1000 s16 -c:a flac
+tone "$p/sine32.flac"      32000 2 64000  1000 s16 -c:a flac
+tone "$p/sine96_24.flac"   96000 2 192000 1000 s32 -c:a flac -bits_per_raw_sample 24
+tone "$p/sine22_mono.flac" 22050 1 44100  1000 s16 -c:a flac
+# lossy formats: length and seeking can only be approximately checked
+ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a libmp3lame "$p/lossy.mp3"
+ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a aac "$p/lossy.m4a"
+ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a vorbis -strict -2 "$p/lossy.ogg"
+# a FLAC cut in the middle: the header still promises the full length
+head -c 60000 "$p/a.flac" > "$p/truncated.flac"
 
 # ---------------------------------------------------------------- broken files
 b="$tmp/broken"

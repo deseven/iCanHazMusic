@@ -7,7 +7,7 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 |---|---|
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
 | `tests/` | Swift Testing suite (`swift test`), see *Tests* below. |
-| `docs/` | Background notes (`tag-parsing.md` = what the macOS tag APIs do and why the reader is built the way it is). |
+| `docs/` | Background notes (`tag-parsing.md` = what the macOS tag APIs do and why the reader is built the way it is; `playback.md` = why `AVAudioEngine` and not `AVPlayer` (AVFoundation's FLAC seeking/padding bugs), how the engine works, API quirks). |
 | `old-src/` | Legacy PureBasic version. Reference only, don't touch. |
 | `build.sh` | Builds the `.app` bundle in `dist/` (see below). |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
@@ -17,7 +17,7 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 | Folder | What |
 |---|---|
 | `src/App/` | `@main` entry point and `AppDelegate`. |
-| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift` = playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes; `PlaylistFile.swift` = file format, `TrackEntry.swift` = one flat stored track; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups flat entries into albums by directory + album tag, for imports and loads alike; `AlbumKey` = that identity as a string, also the cover cache key), `Artwork/` (`AlbumArtProcessor` = per album: pick the source by the `ArtworkSource` priority, extract the image bytes once, shrink, cache; `Thumbnailer` = ImageIO resize to a square `AppConstants.coverThumbnailPixels` JPEG/PNG; `CoverStore` = SQLite cache `.cache/covers.sqlite`, key -> image bytes), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; see `docs/tag-parsing.md`; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort; as soon as all files of a directory are read, its albums' art is processed concurrently with the remaining reads), `Playback/` (`PlaybackState.swift`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
+| `src/Core/` | Logic. **Foundation only: never import SwiftUI/AppKit here.** `Config/` (`Config.swift`, `ConfigStore.swift` for `config.json`, `ConfigLimits.swift` validation limits), `Playlists/` (`PlaylistStore.swift` = playlist list + the one active playlist, which is loaded async when activated, unloaded on switch/delete and saved in the background after changes; `PlaylistFile.swift` = file format, `TrackEntry.swift` = one flat stored track; `Playlist.swift` is the flattened album/track row model; `AlbumBuilder.swift` groups flat entries into albums by directory + album tag, for imports and loads alike; `AlbumKey` = that identity as a string, also the cover cache key), `Artwork/` (`AlbumArtProcessor` = per album: pick the source by the `ArtworkSource` priority, extract the image bytes once, shrink, cache; `Thumbnailer` = ImageIO resize to a square `AppConstants.coverThumbnailPixels` JPEG/PNG; `CoverStore` = SQLite cache `.cache/covers.sqlite`, key -> image bytes), `Tags/` (tag reading via AudioToolbox/AVFoundation, album art detection; see `docs/tag-parsing.md`; `TrailingTags.swift` recovers values that ID3v1 cut at 30 bytes from a Lyrics3v2/APEv2 block at the end of v1-only MP3s), `Import/` (`AudioFileGatherer` = supported extensions, recursive walk, dedupe, natural sort; `ImportSession` = gather -> read tags -> build albums, publishes progress, supports abort; as soon as all files of a directory are read, its albums' art is processed concurrently with the remaining reads), `Playback/` (`PlaybackEngine` = gapless playback of a current + next track through one `AVAudioPlayerNode`, with fades, exact position, offline rendering for tests; `TrackDecoder` = one file -> stereo float32 chunks at the output rate (own queue, exact length, seeking, resampling); `ChannelDownmix`; `PlaybackState` = playlist logic and what the playback block shows, on top of the engine; see `docs/playback.md` for why it is not `AVPlayer`), `Constants.swift`, `Log.swift`, `StableHash.swift`. |
 | `src/UI/` | Views and AppKit glue. `Layout.swift` (layout constants), `MainWindow/`, `Playback/`, `Playlist/` (virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` row offsets, row views, `CoverCache` = cached thumbnail from `CoverStore` or generated placeholder), `About/`, `Dialogs/` (`Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows), `Window/` (`WindowPersistence.swift`, `WindowAccessor.swift`), `Import/` (`ImportCoordinator` = File menu / drag and drop entry points, `ImportProgressSheet` + `ImportProgressView` = the modal progress sheet). |
 
 UI may depend on Core, never the other way round. One view per file.
@@ -59,9 +59,17 @@ leave the directory in a sane state afterwards.
 - Tests never touch the real working directory: `ConfigStore(paths:)`, `PlaylistStore(paths:configStore:)`,
   `CoverStore(url:thumbnailPixels:)` and `ImportSession(coverStore:)` take their locations as parameters, tests use
   `TempDir` (`tests/Support/Fixtures.swift`). Don't touch `.shared` singletons from tests.
-- Not covered: `PlaybackState` (AVQueuePlayer + `PlaylistStore.shared`) and the SwiftUI/AppKit layer.
+- Playback tests run the engine **offline** (`PlaybackEngine(output: .offline(sampleRate:))`, driven by `EngineRig` in
+  `tests/Support`): the output is compared sample by sample with the generated ramp/tone fixtures (`RampFile`/`ToneFile`
+  in `PlaybackSupport.swift`, files `playback/*` made by `prepare-fixtures.sh`). `PlaybackState(store:engine:tickInterval:)`
+  takes its store and engine as parameters; use `tickInterval: nil` and call `tick()` yourself. Mind the app's default
+  volume of 0.7 when comparing samples.
+- Not covered: the real output device (start/stop, device changes; see `docs/playback.md`) and the SwiftUI/AppKit layer.
 
 ### Quirks worth knowing
+- A **crash** in the test process (a failed `precondition`, a force-unwrapped nil, an ObjC exception) looks like a
+  **hang** of `swift test`: the Swift backtracer symbolicates for minutes. Run with `SWIFT_BACKTRACE=enable=no` to fail
+  fast, and wrap long runs in `timeout`. Test helpers should report problems with `#expect`/return values, not trap.
 - SwiftUI does not honor the sidebar's ideal width (it always starts at 140). Don't fight it; the width is saved
   but not forced.
 - SwiftUI re-places the window after the view is attached, so `WindowPersistence` applies the saved frame twice

@@ -1,0 +1,605 @@
+import Foundation
+import Testing
+@testable import iCanHazMusic
+
+extension AllTests {
+    /// The playlist logic of playback (which track follows which, what the playback block shows), running on an
+    /// offline engine and a store of its own.
+    @MainActor @Suite("PlaybackState")
+    struct PlaybackStateTests {
+        private static let slice = PlaybackEngine.renderSlice
+
+        /// A store with a playlist, a `PlaybackState` on an offline engine, and the rig to drive it.
+        @MainActor private struct Env {
+            let dir: TempDir
+            let store: PlaylistStore
+            let rig: EngineRig
+            let state: PlaybackState
+
+            var engine: PlaybackEngine { rig.engine }
+
+            /// Output frame `i` is the first sample of the track starting after `tracks`.
+            func start(_ tracks: [RampFile]) -> Int { tracks.reduce(0) { $0 + $1.frames } }
+
+            /// Renders `frames` and refreshes what the playback block would show.
+            func run(_ frames: Int) async throws {
+                try await rig.render(frames)
+                state.tick()
+            }
+        }
+
+        private func entry(_ file: RampFile, title: String, album: String, track: Int, year: String? = nil) throws -> TrackEntry {
+            Make.entry(try file.url().path, artist: "Artist \(album)", album: album, title: title, track: track, year: year)
+        }
+
+        private func makeEnv(_ entries: [TrackEntry], lookahead: Double = 60, positionStep: Double = 0) async throws -> Env {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            let store = PlaylistStore(paths: paths, configStore: config)
+            #expect(await waitUntil { !store.isLoading })
+            await store.append(Make.albums(entries), to: "main")
+            let rig = EngineRig(lookahead: lookahead)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: positionStep)
+            state.volume = 1        // the app's default is 0.7; the tests compare against the files' samples
+            // The state is the engine's listener now; keep recording what the engine reports.
+            let listener = rig.engine.onEvent
+            rig.engine.onEvent = { [weak rig] event in
+                rig?.record(event)
+                listener?(event)
+            }
+            return Env(dir: dir, store: store, rig: rig, state: state)
+        }
+
+        /// Album "X": a, b, c. Album "Y": tiny, tiny2 (very short).
+        private func standard() async throws -> Env {
+            try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1, year: "2001"),
+                entry(.b, title: "A2", album: "X", track: 2, year: "2001"),
+                entry(.c, title: "A3", album: "X", track: 3, year: "2001"),
+                entry(.tiny, title: "B1", album: "Y", track: 1),
+                entry(.tiny2, title: "B2", album: "Y", track: 2),
+            ])
+        }
+
+        // MARK: Starting
+
+        @Test("starting a track shows it and plays it exactly")
+        func start() async throws {
+            let env = try await standard()
+            #expect(env.state.status == .stopped && env.state.isStopped)
+            env.state.play(albumIndex: 0, trackIndex: 1)
+
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.state.info?.artist == "Artist X")
+            #expect(env.state.info?.album == "X")
+            #expect(env.state.info?.year == "2001")
+            #expect(env.state.info?.codec == "FLAC")
+            #expect(env.state.position == 0)
+            #expect(env.store.playingName == "main")
+
+            try await env.run(6 * Self.slice)
+            #expect(env.rig.deviation(of: .b, from: 0, at: 0, count: 6 * Self.slice) == 0)
+            #expect(env.state.duration == RampFile.b.duration)           // the exact one, from the file
+            #expect(abs(env.state.position - Double(6 * Self.slice) / 44100) < 1e-6)
+        }
+
+        @Test("starting from a row: a header starts the album, a track row that track, nonsense nothing")
+        func startFromRow() async throws {
+            let env = try await standard()
+            let rows = env.store.activePlaylist.rows
+            #expect(rows[0].isHeader)
+
+            env.state.play(row: 0)
+            #expect(env.state.info?.title == "A1")
+            env.state.play(row: 2)                       // header, A1, A2
+            #expect(env.state.info?.title == "A2")
+            let headerOfY = env.store.activePlaylist.headerRow[1]
+            env.state.play(row: headerOfY)
+            #expect(env.state.info?.title == "B1")
+
+            let before = env.state.info?.title
+            env.state.play(row: 999)
+            env.state.play(row: -1)
+            env.state.play(albumIndex: 5, trackIndex: 0)
+            env.state.play(albumIndex: 0, trackIndex: 9)
+            #expect(env.state.info?.title == before)
+        }
+
+        @Test("starting another track while one plays replaces it")
+        func replace() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            let at = env.rig.frame
+            env.state.play(albumIndex: 0, trackIndex: 2)
+            try await env.run(8 * Self.slice)
+            #expect(env.state.info?.title == "A3")
+            let settled = at + env.rig.fadeFrames + env.rig.fadeInFrames
+            #expect(env.rig.deviation(of: .c, from: env.rig.fadeInFrames, at: settled, count: env.rig.frame - settled) == 0)
+        }
+
+        // MARK: Following the playlist
+
+        @Test("the tracks of an album follow each other gaplessly, and the display follows along")
+        func albumOrder() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            let a = RampFile.a, b = RampFile.b, c = RampFile.c
+
+            try await env.run(a.frames - 1000)
+            #expect(env.state.info?.title == "A1")
+            try await env.run(2000)
+            #expect(env.state.info?.title == "A2")
+            #expect(abs(env.state.position - 1000.0 / 44100) < 0.03)    // 1000 frames into the second track
+
+            try await env.run(b.frames - 1000 + 2000)
+            #expect(env.state.info?.title == "A3")
+
+            try await env.run(c.frames + 1000)
+            // Into the next album: the short tracks of "Y".
+            #expect(env.state.info?.album == "Y")
+
+            #expect(env.rig.deviation(of: a, from: 0, at: 0, count: a.frames) == 0)
+            #expect(env.rig.deviation(of: b, from: 0, at: a.frames, count: b.frames) == 0)
+            #expect(env.rig.deviation(of: c, from: 0, at: a.frames + b.frames, count: c.frames) == 0)
+            #expect(env.rig.deviation(of: .tiny, from: 0, at: a.frames + b.frames + c.frames, count: RampFile.tiny.frames) == 0)
+        }
+
+        @Test("the playlist ends after its last track: stopped, nothing shown, nothing held")
+        func endOfPlaylist() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 1, trackIndex: 0)
+            try await env.run(RampFile.tiny.frames + RampFile.tiny2.frames + 3 * Self.slice)
+
+            #expect(env.state.status == .stopped)
+            #expect(env.state.info == nil)
+            #expect(env.state.position == 0 && env.state.duration == 0)
+            #expect(env.store.playingName == nil)
+            #expect(!env.engine.isActive)
+            #expect(env.rig.events.last == "finished")
+        }
+
+        @Test("a one-track playlist plays and stops")
+        func singleTrack() async throws {
+            let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .stopped)
+            #expect(env.rig.deviation(of: .tiny, from: 0, at: 0, count: RampFile.tiny.frames) == 0)
+        }
+
+        @Test("a long run of very short tracks plays through, each one after the other, without a hole")
+        func shortRun() async throws {
+            let entries = try (0..<12).map { n in
+                try entry(n.isMultiple(of: 2) ? .tiny : .tiny2, title: "S\(n)", album: "Shorts", track: n + 1)
+            }
+            let env = try await makeEnv(entries)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            let files = (0..<12).map { $0.isMultiple(of: 2) ? RampFile.tiny : .tiny2 }
+            try await env.run(files.reduce(0) { $0 + $1.frames } + 4 * Self.slice)
+
+            var at = 0
+            for (n, file) in files.enumerated() {
+                #expect(env.rig.deviation(of: file, from: 0, at: at, count: file.frames) == 0, "track \(n)")
+                at += file.frames
+            }
+            #expect(env.state.status == .stopped)
+        }
+
+        @Test("playback goes on from the playing playlist while another one is shown")
+        func otherPlaylistShown() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+
+            try env.store.create(named: "other")          // becomes the active one
+            #expect(env.store.activeName == "other")
+            #expect(env.state.status == .playing)
+            try await env.run(RampFile.a.frames)          // across the first boundary
+            #expect(env.state.info?.title == "A2")
+            #expect(env.rig.deviation(of: .b, from: 0, at: RampFile.a.frames, count: 3 * Self.slice) == 0)
+        }
+
+        // MARK: Next / previous
+
+        @Test("next track plays the following one, previous the one before; the tracks after follow")
+        func nextPrevious() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            try await env.run(4 * Self.slice)
+
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "A3")
+            try await env.run(4 * Self.slice)
+            env.state.previousTrack()
+            #expect(env.state.info?.title == "A2")
+            env.state.previousTrack()
+            #expect(env.state.info?.title == "A1")
+            try await env.run(8 * Self.slice)
+            let at = env.rig.frame - 8 * Self.slice
+            #expect(env.rig.deviation(of: .a, from: env.rig.fadeInFrames, at: at + env.rig.fadeFrames + env.rig.fadeInFrames,
+                                      count: 8 * Self.slice - env.rig.fadeFrames - env.rig.fadeInFrames) == 0)
+        }
+
+        @Test("next track crosses into the next album, and does nothing after the very last track")
+        func nextTrackAcrossAlbums() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 2)
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "B1")
+            #expect(env.state.info?.album == "Y")
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "B2")
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .playing || env.state.status == .stopped)
+
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            env.state.nextTrack()                         // last track: nothing
+            #expect(env.state.info?.title == "B2")
+            #expect(env.state.status == .playing)
+        }
+
+        @Test("previous track goes back across albums, and restarts the very first track")
+        func previousTrackAcrossAlbums() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 1, trackIndex: 0)
+            env.state.previousTrack()
+            #expect(env.state.info?.title == "A3")
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(8 * Self.slice)
+            #expect(env.state.position > 0.1)
+            env.state.previousTrack()                     // first track of the first album: from the beginning
+            #expect(env.state.info?.title == "A1")
+            #expect(env.state.position == 0)
+            try await env.run(8 * Self.slice)
+            #expect(env.state.position < 0.3)
+        }
+
+        @Test("next and previous album start the first track of that album")
+        func albums() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 2)
+            env.state.nextAlbum()
+            #expect(env.state.info?.title == "B1")
+            env.state.nextAlbum()                         // last album: nothing
+            #expect(env.state.info?.title == "B1")
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            env.state.previousAlbum()
+            #expect(env.state.info?.title == "A1")
+            env.state.play(albumIndex: 0, trackIndex: 2)
+            env.state.previousAlbum()                     // first album: its first track again
+            #expect(env.state.info?.title == "A1")
+        }
+
+        @Test("navigation commands do nothing while stopped")
+        func navigationWhileStopped() async throws {
+            let env = try await standard()
+            env.state.nextTrack()
+            env.state.previousTrack()
+            env.state.nextAlbum()
+            env.state.previousAlbum()
+            env.state.togglePause()
+            env.state.seek(to: 3)
+            env.state.tick()
+            #expect(env.state.status == .stopped && env.state.info == nil)
+            #expect(!env.engine.isActive)
+        }
+
+        @Test("next track while the engine has just crossed a boundary: the display and the audio agree")
+        func nextAtBoundary() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.rig.render(RampFile.a.frames + 10)   // crossed, but no tick() yet
+            env.state.nextTrack()                              // must skip the track that already follows
+            #expect(env.state.info?.title == "A3")
+        }
+
+        // MARK: Pause, seek, stop
+
+        @Test("pause and play again")
+        func togglePause() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(6 * Self.slice)
+
+            env.state.togglePause()
+            #expect(env.state.status == .paused)
+            try await env.run(6 * Self.slice)
+            let frozen = env.state.position
+            try await env.run(4 * Self.slice)
+            #expect(env.state.position == frozen)
+            #expect(env.state.info?.title == "A1")         // still shown while paused
+
+            env.state.togglePause()
+            #expect(env.state.status == .playing)
+            try await env.run(6 * Self.slice)
+            #expect(env.state.position > frozen)
+        }
+
+        @Test("a seek moves the position at once and the audio follows exactly")
+        func seek() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            let at = env.rig.frame
+            env.state.seek(to: 1.5)
+            #expect(env.state.position == 1.5)
+            try await env.run(8 * Self.slice)
+
+            let first = Int((1.5 * 44100).rounded())
+            let settled = at + env.rig.fadeFrames + env.rig.fadeInFrames
+            #expect(env.rig.deviation(of: .a, from: first + env.rig.fadeInFrames, at: settled, count: env.rig.frame - settled) == 0)
+            #expect(env.state.position > 1.5)
+        }
+
+        @Test("a seek is limited to the track: just before its end at most, below zero means the beginning")
+        func seekClamped() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)          // the duration is known now
+            env.state.seek(to: 10_000)
+            #expect(env.state.position <= RampFile.a.duration - 0.04)
+            #expect(env.state.position >= RampFile.a.duration - 0.06)
+            env.state.seek(to: -4)
+            #expect(env.state.position == 0)
+        }
+
+        @Test("seeking before the length of the track is known is ignored, as the position can't be limited yet")
+        func seekBeforeDuration() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(env.state.duration == 0)
+            env.state.seek(to: 1)
+            #expect(env.state.position == 0)
+        }
+
+        @Test("seeking a paused track keeps it paused at the new position")
+        func seekPaused() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            env.state.togglePause()
+            try await env.run(4 * Self.slice)
+            env.state.seek(to: 2)
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .paused)
+            #expect(env.state.position == 2)
+            #expect(isSilent(env.rig.out, in: (env.rig.frame - 3 * Self.slice)..<env.rig.frame))
+        }
+
+        @Test("stop clears everything and lets go of the playlist")
+        func stop() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            try await env.run(6 * Self.slice)
+            env.state.stop()
+
+            #expect(env.state.status == .stopped)
+            #expect(env.state.info == nil && env.state.artwork == nil)
+            #expect(env.state.position == 0 && env.state.duration == 0)
+            #expect(env.store.playingName == nil)
+            try await env.run(6 * Self.slice)
+            #expect(isSilent(env.rig.out, in: (env.rig.frame - 4 * Self.slice)..<env.rig.frame))
+            #expect(!env.engine.isActive)
+            #expect(env.rig.events.isEmpty)       // stopping isn't "finished"
+        }
+
+        @Test("a stopped player starts again from the next play command")
+        func playAfterStop() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            env.state.stop()
+            try await env.run(4 * Self.slice)
+            let at = env.rig.frame
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            try await env.run(6 * Self.slice)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.rig.deviation(of: .b, from: env.rig.fadeInFrames, at: at + env.rig.fadeInFrames,
+                                      count: 6 * Self.slice - env.rig.fadeInFrames) == 0)
+        }
+
+        @Test("deleting the playlist that plays stops the playback")
+        func deletePlaying() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            try env.store.create(named: "other")
+            try await env.store.delete("main")
+            #expect(env.state.status == .stopped)
+            #expect(env.store.playingName == nil)
+        }
+
+        @Test("the volume reaches the output")
+        func volume() async throws {
+            let env = try await standard()
+            env.state.volume = 0.5
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(10 * Self.slice)
+            let from = 6 * Self.slice
+            let d = maxDeviation(env.rig.out, from: from, count: 4 * Self.slice) { RampFile.a.value(from + $0, channel: $1) * 0.5 }
+            #expect(d < 1e-6)
+        }
+
+        // MARK: A playlist that grows
+
+        @Test("tracks appended while the last one plays continue the playback gaplessly")
+        func appendToLast() async throws {
+            let env = try await makeEnv([entry(.a, title: "A1", album: "X", track: 1)])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+
+            await env.store.append(Make.albums([try entry(.b, title: "N1", album: "New", track: 1)]), to: "main")
+            try await env.run(RampFile.a.frames + 4 * Self.slice)
+
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "N1")
+            #expect(env.rig.deviation(of: .a, from: 0, at: 0, count: RampFile.a.frames) == 0)
+            #expect(env.rig.deviation(of: .b, from: 0, at: RampFile.a.frames, count: 3 * Self.slice) == 0)
+        }
+
+        @Test("tracks appended to the album that plays join it, and play after its current last track")
+        func appendToAlbum() async throws {
+            let env = try await makeEnv([entry(.tiny, title: "A1", album: "X", track: 1)])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            await env.store.append(Make.albums([try entry(.b, title: "A2", album: "X", track: 2)]), to: "main")
+            #expect(env.store.activePlaylist.albums.count == 1)
+            try await env.run(RampFile.tiny.frames + 4 * Self.slice)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.rig.deviation(of: .b, from: 0, at: RampFile.tiny.frames, count: 3 * Self.slice) == 0)
+        }
+
+        @Test("tracks appended behind the next one change nothing about what is queued")
+        func appendFarAway() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            await env.store.append(Make.albums([try entry(.c, title: "Z1", album: "Z", track: 1)]), to: "main")
+            try await env.run(RampFile.a.frames + RampFile.b.frames)
+            // No restart: a and b are exact and contiguous, without any fade between them.
+            #expect(env.rig.deviation(of: .a, from: 0, at: 0, count: RampFile.a.frames) == 0)
+            #expect(env.rig.deviation(of: .b, from: 0, at: RampFile.a.frames, count: RampFile.b.frames - 4 * Self.slice) == 0)
+        }
+
+        @Test("tracks appended once the playback has stopped are just playlist content")
+        func appendWhileStopped() async throws {
+            let env = try await standard()
+            await env.store.append(Make.albums([try entry(.c, title: "Z1", album: "Z", track: 1)]), to: "main")
+            #expect(env.state.status == .stopped)
+            #expect(!env.engine.isActive)
+        }
+
+        // MARK: Tracks that fail
+
+        private func entryMissing(title: String, album: String, track: Int) -> TrackEntry {
+            Make.entry("/nonexistent/\(title).flac", artist: "Artist \(album)", album: album, title: title, track: track)
+        }
+
+        @Test("a track that can't be opened is skipped when it is next in line")
+        func skipMissingNext() async throws {
+            let env = try await makeEnv([
+                entry(.tiny, title: "A1", album: "X", track: 1),
+                entryMissing(title: "Gone", album: "X", track: 2),
+                entry(.tiny2, title: "A3", album: "X", track: 3),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(RampFile.tiny.frames + RampFile.tiny2.frames + 4 * Self.slice)
+
+            #expect(env.rig.events.contains("failed:Gone.flac:next"))
+            #expect(env.rig.deviation(of: .tiny, from: 0, at: 0, count: RampFile.tiny.frames) == 0)
+            #expect(env.rig.deviation(of: .tiny2, from: 0, at: RampFile.tiny.frames, count: RampFile.tiny2.frames) == 0)
+            #expect(env.state.status == .stopped)
+        }
+
+        @Test("a track that can't be opened when started is skipped, the next one plays")
+        func skipMissingCurrent() async throws {
+            let env = try await makeEnv([
+                entryMissing(title: "Gone", album: "X", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(6 * Self.slice)
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.rig.deviation(of: .b, from: 0, at: 0, count: 6 * Self.slice) == 0)
+        }
+
+        @Test("several missing tracks in a row are all skipped")
+        func skipSeveral() async throws {
+            let env = try await makeEnv([
+                entry(.tiny, title: "A1", album: "X", track: 1),
+                entryMissing(title: "G1", album: "X", track: 2),
+                entryMissing(title: "G2", album: "X", track: 3),
+                entryMissing(title: "G3", album: "X", track: 4),
+                entry(.tiny2, title: "A5", album: "X", track: 5),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(RampFile.tiny.frames + RampFile.tiny2.frames + 6 * Self.slice)
+            #expect(env.rig.deviation(of: .tiny2, from: 0, at: RampFile.tiny.frames, count: RampFile.tiny2.frames) == 0)
+            #expect(env.rig.events.filter { $0.hasPrefix("failed") }.count >= 3)
+        }
+
+        @Test("a playlist of nothing but missing tracks stops")
+        func allMissing() async throws {
+            let env = try await makeEnv([
+                entryMissing(title: "G1", album: "X", track: 1),
+                entryMissing(title: "G2", album: "X", track: 2),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(6 * Self.slice)
+            #expect(env.state.status == .stopped)
+            #expect(env.store.playingName == nil)
+        }
+
+        @Test("a missing last track ends the playback after the one before it")
+        func missingLast() async throws {
+            let env = try await makeEnv([
+                entry(.tiny, title: "A1", album: "X", track: 1),
+                entryMissing(title: "Gone", album: "X", track: 2),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(RampFile.tiny.frames + 4 * Self.slice)
+            #expect(env.state.status == .stopped)
+            #expect(env.rig.deviation(of: .tiny, from: 0, at: 0, count: RampFile.tiny.frames) == 0)
+        }
+
+        @Test("next track skips over a missing one too")
+        func nextOverMissing() async throws {
+            let env = try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1),
+                entryMissing(title: "Gone", album: "X", track: 2),
+                entry(.c, title: "A3", album: "X", track: 3),
+            ])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            env.state.nextTrack()                  // onto the missing one
+            try await env.run(8 * Self.slice)
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        // MARK: The display
+
+        @Test("the position and duration shown are refreshed by tick")
+        func tick() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.rig.render(4 * Self.slice)
+            #expect(env.state.position == 0)                  // not refreshed yet
+            env.state.tick()
+            #expect(abs(env.state.position - Double(4 * Self.slice) / 44100) < 1e-6)
+            #expect(env.state.duration == RampFile.a.duration)
+        }
+
+        @Test("the position is only published when it moves into another step")
+        func positionStep() async throws {
+            let env = try await makeEnv([try entry(.a, title: "A1", album: "X", track: 1)], positionStep: 1)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+
+            try await env.run(22050)                          // 0.5 s: still in the first second
+            #expect(env.state.position == 0)
+            try await env.run(44100)                          // 1.5 s: in the next one, published as it is
+            #expect(abs(env.state.position - 1.5) < 0.03)
+            let published = env.state.position
+            try await env.run(13230)                          // 1.8 s: same second, no change
+            #expect(env.state.position == published)
+            try await env.run(13230)                          // 2.1 s
+            #expect(abs(env.state.position - 2.1) < 0.03)
+        }
+
+        @Test("the duration of a track comes from the tags until the file says better")
+        func durationFromTags() async throws {
+            let entries = [Make.entry(try RampFile.a.url().path, artist: "A", album: "X", title: "T", track: 1, duration: 123)]
+            let env = try await makeEnv(entries)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(env.state.duration == 123)
+            try await env.run(2 * Self.slice)
+            #expect(env.state.duration == RampFile.a.duration)
+            // And seeking works at once when the tags knew the length.
+            env.state.seek(to: 1)
+            #expect(env.state.position == 1)
+        }
+    }
+}

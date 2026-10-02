@@ -1,14 +1,13 @@
-import AVFoundation
 import CoreGraphics
 import Foundation
 import Observation
 
-/// The playback engine and everything the playback block shows.
+/// What the playback block shows, and the playlist logic of playback: which track follows which.
 ///
-/// Gapless playback comes from an `AVQueuePlayer` that always holds at most two items: the current track and
-/// the one after it in the playlist (the next album's first track after the last track of an album). The next
-/// one is enqueued as soon as a track starts, so AVFoundation has time to prepare it. Whenever the user changes
-/// what's playing (a new track, next/previous, ...) the queue is emptied and built again.
+/// The audio itself is played by `PlaybackEngine`, which always holds at most two tracks: the current one and
+/// the one after it in the playlist (the next album's first track after the last track of an album), so the
+/// transition between them is gapless. The next one is handed over as soon as a track starts. Whenever the user
+/// changes what's playing (a new track, next/previous, ...) the engine's queue is replaced.
 ///
 /// Playback runs from a playlist held by `PlaylistStore` (`playingPlaylist`), which stays in memory while
 /// something is playing or paused, even if another playlist is being browsed. The state is purely transitional:
@@ -16,7 +15,7 @@ import Observation
 @MainActor
 @Observable
 final class PlaybackState {
-    static let shared = PlaybackState()
+    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine())
 
     enum Status { case stopped, playing, paused }
 
@@ -44,44 +43,39 @@ final class PlaybackState {
     private(set) var artwork: CGImage?
 
     var volume: Double = 0.7 {
-        didSet { player.volume = Float(volume) }
+        didSet { engine.volume = Float(volume) }
     }
 
     var isStopped: Bool { status == .stopped }
 
     // MARK: Internals
 
-    @ObservationIgnored private let player = AVQueuePlayer()
-    @ObservationIgnored private let store = PlaylistStore.shared
+    @ObservationIgnored private let engine: PlaybackEngine
+    @ObservationIgnored private let store: PlaylistStore
+    @ObservationIgnored private let tickInterval: Duration?
+    @ObservationIgnored private let positionStep: Double
 
     @ObservationIgnored private var currentPos: Position?
     @ObservationIgnored private var nextPos: Position?
-    @ObservationIgnored private var currentItem: AVPlayerItem?
-    @ObservationIgnored private var nextItem: AVPlayerItem?
-    @ObservationIgnored private var statusObservers: [ObjectIdentifier: NSKeyValueObservation] = [:]
-    @ObservationIgnored private var currentItemObservation: NSKeyValueObservation?
-    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var tickTask: Task<Void, Never>?
 
     /// `Album.key` of the album the loaded (or loading) artwork belongs to.
     @ObservationIgnored private var artworkKey: String?
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
 
-    @ObservationIgnored private var seekToken = 0
-    @ObservationIgnored private var isSeeking = false
-
-    private init() {
-        player.volume = Float(volume)
-
-        // KVO fires on whatever thread AVFoundation uses, so always hop to the main actor and look at the
-        // player's state there.
-        currentItemObservation = player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in self?.currentItemDidChange() }
-        }
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
+    /// `tickInterval`: how often the position is refreshed while something plays; `nil` leaves that to `tick()`.
+    /// `positionStep`: `position` is only published when it moves into another multiple of this many seconds
+    /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
+    /// 4 updates a second); 0 publishes every change.
+    init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
+         positionStep: Double = 1) {
+        self.store = store
+        self.engine = engine
+        self.tickInterval = tickInterval
+        self.positionStep = positionStep
+        engine.volume = Float(volume)
+        engine.onEvent = { [weak self] event in self?.handle(event) }
+        store.playback = self
     }
 
     // MARK: - Commands
@@ -108,10 +102,10 @@ final class PlaybackState {
     func togglePause() {
         switch status {
         case .playing:
-            player.pause()
+            engine.pause()
             status = .paused
         case .paused:
-            player.play()
+            engine.resume()
             status = .playing
         case .stopped:
             break
@@ -120,8 +114,10 @@ final class PlaybackState {
 
     func stop() {
         status = .stopped
-        player.pause()
-        clearQueue()
+        engine.stop()
+        stopTicking()
+        currentPos = nil
+        nextPos = nil
         artworkTask?.cancel()
         artworkTask = nil
         artworkKey = nil
@@ -129,27 +125,26 @@ final class PlaybackState {
         info = nil
         position = 0
         duration = 0
-        isSeeking = false
         store.playbackEnded()
     }
 
     /// Does nothing on the last track of the playlist.
     func nextTrack() {
-        syncWithPlayer()
+        syncWithEngine()
         guard let pos = currentPos, let next = following(pos) else { return }
         begin(at: next)
     }
 
     /// The previous track, or the beginning of the current one if it is the first.
     func previousTrack() {
-        syncWithPlayer()
+        syncWithEngine()
         guard let pos = currentPos else { return }
         begin(at: preceding(pos) ?? pos)
     }
 
     /// Does nothing in the last album of the playlist.
     func nextAlbum() {
-        syncWithPlayer()
+        syncWithEngine()
         guard let pos = currentPos, let playlist = store.playingPlaylist,
               pos.album + 1 < playlist.albums.count else { return }
         begin(at: Position(album: pos.album + 1, track: 0))
@@ -157,7 +152,7 @@ final class PlaybackState {
 
     /// The first track of the previous album (of the current one if it is the first).
     func previousAlbum() {
-        syncWithPlayer()
+        syncWithEngine()
         guard let pos = currentPos else { return }
         begin(at: Position(album: max(pos.album - 1, 0), track: 0))
     }
@@ -166,17 +161,7 @@ final class PlaybackState {
         guard status != .stopped, duration > 0 else { return }
         let target = min(max(seconds, 0), max(duration - 0.05, 0))
         position = target
-
-        isSeeking = true
-        seekToken += 1
-        let token = seekToken
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.seekToken == token else { return }
-                self.isSeeking = false
-            }
-        }
+        engine.seek(to: target)
     }
 
     /// The playing playlist got more tracks (they are only ever added at the end, which keeps the position
@@ -184,131 +169,112 @@ final class PlaybackState {
     /// was the last.
     func playlistDidChange() {
         guard status != .stopped else { return }
-        syncWithPlayer()
+        syncWithEngine()
         guard let pos = currentPos, following(pos) != nextPos else { return }
-        removeNext()
         prepareNext(after: pos)
     }
 
     // MARK: - Queue management
 
-    /// Replaces the queue with `pos` and the track after it, and plays.
+    /// Replaces the engine's queue with `pos` and the track after it, and plays.
     private func begin(at pos: Position) {
         guard let playlist = store.playingPlaylist, let track = track(at: pos, in: playlist) else {
             stop()
             return
         }
 
-        player.pause()
-        clearQueue()
-
-        let item = makeItem(for: track.url)
-        currentItem = item
         currentPos = pos
-        player.insert(item, after: nil)
-        prepareNext(after: pos)
+        nextPos = following(pos)
+        let next = nextPos.flatMap { self.track(at: $0, in: playlist) }
+        engine.start(track.url, next: next?.url)
 
         status = .playing
-        isSeeking = false
         trackDidChange()
-        player.play()
+        startTicking()
     }
 
-    /// Enqueues the track following `pos`, if there is one.
+    /// Hands the track following `pos` (if there is one) to the engine.
     private func prepareNext(after pos: Position) {
         guard let playlist = store.playingPlaylist, let next = following(pos),
               let track = track(at: next, in: playlist) else {
             nextPos = nil
-            nextItem = nil
+            engine.setNext(nil)
             return
         }
-        let item = makeItem(for: track.url)
         nextPos = next
-        nextItem = item
-        player.insert(item, after: nil)
+        engine.setNext(track.url)
     }
 
-    private func removeNext() {
-        if let item = nextItem {
-            statusObservers[ObjectIdentifier(item)] = nil
-            player.remove(item)
-        }
-        nextItem = nil
-        nextPos = nil
-    }
+    // MARK: - Reacting to the engine
 
-    private func clearQueue() {
-        player.removeAllItems()
-        statusObservers.removeAll()
-        currentItem = nil
-        nextItem = nil
-        currentPos = nil
-        nextPos = nil
-    }
-
-    private func makeItem(for url: URL) -> AVPlayerItem {
-        let item = AVPlayerItem(url: url)
-        statusObservers[ObjectIdentifier(item)] = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            guard item.status == .failed else { return }
-            Task { @MainActor in self?.itemDidFail(item) }
-        }
-        return item
-    }
-
-    // MARK: - Reacting to the player
-
-    private func currentItemDidChange() {
-        syncWithPlayer()
-    }
-
-    /// Brings our idea of the current track in line with the player's: the queue moves on by itself at the
-    /// end of a track, which is the gapless transition.
-    private func syncWithPlayer() {
+    private func handle(_ event: PlaybackEngine.Event) {
         guard status != .stopped else { return }
-        let item = player.currentItem
-        if let item, item === currentItem { return }
-
-        if let item, item === nextItem, let pos = nextPos {
-            if let old = currentItem { statusObservers[ObjectIdentifier(old)] = nil }
-            currentItem = item
-            currentPos = pos
-            nextItem = nil
-            nextPos = nil
-            trackDidChange()
-            prepareNext(after: pos)
-        } else {
+        switch event {
+        case .advanced:
+            advanceToNext()
+        case .finished:
             // The queue ran out: the end of the playlist, or (very short tracks) it was refilled too late.
-            let last = nextPos ?? currentPos
-            if let last, let next = following(last) {
+            if let last = nextPos ?? currentPos, let next = following(last) {
                 begin(at: next)
             } else {
                 stop()
             }
+        case .failed(let url, let wasCurrent, _):
+            if wasCurrent, let pos = currentPos {
+                if let next = following(pos) { begin(at: next) } else { stop() }
+            } else if let failed = nextPos, let playlist = store.playingPlaylist,
+                      track(at: failed, in: playlist)?.url == url {
+                prepareNext(after: failed)
+            }
+        case .deviceError:
+            stop()
         }
     }
 
-    private func itemDidFail(_ item: AVPlayerItem) {
+    /// The engine moved on by itself at the end of a track, which is the gapless transition.
+    private func advanceToNext() {
+        guard let pos = nextPos else { return }
+        currentPos = pos
+        nextPos = nil
+        trackDidChange()
+        prepareNext(after: pos)
+    }
+
+    /// Lets the engine report a track change that happened since the last look.
+    private func syncWithEngine() {
         guard status != .stopped else { return }
-        let name = (item.asset as? AVURLAsset)?.url.lastPathComponent ?? "?"
-        Log.error("can't play \(name): \(item.error?.localizedDescription ?? "unknown error")")
+        engine.poll()
+    }
 
-        if item === currentItem, let pos = currentPos {
-            if let next = following(pos) { begin(at: next) } else { stop() }
-        } else if item === nextItem, let failed = nextPos {
-            removeNext()
-            prepareNext(after: failed)
+    /// Refreshes the position and duration shown. Runs periodically while something plays.
+    func tick() {
+        guard status != .stopped else { return }
+        engine.poll()
+        guard status != .stopped else { return }   // the poll may have ended playback
+
+        if let exact = engine.duration, exact > 0, abs(exact - duration) > 0.01 { duration = exact }
+        let time = engine.position
+        guard time.isFinite, time >= 0 else { return }
+        let moved = positionStep > 0
+            ? (time / positionStep).rounded(.down) != (position / positionStep).rounded(.down)
+            : abs(time - position) > 0.01
+        if moved { position = time }
+    }
+
+    private func startTicking() {
+        guard let tickInterval, tickTask == nil else { return }
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: tickInterval)
+                guard !Task.isCancelled, let self else { return }
+                self.tick()
+            }
         }
     }
 
-    private func tick() {
-        guard status != .stopped, let item = player.currentItem else { return }
-
-        let seconds = item.duration.seconds
-        if seconds.isFinite, seconds > 0, abs(seconds - duration) > 0.01 { duration = seconds }
-
-        guard !isSeeking else { return }
-        let time = player.currentTime().seconds
-        if time.isFinite, time >= 0, abs(time - position) > 0.01 { position = time }
+    private func stopTicking() {
+        tickTask?.cancel()
+        tickTask = nil
     }
 
     // MARK: - Current track

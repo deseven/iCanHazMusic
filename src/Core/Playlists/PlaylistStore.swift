@@ -58,6 +58,9 @@ final class PlaylistStore {
     private(set) var playingName: String?
     /// The playing playlist while it isn't the active one.
     @ObservationIgnored private var background: (name: String, playlist: Playlist)?
+    /// The playback running from this store's playlists (set by `PlaybackState` itself): told when the playing
+    /// playlist grows or is deleted.
+    @ObservationIgnored weak var playback: PlaybackState?
 
     @ObservationIgnored private let fm = FileManager.default
     @ObservationIgnored private let paths: AppPaths
@@ -146,7 +149,7 @@ final class PlaylistStore {
         activePlaylist = updated
         save(updated, as: match)
         if let playing = playingName, Self.key(playing) == Self.key(match) {
-            PlaybackState.shared.playlistDidChange()
+            playback?.playlistDidChange()
         }
     }
 
@@ -242,7 +245,7 @@ final class PlaylistStore {
         }
 
         if let playing = playingName, Self.key(playing) == Self.key(current) {
-            PlaybackState.shared.stop()   // also releases the playlist held for the playback
+            playback?.stop()   // also releases the playlist held for the playback
         }
 
         let wasActive = Self.key(activeName) == Self.key(current)

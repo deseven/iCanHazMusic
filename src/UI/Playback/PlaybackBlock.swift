@@ -60,14 +60,11 @@ struct PlaybackBlock: View {
                     track.year.map { "\(track.album) (\($0))" } ?? track.album
                 }))
                     .foregroundStyle(.secondary)
-                Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
-                    .font(.body.monospacedDigit())
             }
             .lineLimit(1)
             .truncationMode(.tail)
 
-            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
-                .padding(.vertical, 4)
+            PlaybackProgress(state: state, scrubbing: $scrubbing)
 
             Text(line(state.info?.codec))
                 .font(.caption)
@@ -118,6 +115,23 @@ struct PlaybackBlock: View {
     private func line(_ text: String?) -> String {
         guard let text, !text.isEmpty else { return " " }
         return text
+    }
+}
+
+/// Time label and seek bar. They read the position themselves, so only this view is re-evaluated when it ticks
+/// (reading it in `PlaybackBlock.body` re-evaluates the whole block, which measurably costs CPU).
+private struct PlaybackProgress: View {
+    let state: PlaybackState
+    @Binding var scrubbing: Double?
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
+                .font(.body.monospacedDigit())
+                .lineLimit(1)
+            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+                .padding(.vertical, 4)
+        }
     }
 
     private func format(_ seconds: Double) -> String {
