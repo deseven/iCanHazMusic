@@ -15,7 +15,8 @@ import Observation
 @MainActor
 @Observable
 final class PlaybackState {
-    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared)
+    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
+                                      listener: LastFMService.shared)
 
     enum Status { case stopped, playing, paused }
 
@@ -126,6 +127,9 @@ final class PlaybackState {
     @ObservationIgnored private let tickInterval: Duration?
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
+    @ObservationIgnored private weak var listener: PlaybackListener?
+    /// How much of the current track has been listened to (reported to the listener when the track is left).
+    @ObservationIgnored private var progress: PlayProgress?
 
     /// Observed through `playingRow`.
     private var currentPos: Position?
@@ -149,13 +153,15 @@ final class PlaybackState {
     /// 4 updates a second); 0 publishes every change.
     /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality` and `volume` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
+    /// `listener`: told about every track that starts and ends (held weakly).
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
-         positionStep: Double = 1, configStore: ConfigStore? = nil) {
+         positionStep: Double = 1, configStore: ConfigStore? = nil, listener: PlaybackListener? = nil) {
         self.store = store
         self.engine = engine
         self.tickInterval = tickInterval
         self.positionStep = positionStep
         self.configStore = configStore
+        self.listener = listener
         if let settings = configStore?.config.playback {
             cursorFollowsPlayback = settings.cursorFollowsPlayback
             playbackFollowsCursor = settings.playbackFollowsCursor
@@ -204,6 +210,7 @@ final class PlaybackState {
     }
 
     func stop() {
+        endProgress()
         status = .stopped
         engine.stop()
         stopTicking()
@@ -388,6 +395,7 @@ final class PlaybackState {
         checkFileInfo()
         let time = engine.position
         guard time.isFinite, time >= 0 else { return }
+        progress?.observe(position: time)
         let moved = positionStep > 0
             ? (time / positionStep).rounded(.down) != (position / positionStep).rounded(.down)
             : abs(time - position) > 0.01
@@ -432,6 +440,7 @@ final class PlaybackState {
 
     /// Fills in everything shown about the (new) current track.
     private func trackDidChange() {
+        endProgress()
         // The request is served
         if cursorRequested, store.playingIsActive, cursorTarget()?.pos == currentPos { cursorRequested = false }
         guard let pos = currentPos, let playlist = store.playingPlaylist,
@@ -445,6 +454,21 @@ final class PlaybackState {
         position = 0
         duration = track.duration ?? 0
         loadArtworkIfNeeded(for: album, playing: pos.track)
+
+        let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
+                                 duration: track.duration ?? 0, startedAt: Date())
+        progress = PlayProgress(track: played)
+        listener?.trackDidStart(played)
+    }
+
+    /// The current track is left (another one starts, or playback stops): the listener hears how far it got.
+    /// Runs before `duration` is replaced, so it is still the one of the track that ends.
+    private func endProgress() {
+        guard let finished = progress else { return }
+        progress = nil
+        var track = finished.track
+        if duration > 0 { track.duration = duration }
+        listener?.trackDidEnd(track, playedSeconds: finished.played)
     }
 
     /// Shows the playlist's current values of the current track again, without touching the position.

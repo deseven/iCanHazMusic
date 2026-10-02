@@ -32,7 +32,8 @@ extension AllTests {
             Make.entry(try file.url().path, artist: "Artist \(album)", album: album, title: title, track: track, year: year)
         }
 
-        private func makeEnv(_ entries: [TrackEntry], lookahead: Double = 60, positionStep: Double = 0) async throws -> Env {
+        private func makeEnv(_ entries: [TrackEntry], lookahead: Double = 60, positionStep: Double = 0,
+                             listener: PlaybackListener? = nil) async throws -> Env {
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.path("work"))
             let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
@@ -40,7 +41,8 @@ extension AllTests {
             #expect(await waitUntil { !store.isLoading })
             await store.append(Make.albums(entries), to: "main")
             let rig = EngineRig(lookahead: lookahead)
-            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: positionStep)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: positionStep,
+                                      listener: listener)
             state.volume = 1        // the app's default is 0.7; the tests compare against the files' samples
             // The state is the engine's listener now; keep recording what the engine reports.
             let listener = rig.engine.onEvent
@@ -145,6 +147,72 @@ extension AllTests {
             #expect(env.rig.deviation(of: b, from: 0, at: a.frames, count: b.frames) == 0)
             #expect(env.rig.deviation(of: c, from: 0, at: a.frames + b.frames, count: c.frames) == 0)
             #expect(env.rig.deviation(of: .tiny, from: 0, at: a.frames + b.frames + c.frames, count: RampFile.tiny.frames) == 0)
+        }
+
+        // MARK: Listener
+
+        /// Renders `seconds` of playback in 0.1 s steps, refreshing the state after each, the way the tick does.
+        private func listen(_ env: Env, seconds: Double) async throws {
+            for _ in 0..<Int((seconds * 10).rounded()) { try await env.run(4410) }
+        }
+
+        @Test("the listener hears every track that starts and ends, with the time listened to")
+        func listenerFollowsTracks() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ], listener: listener)
+            let before = Date()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+
+            #expect(listener.events == [.started("A1")])
+            let first = try #require(listener.started.first)
+            #expect(first.artist == "Artist X" && first.album == "X")
+            #expect(abs(first.startedAt.timeIntervalSince(before)) < 5)
+
+            try await listen(env, seconds: RampFile.a.duration + 0.5)      // into the second track, gaplessly
+            #expect(listener.events == [.started("A1"), .ended("A1"), .started("A2")])
+            let ended = try #require(listener.ended.first)
+            #expect(abs(ended.played - RampFile.a.duration) < 0.3)
+            #expect(abs(ended.track.duration - RampFile.a.duration) < 0.01)
+            #expect(ended.track.startedAt == first.startedAt)
+
+            env.state.stop()
+            #expect(listener.events.suffix(1) == [.ended("A2")])
+            #expect(listener.ended.last.map { $0.played > 0.3 && $0.played < 0.7 } == true)
+        }
+
+        @Test("picking another track ends the current one; stopping twice reports nothing more")
+        func listenerUserChanges() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ], listener: listener)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await listen(env, seconds: 1)
+            env.state.nextTrack()
+            #expect(listener.events == [.started("A1"), .ended("A1"), .started("A2")])
+            #expect(abs(listener.ended[0].played - 1) < 0.15)
+
+            env.state.stop()
+            env.state.stop()
+            #expect(listener.events == [.started("A1"), .ended("A1"), .started("A2"), .ended("A2")])
+        }
+
+        @Test("seeking forward isn't listening")
+        func listenerIgnoresSeeking() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([entry(.a, title: "A1", album: "X", track: 1)], listener: listener)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await listen(env, seconds: 0.5)
+            env.state.seek(to: 2.9)
+            try await listen(env, seconds: 0.2)
+            env.state.stop()
+
+            let played = try #require(listener.ended.first).played
+            #expect(played > 0.5 && played < 1.2, "played \(played)")
         }
 
         // MARK: Cursor

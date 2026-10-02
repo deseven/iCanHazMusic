@@ -7,7 +7,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // via LaunchServices, the app isn't brought to front on its own and its window opens
         // behind the launching app.
         NSApp.activate()
+        LastFMService.shared.onConnectionLost = { LastFMActions.connectionLost($0) }
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        LastFMService.shared.appDidBecomeActive()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

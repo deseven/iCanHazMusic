@@ -114,17 +114,54 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
+    struct Integrations: Codable, Equatable {
+        struct LastFM: Codable, Equatable {
+            /// Session key from the authorization; empty = not connected. Only the session is kept, never the
+            /// (short-lived) token it was made from, and no password is ever involved.
+            var session = ""
+            /// Name of the account the session belongs to.
+            var username = ""
+
+            var isConnected: Bool { !session.isEmpty && !username.isEmpty }
+
+            init() {}
+
+            init(session: String, username: String) {
+                self.session = session
+                self.username = username
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                let d = LastFM()
+                session = c.value(.session, default: d.session)
+                username = c.value(.username, default: d.username)
+            }
+        }
+
+        var lastfm = LastFM()
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            lastfm = c.value(.lastfm, default: Integrations().lastfm)
+        }
+    }
+
     static let defaultPlaylistName = "main"
 
     var ui = UI()
     var playback = Playback()
     var playlist = Playlist()
+    var integrations = Integrations()
     var activePlaylist = AppConfig.defaultPlaylistName
 
     enum CodingKeys: String, CodingKey {
         case ui
         case playback
         case playlist
+        case integrations
         case activePlaylist = "active_playlist"
     }
 
@@ -136,6 +173,7 @@ struct AppConfig: Codable, Equatable {
         ui = c.value(.ui, default: d.ui)
         playback = c.value(.playback, default: d.playback)
         playlist = c.value(.playlist, default: d.playlist)
+        integrations = c.value(.integrations, default: d.integrations)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
 
@@ -169,6 +207,11 @@ struct AppConfig: Codable, Equatable {
 
         if !ConfigLimits.tagParsingConcurrencyOptions.contains(playlist.tagParsingConcurrency) {
             result.playlist.tagParsingConcurrency = defaults.playlist.tagParsingConcurrency
+        }
+
+        // A session without a user name (or the other way round) is half of a connection: not connected.
+        if !integrations.lastfm.isConnected {
+            result.integrations.lastfm = defaults.integrations.lastfm
         }
 
         if activePlaylist.isEmpty {

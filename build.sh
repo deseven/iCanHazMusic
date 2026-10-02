@@ -142,6 +142,12 @@ do_create_universal() {
         -output "$loc/dist/$name"
 }
 
+# XORs $1 with the repeated key $2 and prints it as base64: the same scheme as `LastFMCredentials.obfuscated`
+# (obfuscation, not protection). The value goes in through stdin so it doesn't show up in the process list.
+obfuscate_credential() {
+    printf '%s' "$1" | python3 -c 'import sys, base64; k = sys.argv[1].encode(); d = sys.stdin.buffer.read(); print(base64.b64encode(bytes(b ^ k[i % len(k)] for i, b in enumerate(d))).decode())' "$2"
+}
+
 do_create_bundle() {
     mkdir -p "$loc/dist/$name.app/Contents/MacOS"
     mkdir -p "$loc/dist/$name.app/Contents/Resources"
@@ -154,6 +160,20 @@ do_create_bundle() {
     fi
 
     cp "$loc/Info.plist" "$loc/dist/$name.app/Contents/Info.plist"
+    # Last.fm credentials come from .env, not from the sources (see LastFMCredentials).
+    if [ -n "${ICHM_LASTFM_API_KEY:-}" ] && [ -n "${ICHM_LASTFM_API_SECRET:-}" ]; then
+        local lastfmKey lastfmEncodedKey lastfmEncodedSecret
+        lastfmKey="$(sed -n 's/.*static let obfuscationKey = "\([^"]*\)".*/\1/p' "$loc/src/Core/Integrations/LastFM/LastFMAPI.swift")"
+        [ -n "$lastfmKey" ] || { echo "can't find LastFMCredentials.obfuscationKey"; return 1; }
+        lastfmEncodedKey="$(obfuscate_credential "$ICHM_LASTFM_API_KEY" "$lastfmKey")"
+        lastfmEncodedSecret="$(obfuscate_credential "$ICHM_LASTFM_API_SECRET" "$lastfmKey")"
+        /usr/libexec/PlistBuddy \
+            -c "Add :ICHMLastFMAPIKey string $lastfmEncodedKey" \
+            -c "Add :ICHMLastFMAPISecret string $lastfmEncodedSecret" \
+            "$loc/dist/$name.app/Contents/Info.plist"
+    else
+        echo "ICHM_LASTFM_API_KEY / ICHM_LASTFM_API_SECRET not set in .env: the Last.fm integration will be disabled"
+    fi
     cp "$loc/res/main.icns" "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/res/ui/"*.png "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/LICENSE" "$loc/dist/$name.app/Contents/Resources/"

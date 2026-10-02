@@ -93,15 +93,26 @@ struct PreferencesView: View {
 /// ```
 private struct PrefRow<Control: View>: View {
     let title: String
-    let description: String
+    let description: Text
     @ViewBuilder let control: () -> Control
+
+    init(title: String, description: String, @ViewBuilder control: @escaping () -> Control) {
+        self.init(title: title, description: Text(description), control: control)
+    }
+
+    /// For descriptions with more than plain text (a link).
+    init(title: String, description: Text, @ViewBuilder control: @escaping () -> Control) {
+        self.title = title
+        self.description = description
+        self.control = control
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.body)
             control()
-            Text(description)
+            description
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -140,7 +151,43 @@ private struct GeneralTab: View {
 }
 
 private struct IntegrationsTab: View {
-    var body: some View { EmptyTab() }
+    private let lastFM = LastFMService.shared
+    @State private var window: NSWindow?
+
+    var body: some View {
+        TabPage {
+            PrefRow(title: "Last.fm", description: lastFMDescription) {
+                Button(lastFM.isConnected ? "Disconnect..." : "Connect...") {
+                    Task {
+                        if lastFM.isConnected {
+                            await LastFMActions.disconnect(on: window)
+                        } else {
+                            await LastFMActions.connect(on: window)
+                        }
+                    }
+                }
+                .disabled(!lastFM.isAvailable || lastFM.isAuthorizing)
+            }
+        }
+        .background(WindowAccessor { window = $0 })
+    }
+
+    private var lastFMDescription: Text {
+        if let username = lastFM.username {
+            var text = AttributedString("Connected as ")
+            var name = AttributedString(username)
+            name.link = LastFMAPI.profileURL(username: username)
+            text += name
+            text += AttributedString(". Tracks you play are sent to Last.fm as now playing and, once you've listened "
+                + "to at least half of them, scrobbled.")
+            return Text(text)
+        }
+        if !lastFM.isAvailable {
+            return Text("Not available: this build has no Last.fm API credentials (see ICHM_LASTFM_* in .env).")
+        }
+        return Text("Send what you play to Last.fm: the track that plays now and the tracks you've listened to "
+            + "(scrobbles). You'll be asked to allow \(AppConstants.appName) in your browser.")
+    }
 }
 
 private struct HotkeysTab: View {

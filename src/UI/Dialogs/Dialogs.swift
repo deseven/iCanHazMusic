@@ -30,13 +30,23 @@ enum Dialogs {
         return field.stringValue
     }
 
-    static func showError(_ message: String, title: String = "Error") async {
+    /// `window`: the window to attach to instead of the main one (e.g. Preferences).
+    static func showError(_ message: String, title: String = "Error", on window: NSWindow? = nil) async {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
-        _ = await present(alert)
+        _ = await present(alert, on: window)
+    }
+
+    static func showInfo(_ message: String, title: String, on window: NSWindow? = nil) async {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        _ = await present(alert, on: window)
     }
 
     /// Asks a yes/no question. The confirm button is marked destructive if requested.
@@ -44,7 +54,8 @@ enum Dialogs {
         title: String,
         message: String,
         confirmTitle: String,
-        destructive: Bool = false
+        destructive: Bool = false,
+        on window: NSWindow? = nil
     ) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -53,11 +64,11 @@ enum Dialogs {
         let confirmButton = alert.addButton(withTitle: confirmTitle)
         confirmButton.hasDestructiveAction = destructive
         alert.addButton(withTitle: "Cancel")
-        return await present(alert) == .alertFirstButtonReturn
+        return await present(alert, on: window) == .alertFirstButtonReturn
     }
 
-    private static func present(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        if let window = hostWindow, window.isVisible {
+    private static func present(_ alert: NSAlert, on preferred: NSWindow? = nil) async -> NSApplication.ModalResponse {
+        if let window = preferred ?? hostWindow, window.isVisible {
             return await alert.beginSheetModal(for: window)
         }
         return alert.runModal()

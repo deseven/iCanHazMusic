@@ -39,6 +39,9 @@ enum Layout {
     // Import progress sheet
     static let importSheetWidth: CGFloat = 380
 
+    // Last.fm connection sheet
+    static let lastFMSheetWidth: CGFloat = 380
+
     // Divider between playlist and playback block
     static let dividerLineWidth: CGFloat = 1
     static let dividerHitWidth: CGFloat = 12

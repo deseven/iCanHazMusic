@@ -105,6 +105,33 @@ extension AllTests {
             }
         }
 
+        @Test("last.fm is not connected by default; the session and user name are read leniently")
+        func lastFMSection() throws {
+            let defaults = AppConfig().integrations.lastfm
+            #expect(!defaults.isConnected && defaults.session.isEmpty && defaults.username.isEmpty)
+
+            let config = try decode("""
+            {"integrations": {"lastfm": {"session": "abc", "username": "bob"}}}
+            """)
+            #expect(config.integrations.lastfm == AppConfig.Integrations.LastFM(session: "abc", username: "bob"))
+            #expect(config.integrations.lastfm.isConnected)
+            #expect(config.validated() == config)
+
+            #expect(try decode(#"{"integrations": 5}"#).integrations == AppConfig().integrations)
+            #expect(try decode(#"{"integrations": {"lastfm": {"session": 7, "username": "bob"}}}"#)
+                .validated().integrations.lastfm == defaults)
+        }
+
+        @Test("a session without a user name, or the other way round, is no connection")
+        func halfConnection() {
+            for half in [AppConfig.Integrations.LastFM(session: "abc", username: ""),
+                         AppConfig.Integrations.LastFM(session: "", username: "bob")] {
+                var config = AppConfig()
+                config.integrations.lastfm = half
+                #expect(config.validated().integrations.lastfm == AppConfig.Integrations.LastFM())
+            }
+        }
+
         @Test("the playlist section is read leniently, with automatic concurrency and art on by default")
         func playlistSection() throws {
             let defaults = AppConfig().playlist

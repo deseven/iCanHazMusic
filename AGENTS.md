@@ -16,7 +16,13 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 Split into UI and logic (still one SwiftPM target, so no `public` needed). UI may depend on Core, never the other way round. One view per file.
 
 - `App/` – `@main` entry point, `AppDelegate` and `DockMenu` (the Dock icon's right-click menu: current track and transport commands, only shown while playing/paused, like in the old version; built fresh on every open).
-- `Core/` – Logic. **Foundation only: never import SwiftUI/AppKit here.**
+- `Core/` – Logic. **Foundation only (plus system frameworks without UI such as CryptoKit): never import SwiftUI/AppKit here.** Things that need AppKit (opening URLs, alerts) are handed in by the UI as closures.
+  - `Integrations/LastFM/` – the last.fm integration (API docs: https://www.last.fm/api/authspec). Credentials are **not in the sources**: `build.sh` writes `ICHM_LASTFM_API_KEY`/`ICHM_LASTFM_API_SECRET` from `.env` into the bundle's `Info.plist` (`ICHMLastFMAPIKey`/`ICHMLastFMAPISecret`), XOR-ed with `LastFMCredentials.obfuscationKey` and base64-encoded (obfuscation only, so they can't be read at a glance; `build.sh` reads the key from that line of `LastFMAPI.swift`, keep its format), `LastFMCredentials.bundled` reads and decodes them; without them (plain `swift build`) the integration is unavailable (Connect is disabled). Never put them into sources or tests (tests use dummy ones).
+    - `LastFMAPI.swift` – credentials, `LastFMCall`, signing, request building, answer checking and the **error classification** (`LastFMError.Kind`: `authentication` = codes 4/9/10/17/26 -> disconnect; `temporary` = 8/11/16/29, 5xx, network, garbage -> retry; `rejected` = anything else -> drop that call).
+    - `LastFMClient.swift` – `LastFMTransport` (`URLSessionTransport`: 30 s hard limit; tests use a stub) and the client.
+    - `LastFMQueue.swift` – one call at a time, in order, up to 10 tries with 1/2/4/... s backoff; pending now playing updates behind the head are replaced by newer ones; in memory only.
+    - `LastFMAuth.swift` – token -> open the confirmation URL -> `getSession` every 5 s and on `checkNow()` (the app becoming active); error 14 = not confirmed yet.
+    - `LastFMService.swift` – `LastFMService.shared`: connection state (config `integrations.lastfm.session`/`username`), connect/disconnect, and the `PlaybackListener` that enqueues now playing (track start) and scrobbles (track left after >= 50% listened, track >= 30 s). `onConnectionLost` is called after Last.fm refused the session (the service has disconnected itself by then; the UI alerts and bounces the Dock icon).
   - `Config/`
     - `Config.swift`
     - `ConfigStore.swift` – `config.json`.
@@ -42,6 +48,7 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
     - `PlaybackEngine` – gapless playback of a current + next track through one `AVAudioPlayerNode`, with fades, exact position, offline rendering for tests.
     - `TrackDecoder` – one file -> stereo float32 chunks at the output rate (own queue, exact length, seeking, resampling).
     - `ChannelDownmix`
+    - `PlaybackListener.swift` – `PlaybackListener` (told by `PlaybackState` when a track starts/ends, with the time actually listened to: `PlayProgress`, forward seeks and pauses don't count; `LastFMService` is the listener), `PlayedTrack`.
     - `ResampleQuality` – `low`/`medium`/`high`/`max` (config `playback.resample_quality`, default `high`); `PlaybackState.resampleQuality` hands it to `PlaybackEngine.resampleQuality`, which gives it to each new `TrackDecoder` (so it applies to tracks opened afterwards).
     - `CodecLabel` – format description such as `MP3 CBR 320k` / `FLAC 24/96` from the opened file, which playback writes back to the playlist together with the real duration.
     - `PlaybackState` – playlist logic and what the playback block shows, on top of the engine. Also `playingRow` (play symbol) and the Playback menu options `cursorFollowsPlayback`/`playbackFollowsCursor` (config `playback.*`; the UI reports the cursor row via `cursorRow`, which may be in another playlist than the playing one: playback then moves over to it when that track starts).
@@ -49,7 +56,7 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
 - `UI/` – Views and AppKit glue.
   - `Layout.swift` – layout constants.
   - `MainWindow/`, `Playback/`, `About/`
-  - `Preferences/` – `PreferencesView`, the Preferences window (⌘,, a `Window` scene): vertical tabs General / Playback / Playlist / Integrations / Hotkeys (General, Integrations and Hotkeys are empty so far). Controls bind straight to the setting's owner (`PlaybackState.resampleQuality`, `PlaylistStore.tagParsingConcurrency`/`displayAlbumArt`), which persists it via `ConfigStore`.
+  - `Preferences/` – `PreferencesView`, the Preferences window (⌘,, a `Window` scene): vertical tabs General / Playback / Playlist / Integrations / Hotkeys (General and Hotkeys are empty so far; Integrations has the Last.fm Connect/Disconnect block). `LastFMActions` = the UI flows (confirmation sheet `LastFMAuthSheet` + alerts on the Preferences window, `connectionLost` alert + Dock bounce). Controls bind straight to the setting's owner (`PlaybackState.resampleQuality`, `PlaylistStore.tagParsingConcurrency`/`displayAlbumArt`), which persists it via `ConfigStore`.
   - `Playlist/` – virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` (row offsets), row views, `CoverCache` (cached thumbnail from `CoverStore` or generated placeholder). The row context menu/keys (Play, Reveal in Finder, Reload Tag(s) = ⌘R behind the import sheet, Remove from Playlist = Backspace) live in `VirtualPlaylistView` + `PlaylistItemActions`.
   - `Dialogs/` – `Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows.
   - `Window/` – `WindowPersistence.swift`, `WindowAccessor.swift`.
@@ -58,6 +65,7 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
 ## Runtime data
 Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (`AppPaths`, see `Constants.swift`). Pass `--workdir /some/dir` (or `--workdir=/some/dir`) to the app to use another directory instead, e.g. a scratch copy:
 - `config.json` – read once at startup, written on every setting change (debounced ~250 ms, flushed on quit). Missing/invalid values are reset to defaults and written back.
+  - `integrations.lastfm.session` / `username` (empty = not connected; one without the other is reset): the Last.fm session key and account name. Removed on disconnect.
   - `playback.volume` (0...1, default 0.7): the volume slider's value, restored on startup.
   - Preferences: `playback.resample_quality` (`low`/`medium`/`high`/`max`), `playlist.tag_parsing_concurrency` (`0` = auto = physical cores / 2, else one of `ConfigLimits.tagParsingConcurrencyOptions`; read when an import starts), `playlist.display_album_art` (off: grouped playlists show no covers and load none, the album headers get shorter; art is cached on import regardless).
 - `.cache/covers.sqlite` – album art thumbnails (key = `AlbumKey`, value = JPEG/PNG bytes, 2x the album block cover), rebuilt on import, safe to delete. The thumbnail size is stored in `PRAGMA user_version`; a different size drops the table.
