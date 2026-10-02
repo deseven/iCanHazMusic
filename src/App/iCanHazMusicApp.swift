@@ -29,11 +29,12 @@ struct iCanHazMusicApp: App {
 }
 
 /// Replaces the stock "About" item in the app menu with our own window, adds the import items to File
-/// and the Playback menu.
+/// the Playlist menu and the Playback menu.
 private struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     private let importer = ImportCoordinator.shared
     private let playback = PlaybackState.shared
+    private let store = PlaylistStore.shared
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -47,6 +48,13 @@ private struct AppCommands: Commands {
                 Task { await importer.addFiles() }
             }
             .keyboardShortcut("o", modifiers: .command)
+            .disabled(importer.isBusy)
+        }
+        CommandMenu("Playlist") {
+            Toggle("Don't group by albums", isOn: Binding(
+                get: { store.activePlaylist.isFlat },
+                set: { flat in Task { await store.setFlat(flat) } }
+            ))
             .disabled(importer.isBusy)
         }
         CommandMenu("Playback") {

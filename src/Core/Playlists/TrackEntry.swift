@@ -16,7 +16,8 @@ struct TrackEntry: Codable {
     var year: String?
     /// Seconds.
     var duration: TimeInterval?
-    /// Short format label (currently the upper-cased file extension).
+    /// Short format label: the upper-cased file extension until the track has been played once, then what
+    /// `CodecLabel` makes of the file (e.g. "MP3 CBR 320k", "FLAC 24/96").
     var codec: String
 
     var url: URL { Self.url(forPath: path) }

@@ -21,6 +21,8 @@ final class TrackDecoder: @unchecked Sendable {
         let buffer: AVAudioPCMBuffer
         /// Length of the whole file, in seconds.
         let fileDuration: Double
+        /// Format description of the file, see `CodecLabel`.
+        let codec: String
     }
 
     enum Result: Sendable {
@@ -52,6 +54,7 @@ final class TrackDecoder: @unchecked Sendable {
     private var finished = false
     private var file: AVAudioFile?
     private var fileDuration: Double = 0
+    private var codec = ""
     private var downmix: ChannelDownmix?
     private var readBuffer: AVAudioPCMBuffer?
     private var converter: AVAudioConverter?
@@ -103,7 +106,7 @@ final class TrackDecoder: @unchecked Sendable {
         }
         do {
             if let buffer = try makeChunk() {
-                return .chunk(Chunk(buffer: buffer, fileDuration: fileDuration))
+                return .chunk(Chunk(buffer: buffer, fileDuration: fileDuration, codec: codec))
             }
         } catch {
             warning = warning ?? error.localizedDescription
@@ -119,6 +122,7 @@ final class TrackDecoder: @unchecked Sendable {
 
         self.file = file
         fileDuration = Double(file.length) / format.sampleRate
+        codec = CodecLabel.make(url: url, fileFormat: file.fileFormat)
         downmix = ChannelDownmix(format: format)
         readBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(Self.blockFrames))
 

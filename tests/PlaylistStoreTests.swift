@@ -324,6 +324,89 @@ extension AllTests {
             #expect(env.store.activePlaylist.albums[0].tracks.count == 3)
         }
 
+        // MARK: Editing
+
+        private func onDisk(_ env: Env, _ name: String = "main") -> Playlist? {
+            if case .loaded(let playlist) = PlaylistFile.load(from: env.file(name)) { return playlist }
+            return nil
+        }
+
+        @Test("setFlat regroups, writes is_flat and survives a restart")
+        func setFlat() async throws {
+            let env = try await makeEnv()
+            await env.store.append(Make.albums(Make.entries(dir: "A", album: "A", count: 2)), to: "main")
+            #expect(env.store.activePlaylist.rows.count == 3)
+
+            await env.store.setFlat(true)
+            #expect(env.store.activePlaylist.isFlat)
+            #expect(env.store.activePlaylist.rows.count == 2)
+            await env.store.flushWrites()
+            #expect(onDisk(env)?.isFlat == true)
+
+            let restarted = PlaylistStore(paths: env.paths, configStore: env.config)
+            await settle(restarted)
+            #expect(restarted.activePlaylist.isFlat)
+
+            // new files import flat as well
+            await restarted.append(Make.albums(Make.entries(dir: "B", album: "B", count: 2)), to: "main")
+            #expect(restarted.activePlaylist.rows.count == 4)
+
+            await restarted.setFlat(false)
+            #expect(!restarted.activePlaylist.isFlat)
+            #expect(restarted.activePlaylist.rows.count == 6)
+            await restarted.flushWrites()
+            #expect(onDisk(env)?.isFlat == false)
+        }
+
+        @Test("remove takes tracks out and writes the file")
+        func remove() async throws {
+            let env = try await makeEnv()
+            await env.store.append(Make.albums(Make.entries(dir: "A", album: "A", count: 3)), to: "main")
+            await env.store.remove(entries: [0, 2], from: "main")
+            #expect(env.store.activePlaylist.entries.map(\.path) == ["/Music/A/02.mp3"])
+            await env.store.flushWrites()
+            #expect(onDisk(env)?.trackCount == 1)
+
+            await env.store.remove(entries: [], from: "main")
+            await env.store.remove(entries: [0], from: "other")
+            #expect(env.store.activePlaylist.trackCount == 1)
+        }
+
+        @Test("applyTags takes over the new tags")
+        func applyTags() async throws {
+            let env = try await makeEnv()
+            await env.store.append(Make.albums(Make.entries(dir: "A", album: "A", count: 2)), to: "main")
+            await env.store.applyTags([Make.result("/Music/A/02.mp3", title: "New", album: "Other")], to: "main")
+            #expect(env.store.activePlaylist.albums.map(\.title) == ["A", "Other"])
+            await env.store.flushWrites()
+            #expect(onDisk(env)?.albums.map(\.title) == ["A", "Other"])
+        }
+
+        @Test("updateTrack changes the playing track, in the active and in a background playlist")
+        func updateTrack() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
+            let store = env.store
+            let url = URL(fileURLWithPath: "/Music/A/02.mp3")
+
+            store.updateTrack(album: 0, track: 1, url: url, duration: 7, codec: "X")   // nothing is playing
+            #expect(store.activePlaylist.albums[0].tracks[1].duration == 100)
+
+            store.playbackStarted()
+            store.updateTrack(album: 0, track: 1, url: url, duration: 7, codec: "X")
+            #expect(store.activePlaylist.albums[0].tracks[1].duration == 7)
+            await store.flushWrites()
+            #expect(onDisk(env, "a")?.albums[0].tracks[1].codec == "X")
+
+            store.setActive("b")
+            await settle(store)
+            store.updateTrack(album: 0, track: 1, url: url, duration: 8, codec: "Y")
+            #expect(store.playingPlaylist?.albums[0].tracks[1].duration == 8)
+            await store.flushWrites()
+            #expect(onDisk(env, "a")?.albums[0].tracks[1].codec == "Y")
+            #expect(store.activePlaylist.trackCount == 0)
+        }
+
         // MARK: Rename
 
         @Test("rename moves the file and keeps the content")

@@ -157,6 +157,8 @@ tone "$p/sine96_24.flac"   96000 2 192000 1000 s32 -c:a flac -bits_per_raw_sampl
 tone "$p/sine22_mono.flac" 22050 1 44100  1000 s16 -c:a flac
 # lossy formats: length and seeking can only be approximately checked
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a libmp3lame "$p/lossy.mp3"
+# VBR (noise, so the frames differ in size)
+ff -f lavfi -i "anoisesrc=d=3:c=pink:a=0.3" -ac 2 -c:a libmp3lame -q:a 2 "$p/lossy_vbr.mp3"
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a aac "$p/lossy.m4a"
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a vorbis -strict -2 "$p/lossy.ogg"
 # a FLAC cut in the middle: the header still promises the full length

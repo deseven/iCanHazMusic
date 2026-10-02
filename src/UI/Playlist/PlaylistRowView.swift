@@ -10,8 +10,9 @@ struct PlaylistRowView: View {
     var body: some View {
         let row = playlist.rows[index]
         if let track = playlist.track(for: row) {
-            TrackRowContent(track: track, showArtist: playlist.albums[row.albumIndex].hasMultipleArtists,
-                            isPlaying: isPlaying)
+            TrackRowContent(track: track,
+                            showArtist: playlist.isFlat || playlist.albums[row.albumIndex].hasMultipleArtists,
+                            showNumber: !playlist.isFlat, isPlaying: isPlaying)
                 .frame(height: Layout.trackRowHeight)
                 .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear)
                 .foregroundStyle(isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : .primary)
@@ -51,8 +52,10 @@ private struct AlbumHeaderContent: View {
 
 private struct TrackRowContent: View {
     let track: Track
-    /// Compilation albums: "artist – title" instead of just the title.
+    /// Compilation albums and flat playlists: "artist – title" instead of just the title.
     let showArtist: Bool
+    /// The track number column (flat playlists have none).
+    let showNumber: Bool
     let isPlaying: Bool
 
     var body: some View {
@@ -65,10 +68,12 @@ private struct TrackRowContent: View {
                         Image(systemName: "play.fill").font(.system(size: 9))
                     }
                 }
-            Text(track.numberText)
-                .monospacedDigit()
-                .opacity(0.65)
-                .frame(width: 44, alignment: .trailing)
+            if showNumber {
+                Text(track.numberText)
+                    .monospacedDigit()
+                    .opacity(0.65)
+                    .frame(width: 44, alignment: .trailing)
+            }
             Text(showArtist ? "\(track.artist) – \(track.title)" : track.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)

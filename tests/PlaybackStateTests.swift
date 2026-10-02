@@ -301,14 +301,85 @@ extension AllTests {
             #expect(env.state.info?.title == "B2")
         }
 
-        @Test("the cursor is ignored while another playlist is shown")
-        func cursorOtherPlaylist() async throws {
+        /// "main" plays (standard), "other" is shown and has one track, `C1`: row 0 is its header, row 1 the track.
+        private func playingWithOtherShown() async throws -> Env {
             let env = try await standard()
             env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
             try env.store.create(named: "other")
-            env.state.cursorRow = 0
+            #expect(await waitUntil { !env.store.isLoading })
+            await env.store.append(Make.albums([try entry(.c, title: "C1", album: "Z", track: 1)]), to: "other")
+            return env
+        }
+
+        @Test("the cursor in another playlist than the playing one is followed: the track plays next, from that playlist")
+        func cursorOtherPlaylist() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.cursorRow = 1
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "C1")
+            #expect(env.store.playingName == "other")
+            #expect(env.state.playingRow == 1)
+            let from = env.rig.frame - 2000
+            #expect(env.rig.deviation(of: .c, from: 0, at: RampFile.a.frames, count: 2000) == 0)   // gapless
+            #expect(from > 0)
+
+            // The request is served: the playlist it came from is let go, and nothing is queued behind the last track.
+            #expect(env.store.playingPlaylist === env.store.activePlaylist)
+            env.store.setActive("main")
+            #expect(env.state.playingRow == nil)
+        }
+
+        @Test("next track goes to the cursor in another playlist at once")
+        func nextTrackOtherPlaylist() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.cursorRow = 1
+            let at = env.rig.frame
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "C1")
+            #expect(env.store.playingName == "other")
+            try await env.run(8 * Self.slice)
+            let settled = at + env.rig.fadeFrames + env.rig.fadeInFrames
+            #expect(env.rig.deviation(of: .c, from: env.rig.fadeInFrames, at: settled, count: env.rig.frame - settled) == 0)
+        }
+
+        @Test("going back to the playing playlist cancels the request")
+        func cursorOtherPlaylistCancelled() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.cursorRow = 1
+            env.store.setActive("main")
+            env.state.cursorRow = nil                        // what the playlist view does on a switch
+            env.state.cursorRow = env.state.playingRow
+            try await env.run(2 * Self.slice)
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.store.playingName == "main")
+        }
+
+        @Test("a cursor in another playlist is ignored when playback doesn't follow the cursor")
+        func cursorOtherPlaylistOff() async throws {
+            let env = try await playingWithOtherShown()
+            env.state.playbackFollowsCursor = false
+            env.state.cursorRow = 1
             env.state.nextTrack()
             #expect(env.state.info?.title == "A2")
+            #expect(env.store.playingName == "main")
+        }
+
+        @Test("a request for a track in another playlist that can't be played falls back to the playing playlist")
+        func cursorOtherPlaylistFails() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+            try env.store.create(named: "other")
+            #expect(await waitUntil { !env.store.isLoading })
+            await env.store.append(Make.albums([Make.entry(env.dir.path("missing.flac").path, album: "Z", title: "Gone", track: 1)]),
+                                   to: "other")
+            env.state.cursorRow = 1
+            try await env.run(2 * Self.slice)                // the engine finds out that the queued file is missing
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.store.playingName == "main")
         }
 
         @Test("the two options are read from the config and written back when changed")
@@ -782,6 +853,144 @@ extension AllTests {
             // And seeking works at once when the tags knew the length.
             env.state.seek(to: 1)
             #expect(env.state.position == 1)
+        }
+
+        // MARK: What the file says
+
+        @Test("the real duration and format of the file are written to the playlist, and shown")
+        func fileInfoPushed() async throws {
+            let entries = [Make.entry(try RampFile.a.url().path, artist: "A", album: "X", title: "T", track: 1, duration: 123)]
+            let env = try await makeEnv(entries)
+            #expect(env.store.activePlaylist.albums[0].tracks[0].codec == "FLAC")
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+
+            let track = env.store.activePlaylist.albums[0].tracks[0]
+            #expect(track.duration == RampFile.a.duration)
+            #expect(track.codec == "FLAC 16/44.1")
+            #expect(env.state.info?.codec == "FLAC 16/44.1")
+
+            await env.store.flushWrites()
+            guard case .loaded(let onDisk) = PlaylistFile.load(from: env.dir.path("work/playlists/main.json")) else {
+                Issue.record("expected a valid file")
+                return
+            }
+            #expect(onDisk.albums[0].tracks[0].duration == RampFile.a.duration)
+            #expect(onDisk.albums[0].tracks[0].codec == "FLAC 16/44.1")
+        }
+
+        @Test("a duration that is nearly right and the same format leave the playlist alone")
+        func fileInfoMatches() async throws {
+            let entries = [Make.entry(try RampFile.a.url().path, artist: "A", album: "X", title: "T", track: 1,
+                                      duration: RampFile.a.duration + 0.2, codec: "FLAC 16/44.1")]
+            let env = try await makeEnv(entries)
+            let before = env.store.activePlaylist
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+            #expect(env.store.activePlaylist === before)
+            #expect(env.state.duration == RampFile.a.duration)   // the display uses the exact one regardless
+        }
+
+        @Test("a track that is missing its duration gets it")
+        func fileInfoMissingDuration() async throws {
+            let entries = [Make.entry(try RampFile.a.url().path, artist: "A", album: "X", title: "T", track: 1,
+                                      codec: "FLAC 16/44.1")]
+            let env = try await makeEnv(entries)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+            #expect(env.store.activePlaylist.albums[0].tracks[0].duration == RampFile.a.duration)
+        }
+
+        @Test("the tracks that follow are updated as they start")
+        func fileInfoNextTrack() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+            try await env.run(RampFile.a.frames)
+            try await env.run(2 * Self.slice)
+            #expect(env.state.info?.title == "A2")
+            let tracks = env.store.activePlaylist.albums[0].tracks
+            #expect(tracks[0].duration == RampFile.a.duration)
+            #expect(tracks[1].duration == RampFile.b.duration)
+            #expect(tracks[2].duration == nil)                 // not played yet
+        }
+
+        // MARK: Changing the playlist under the playback
+
+        @Test("removing tracks before the playing one keeps it playing, at its new row")
+        func removeBefore() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 2)       // A3, row 3
+            try await env.run(4 * Self.slice)
+            let position = env.state.position
+            #expect(env.state.playingRow == 3)
+
+            await env.store.remove(entries: [0, 1], from: "main")
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A3")
+            #expect(env.state.playingRow == 1)
+            #expect(env.state.position == position)
+            try await env.run(4 * Self.slice)
+            #expect(env.rig.deviation(of: .c, from: 4 * Self.slice, at: env.rig.frame - 4 * Self.slice, count: 4 * Self.slice) == 0)
+        }
+
+        @Test("removing the playing track stops the playback")
+        func removePlaying() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            try await env.run(2 * Self.slice)
+            await env.store.remove(entries: [1], from: "main")
+            #expect(env.state.status == .stopped)
+            #expect(env.state.info == nil)
+            #expect(env.store.playingName == nil)
+            #expect(!env.engine.isActive)
+        }
+
+        @Test("removing the track that was queued next queues the one after it")
+        func removeNext() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(2 * Self.slice)
+            await env.store.remove(entries: [1], from: "main")   // A2
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.info?.title == "A3")
+        }
+
+        @Test("switching to a flat playlist keeps the playing track playing, and what follows is the next row")
+        func flatWhilePlaying() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 1)       // A2
+            try await env.run(2 * Self.slice)
+            #expect(env.state.playingRow == 2)
+
+            await env.store.setFlat(true)
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A2")
+            #expect(env.state.playingRow == 1)                 // no headers any more
+            #expect(env.store.activePlaylist.rows.count == 5)
+
+            try await env.run(RampFile.b.frames)
+            #expect(env.state.info?.title == "A3")
+            #expect(env.state.playingRow == 2)
+
+            await env.store.setFlat(false)
+            #expect(env.state.info?.title == "A3")
+            #expect(env.state.playingRow == 3)
+        }
+
+        @Test("reloaded tags that move the playing track into another album are followed")
+        func reloadWhilePlaying() async throws {
+            let env = try await standard()
+            let path = try RampFile.b.url().path
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            try await env.run(2 * Self.slice)
+
+            await env.store.applyTags([Make.result(path, title: "Renamed", artist: "Artist X", album: "Z")], to: "main")
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "Renamed")
+            #expect(env.state.info?.album == "Z")
+            #expect(env.store.activePlaylist.albums.map(\.title) == ["X", "Z", "Y"])
+            #expect(env.state.playingRow == 4)                 // X header, 2 tracks, Z header, Renamed
         }
     }
 }

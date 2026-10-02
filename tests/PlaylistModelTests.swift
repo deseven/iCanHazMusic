@@ -307,6 +307,116 @@ extension AllTests {
             #expect(result.albums[0].tracks.last?.url.lastPathComponent == "03.mp3")
         }
 
+        // MARK: Flat
+
+        /// Interleaved tracks of two albums, as a flat playlist keeps them.
+        private var flatEntries: [TrackEntry] {
+            [Make.entry("/Music/A/1.mp3", artist: "X", album: "A", track: 1),
+             Make.entry("/Music/B/1.mp3", artist: "Y", album: "B", track: 1),
+             Make.entry("/Music/A/2.mp3", artist: "X", album: "A", track: 2)]
+        }
+
+        @Test("a flat playlist has track rows only and keeps the order")
+        func flatRows() {
+            let p = Playlist(albums: AlbumBuilder.build(from: flatEntries, flat: true), isFlat: true)
+            #expect(p.isFlat)
+            #expect(p.rows.count == 3)
+            #expect(p.rows.allSatisfy { !$0.isHeader })
+            #expect(p.headerRow.isEmpty)
+            #expect(p.trackRows == [0..<1, 1..<2, 2..<3])
+            #expect(p.trackCount == 3)
+            #expect(p.entries.map(\.path) == flatEntries.map(\.path))
+            #expect(p.track(for: p.rows[1])?.url.path == "/Music/B/1.mp3")
+        }
+
+        @Test("a grouped playlist regroups the same tracks, and back")
+        func toggleFlat() {
+            let flat = Playlist(albums: AlbumBuilder.build(from: flatEntries, flat: true), isFlat: true)
+            let grouped = flat.settingFlat(false)
+            #expect(!grouped.isFlat)
+            #expect(grouped.albums.map(\.title) == ["A", "B"])
+            #expect(grouped.entries.map(\.path) == ["/Music/A/1.mp3", "/Music/A/2.mp3", "/Music/B/1.mp3"])
+            #expect(grouped.settingFlat(true).isFlat)
+            #expect(grouped.settingFlat(true).rows.count == 3)
+        }
+
+        @Test("appending to a flat playlist doesn't group, and tells where the new rows start")
+        func flatAppend() {
+            let flat = Playlist(albums: AlbumBuilder.build(from: flatEntries, flat: true), isFlat: true)
+            let added = Make.albums([Make.entry("/Music/B/2.mp3", artist: "Y", album: "B", track: 2)])
+            let result = flat.appending(added)
+            #expect(result.isFlat)
+            #expect(result.rows.count == 4)
+            #expect(result.entries.last?.path == "/Music/B/2.mp3")
+            #expect(result.appendedFromRow == 3)
+            #expect(playlist.appending(added).appendedFromRow == 5)
+            #expect(flat.appendedFromRow == nil)
+        }
+
+        // MARK: Editing
+
+        @Test("entry positions of selected rows: headers stand for their tracks")
+        func entryIndices() {
+            let p = playlist   // 0 header A, 1-2 tracks, 3 header B, 4 track
+            #expect(p.entryIndices([1]) == [0])
+            #expect(p.entryIndices([4, 2]) == [1, 2])
+            #expect(p.entryIndices([0]) == [0, 1])
+            #expect(p.entryIndices([3, 1]) == [0, 2])
+            #expect(p.entryIndices([]).isEmpty)
+            #expect(p.entryIndex(album: 1, track: 0) == 2)
+
+            let flat = Playlist(albums: AlbumBuilder.build(from: flatEntries, flat: true), isFlat: true)
+            #expect(flat.entryIndices([0, 2]) == [0, 2])
+        }
+
+        @Test("removing tracks regroups the rest; an emptied album disappears")
+        func removing() {
+            let p = playlist.removing(entries: [2])
+            #expect(p.albums.map(\.title) == ["A"])
+            #expect(p.entries.map(\.path) == ["/Music/A/01.mp3", "/Music/A/02.mp3"])
+            #expect(playlist.removing(entries: [0, 1, 2]).rows.isEmpty)
+            #expect(playlist.removing(entries: [7]).trackCount == 3)
+        }
+
+        @Test("reloaded tags are taken over, keep the duration and format, and can split an album")
+        func updatingTags() {
+            let base = Make.playlist([
+                Make.entry("/Music/A/1.mp3", album: "A", title: "one", track: 1, duration: 100, codec: "MP3 CBR 320k"),
+                Make.entry("/Music/A/2.mp3", album: "A", title: "two", track: 2, duration: 100),
+                Make.entry("/Music/A/3.mp3", album: "A", title: "three", track: 3),
+            ])
+            let changed = Make.result("/Music/A/2.mp3", title: "TWO", album: "A2", track: 9, duration: 5)
+            let failed = Make.result("/Music/A/3.mp3", status: .failed("gone"), title: "nope", duration: 7)
+            let sameDuration = Make.result("/Music/A/1.mp3", title: "one", album: "A")
+
+            let p = base.updatingTags(from: [changed, failed, sameDuration])
+            #expect(p.albums.map(\.title) == ["A", "A2"])
+            #expect(p.albums[0].tracks.map(\.title) == ["one", "three"])
+            let moved = p.albums[1].tracks[0]
+            #expect(moved.title == "TWO")
+            #expect(moved.number == 9)
+            #expect(moved.duration == 100)                           // playback's value wins over the tag's
+            #expect(p.albums[0].tracks[0].codec == "MP3 CBR 320k")
+            #expect(p.albums[0].tracks[1].title == "three")           // the failed read left it alone
+        }
+
+        @Test("replacing a track's duration and format keeps the rows")
+        func replacingTrack() {
+            let p = playlist
+            let url = URL(fileURLWithPath: "/Music/A/02.mp3")
+            let updated = p.replacingTrack(album: 0, track: 1, url: url, duration: 12.5, codec: "FLAC 16/44.1")
+            #expect(updated?.albums[0].tracks[1].duration == 12.5)
+            #expect(updated?.albums[0].tracks[1].codec == "FLAC 16/44.1")
+            #expect(updated?.albums[0].tracks[0].duration == 100)
+            #expect(updated?.rows.count == p.rows.count)
+            #expect(updated?.trackRows == p.trackRows)
+            #expect(p.albums[0].tracks[1].duration == 100)           // immutable
+
+            #expect(p.replacingTrack(album: 0, track: 0, url: url, duration: 1, codec: "x") == nil)   // another file there
+            #expect(p.replacingTrack(album: 5, track: 0, url: url, duration: 1, codec: "x") == nil)
+            #expect(p.replacingTrack(album: 0, track: 9, url: url, duration: 1, codec: "x") == nil)
+        }
+
         @Test("appending doesn't change the original")
         func immutable() {
             let original = playlist
@@ -340,6 +450,39 @@ extension AllTests {
             #expect(result.albums[0].year == "2000")
             #expect(result.albums[1].artist == "Other")
             #expect(result.albums[0].tracks[0].duration == 100)
+        }
+
+        @Test("is_flat is stored and restores a flat playlist")
+        func flatFlag() throws {
+            let dir = try TempDir()
+            let entries = [Make.entry("/M/A/1.mp3", album: "A"), Make.entry("/M/B/1.mp3", album: "B"),
+                           Make.entry("/M/A/2.mp3", album: "A")]
+            let flat = Playlist(albums: AlbumBuilder.build(from: entries, flat: true), isFlat: true)
+            let url = dir.path("p.json")
+            try PlaylistFile.write(flat, to: url)
+
+            let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            #expect(object["is_flat"] as? Bool == true)
+
+            let back = try #require(loaded(PlaylistFile.load(from: url)))
+            #expect(back.isFlat)
+            #expect(back.rows.count == 3 && back.rows.allSatisfy { !$0.isHeader })
+            #expect(back.entries.map(\.path) == entries.map(\.path))
+
+            try PlaylistFile.write(Make.playlist(entries), to: url)
+            let grouped = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            #expect(grouped["is_flat"] as? Bool == false)
+        }
+
+        @Test("a file without is_flat (or with a bad one) is grouped")
+        func flatDefault() throws {
+            let dir = try TempDir()
+            for json in [#"{"version": 1, "tracks": [{"path": "/M/A/1.mp3"}]}"#,
+                         #"{"version": 1, "is_flat": "yes", "tracks": [{"path": "/M/A/1.mp3"}]}"#] {
+                let p = try #require(loaded(try load(json, in: dir)))
+                #expect(!p.isFlat)
+                #expect(p.rows.count == 2)
+            }
         }
 
         @Test("the file format")

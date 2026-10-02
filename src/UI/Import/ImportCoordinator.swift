@@ -1,8 +1,8 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// Entry points for adding files to the active playlist (File menu, drag and drop).
-/// Runs one `ImportSession` at a time behind a modal progress sheet.
+/// Entry points for adding files to the active playlist (File menu, drag and drop) and for re-reading the tags of
+/// files that are in it. Runs one `ImportSession` at a time behind a modal progress sheet.
 @MainActor
 @Observable
 final class ImportCoordinator {
@@ -47,6 +47,36 @@ final class ImportCoordinator {
         guard !isBusy, !urls.isEmpty else { return false }
         Task { await start(urls) }
         return true
+    }
+
+    /// Reads the tags of these files again (and their album art), then takes them over into the active playlist,
+    /// which is regrouped, as the new tags can put a track into another album. Files that can't be read keep
+    /// their old values.
+    func reloadTags(of files: [URL]) async {
+        guard !isBusy, !files.isEmpty, let window = Dialogs.hostWindow else { return }
+
+        let store = PlaylistStore.shared
+        let name = store.activeName
+        let session = ImportSession()
+        self.session = session
+        let sheet = ImportProgressSheet(session: session)
+        sheet.present(on: window)
+
+        let outcome = await session.reload(files: files)
+        CoverCache.reset()
+        if !outcome.aborted {
+            await store.applyTags(outcome.results, to: name)
+        }
+
+        await sheet.dismiss()
+        self.session = nil
+
+        if !outcome.aborted, session.failed > 0 {
+            await Dialogs.showError(
+                "\(session.failed) of \(files.count) file(s) couldn't be read or have no tags. They keep their previous tags.",
+                title: "Reload Incomplete"
+            )
+        }
     }
 
     // MARK: - Internals

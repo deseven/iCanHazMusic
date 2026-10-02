@@ -40,6 +40,18 @@ from about 1 s, tiny differences before that) and Vorbis (every seek lands a con
 - `PlaybackState` keeps the playlist logic (which track follows which, the display) and talks to the engine through
   `start`, `setNext`, `pause`/`resume`, `seek`, `stop` and the events `advanced`, `finished`, `failed`, `deviceError`.
 
+## What the opened file reports
+
+When the decoder opens a file it also learns the exact length (`AVAudioFile.length`) and describes the format
+(`CodecLabel`: the file's stream description plus `AudioFile` properties, nothing is decoded). `PlaybackState.tick`
+compares both with the playlist's track once per track and, if the length is more than 0.5 s off or missing, or the
+label differs, writes them back through `PlaylistStore.updateTrack` (the playlist file is saved again).
+
+- Bit rate: `kAudioFilePropertyBitRate`, the average over the file (MP3, AAC, Vorbis), shown in kbit/s with a `k` (`MP3 CBR 320k`). MP3 is called VBR when the
+  largest packet is clearly larger than the average one (`kAudioFilePropertyMaximumPacketSize`), else CBR.
+- Lossless (FLAC, ALAC, WAV/AIFF/CAF): bit depth/sample rate instead, as in `FLAC 24/96`. PCM has the depth in its
+  stream description; for FLAC and ALAC `AudioFile` gives it as the format flags (1/2/3/4 = 16/20/24/32 bit).
+
 ## Things that bit (and are tested)
 
 - **`AVAudioFile.framePosition` raises an Objective-C exception** (which Swift can't catch, so the process dies) for a

@@ -5,6 +5,7 @@ import Foundation
 /// ```json
 /// {
 ///   "version": 1,
+///   "is_flat": false,
 ///   "tracks": [
 ///     {"path": "/Music/A/B/01.flac", "artist": "A", "album": "B", "title": "T",
 ///      "trackNumber": 1, "year": "2019", "duration": 215.4, "codec": "FLAC"}
@@ -13,26 +14,31 @@ import Foundation
 /// ```
 ///
 /// `tracks` is flat and in playlist order; albums are rebuilt on load (see `AlbumBuilder`).
+/// `is_flat`: the playlist isn't grouped into albums (missing = false).
 /// Album art isn't stored. A file without `version` (the former empty `{}`) is read as version 0, an empty playlist.
 struct PlaylistFile: Codable {
     static let currentVersion = 1
 
     var version = PlaylistFile.currentVersion
     var tracks: [TrackEntry] = []
+    var isFlat = false
     /// Entries that were dropped while decoding (not written).
     private(set) var skipped = 0
 
     private enum CodingKeys: String, CodingKey {
         case version, tracks
+        case isFlat = "is_flat"
     }
 
-    init(tracks: [TrackEntry]) {
+    init(tracks: [TrackEntry], isFlat: Bool = false) {
         self.tracks = tracks
+        self.isFlat = isFlat
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        isFlat = (try? c.decodeIfPresent(Bool.self, forKey: .isFlat)) ?? false
         let entries = try c.decodeIfPresent([Lossy<TrackEntry>].self, forKey: .tracks) ?? []
         tracks = entries.compactMap(\.value)
         skipped = entries.count - tracks.count
@@ -80,14 +86,14 @@ struct PlaylistFile: Codable {
         if file.skipped > 0 {
             Log.error("\(url.lastPathComponent): skipped \(file.skipped) entries without a usable path")
         }
-        return .loaded(Playlist(albums: AlbumBuilder.build(from: file.tracks)))
+        return .loaded(Playlist(albums: AlbumBuilder.build(from: file.tracks, flat: file.isFlat), isFlat: file.isFlat))
     }
 
     /// Blocking: atomic replace of the whole file. Meant to run off the main thread.
     static func write(_ playlist: Playlist, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(PlaylistFile(tracks: playlist.entries))
+        let data = try encoder.encode(PlaylistFile(tracks: playlist.entries, isFlat: playlist.isFlat))
         try data.write(to: url, options: .atomic)
     }
 

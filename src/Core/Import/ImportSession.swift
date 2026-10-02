@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-/// One "add files to the playlist" run: gather the file list, read the tags, build the albums.
+/// One "add files to the playlist" run: gather the file list, read the tags, build the albums. Also used to read the
+/// tags of files that are in the playlist already (`reload`). The album art is processed in both cases.
 /// Progress is published for the UI. Foundation only, the UI observes it and calls `abort()`.
 @MainActor
 @Observable
@@ -10,6 +11,14 @@ final class ImportSession {
         case gathering   // recursive directory walk
         case reading     // tag parsing
         case appending   // building albums / adding them to the playlist
+        case updating    // regrouping the playlist after reloading tags
+    }
+
+    /// Result of `reload`.
+    struct ReloadOutcome {
+        /// One per file (the unusable ones have a `.failed`/`.noTags` status), in the order of the input.
+        let results: [TagReadResult]
+        let aborted: Bool
     }
 
     struct Outcome {
@@ -51,6 +60,9 @@ final class ImportSession {
         self.coverStore = coverStore
     }
 
+    /// Everything is read, only the playlist is being put together: too late to abort.
+    var isFinishing: Bool { stage == .appending || stage == .updating }
+
     /// Files processed per second since reading started (frozen once reading is over).
     func speed(at now: Date) -> Double {
         guard let start = readingStartedAt else { return 0 }
@@ -60,7 +72,7 @@ final class ImportSession {
 
     /// Stops what is going on and discards everything read so far: an aborted run yields no albums.
     func abort() {
-        guard !isAborting, stage != .appending else { return }
+        guard !isAborting, !isFinishing else { return }
         isAborting = true
         gatherTask?.cancel()
         readTask?.cancel()
@@ -79,8 +91,33 @@ final class ImportSession {
             return Outcome(albums: [], fileCount: files.count, aborted: isAborting)
         }
 
-        // 2. Read tags. As soon as all files of a directory are read, its albums are known and their art is
-        //    processed (concurrently with the rest of the reading), once per album.
+        // 2. Read tags and art
+        guard let results = await read(files) else {
+            return Outcome(albums: [], fileCount: files.count, aborted: true)
+        }
+
+        // 3. Albums. The playlist groups them (or not) itself when it takes them in; these are the same albums
+        //    a grouped playlist would make.
+        stage = .appending
+        let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results) }.value
+        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed)")
+        return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
+    }
+
+    /// Reads the tags (and processes the art) of files that are in the playlist already.
+    func reload(files: [URL]) async -> ReloadOutcome {
+        total = files.count
+        guard !files.isEmpty else { return ReloadOutcome(results: [], aborted: false) }
+        guard let results = await read(files) else { return ReloadOutcome(results: [], aborted: true) }
+        stage = .updating
+        Log.info("reload: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), art for \(artsProcessed)/\(albumsProcessed)")
+        return ReloadOutcome(results: results, aborted: false)
+    }
+
+    /// Reads tags. As soon as all files of a directory are read, its albums are known and their art is
+    /// processed (concurrently with the rest of the reading), once per album. Results are in the order of `files`;
+    /// `nil` if aborted.
+    private func read(_ files: [URL]) async -> [TagReadResult]? {
         stage = .reading
         readingStartedAt = Date()
         let reader = TagReader(strategy: .auto, concurrency: Self.readConcurrency)
@@ -114,15 +151,7 @@ final class ImportSession {
         await art.value
         artTask = nil
 
-        if isAborting {
-            return Outcome(albums: [], fileCount: files.count, aborted: true)
-        }
-
-        // 3. Albums
-        stage = .appending
-        let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results) }.value
-        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed)")
-        return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
+        return isAborting ? nil : results
     }
 
     /// Processes the art of the albums as they come in, a few at a time.

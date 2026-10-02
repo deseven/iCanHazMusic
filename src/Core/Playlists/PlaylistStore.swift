@@ -159,6 +159,43 @@ final class PlaylistStore {
         }
     }
 
+    /// Removes the tracks at these positions of the active playlist's `entries` (see `Playlist.entryIndices`).
+    /// Playback stops if its track is among them.
+    func remove(entries removed: Set<Int>, from name: String) async {
+        guard !removed.isEmpty else { return }
+        await replaceActive(name, removed: removed) { $0.removing(entries: removed) }
+    }
+
+    /// Takes over freshly read tags into the active playlist and regroups it (see `Playlist.updatingTags`).
+    func applyTags(_ results: [TagReadResult], to name: String) async {
+        guard !results.isEmpty else { return }
+        await replaceActive(name) { $0.updatingTags(from: results) }
+    }
+
+    /// Turns the album grouping of the active playlist off or on ("Don't group by albums") and stores it.
+    func setFlat(_ flat: Bool) async {
+        guard !isLoading, activePlaylist.isFlat != flat else { return }
+        await replaceActive(activeName) { $0.settingFlat(flat) }
+    }
+
+    /// Records what playback found out about the file it plays: the real duration and format. Applied to the
+    /// playlist playback runs from (shown or not), only if it still has that track at that position.
+    func updateTrack(album: Int, track: Int, url: URL, duration: TimeInterval, codec: String) {
+        guard let playing = playingName else { return }
+        if Self.key(playing) == Self.key(activeName) {
+            guard !isLoading,
+                  let updated = activePlaylist.replacingTrack(album: album, track: track, url: url,
+                                                              duration: duration, codec: codec) else { return }
+            activePlaylist = updated
+            save(updated, as: activeName)
+        } else if let held = background, Self.key(held.name) == Self.key(playing),
+                  let updated = held.playlist.replacingTrack(album: album, track: track, url: url,
+                                                             duration: duration, codec: codec) {
+            background = (held.name, updated)
+            save(updated, as: held.name)
+        }
+    }
+
     /// Waits until everything queued by `save` is on disk.
     func flushWrites() async {
         await writeTask?.value
@@ -257,6 +294,24 @@ final class PlaylistStore {
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
         if wasActive, let first = names.first { setActive(first) }   // unloads the deleted one
+    }
+
+    /// Replaces the content of the active playlist with `transform` of it (run off the main thread), stores it
+    /// and tells playback, which has to find its track again (`removed`: positions of `entries` that are gone).
+    /// Ignored for any other playlist and while the active one is still loading.
+    private func replaceActive(_ name: String, removed: Set<Int> = [],
+                               _ transform: @escaping (Playlist) -> Playlist) async {
+        guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName) else { return }
+
+        let current = activePlaylist
+        let updated = await Task.detached(priority: .userInitiated) { transform(current) }.value
+        guard activePlaylist === current else { return }   // something else replaced the content in the meantime
+
+        activePlaylist = updated
+        save(updated, as: match)
+        if let playing = playingName, Self.key(playing) == Self.key(match) {
+            playback?.playlistWasReplaced(from: current, to: updated, removed: removed)
+        }
     }
 
     // MARK: - Validation

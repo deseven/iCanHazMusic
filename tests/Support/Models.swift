@@ -31,10 +31,13 @@ enum Make {
 
     static func result(_ path: String, id: Int = 0, status: TagReadStatus = .complete,
                        title: String? = "Title", artist: String = "Artist", album: String = "Album",
+                       track: Int? = nil, duration: TimeInterval? = nil,
                        artwork: ArtworkSource = .none) -> TagReadResult {
         var tags = TrackTags()
         tags.artist = artist
         tags.album = album
+        tags.trackNumber = track
+        tags.duration = duration
         var raw: [TagField: String] = [:]
         if let title { tags.title = title; raw[.title] = title }
         return TagReadResult(id: id, url: URL(fileURLWithPath: path), tags: tags, status: status,

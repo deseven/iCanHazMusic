@@ -22,12 +22,16 @@ enum AlbumBuilder {
     static let variousArtists = "Various Artists"
 
     /// Rows with `.failed` / `.noTags` are skipped. `results` must already be in playlist order.
-    static func build(from results: [TagReadResult]) -> [Album] {
-        build(from: results.filter { isUsable($0.status) }.map(TrackEntry.init(result:)))
+    static func build(from results: [TagReadResult], flat: Bool = false) -> [Album] {
+        build(from: results.filter { isUsable($0.status) }.map(TrackEntry.init(result:)), flat: flat)
     }
 
-    /// `entries` must already be in playlist order.
-    static func build(from entries: [TrackEntry]) -> [Album] {
+    /// `entries` must already be in playlist order. `flat`: no grouping, every entry is an album of its own
+    /// (the playlist shows no album blocks then, but positions and playback still work on albums).
+    static func build(from entries: [TrackEntry], flat: Bool = false) -> [Album] {
+        if flat {
+            return entries.map { makeAlbum(directory: $0.url.deletingLastPathComponent(), entries: [$0]) }
+        }
         struct Group {
             var directory: URL
             var entries: [TrackEntry] = []

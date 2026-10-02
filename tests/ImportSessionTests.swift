@@ -64,6 +64,30 @@ extension AllTests {
             #expect(covers.data(for: outcome.albums[2].key) == nil)
         }
 
+        @Test("reload reads just the given files, in their order, and processes their art")
+        func reload() async throws {
+            let library = try makeLibrary()
+            let scratch = try TempDir()
+            let covers = makeStore(scratch)
+            let session = ImportSession(coverStore: covers)
+            let files = [library.path("Artist2/Album B/01.flac"), library.path("Broken/garbage.mp3"),
+                         library.path("Artist1/Album A/02.mp3")]
+
+            let outcome = await session.reload(files: files)
+
+            #expect(!outcome.aborted)
+            #expect(outcome.results.map(\.url.path) == files.map(\.path))
+            #expect(outcome.results.map(\.tags.album) == ["TAlbum", TagFallback.album, "TAlbum"])
+            #expect(outcome.results.map(\.status.isFailure) == [false, true, false])
+            #expect(session.total == 3 && session.processed == 3 && session.failed == 1)
+            #expect(session.stage == .updating && session.isFinishing)
+            #expect(session.albumsProcessed == 2)
+            #expect(session.artsProcessed == 2)                 // embedded FLAC picture, folder cover
+
+            let empty = await ImportSession(coverStore: covers).reload(files: [])
+            #expect(empty.results.isEmpty && !empty.aborted)
+        }
+
         @Test("the albums carry the tags of the files")
         func albumContents() async throws {
             let library = try makeLibrary()

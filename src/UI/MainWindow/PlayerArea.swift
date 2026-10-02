@@ -5,7 +5,7 @@ struct PlayerArea: View {
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
 
-    /// Selected rows of the active playlist (reset when another playlist is shown).
+    /// Selected rows of the active playlist (reset when another playlist is shown, to the playing track if it plays).
     @State private var selection: Set<Int> = []
 
     /// Width the user asked for by dragging the divider. The effective width is this value
@@ -43,8 +43,12 @@ struct PlayerArea: View {
         }
         .frame(minWidth: Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth)
         .onChange(of: store.activeName) { _, _ in
-            selection = []
-            playback.cursorRow = nil
+            // A playlist that playback runs from comes back with its playing track selected (not a request to
+            // jump anywhere: the cursor is on the playing track).
+            let playing = playback.playingRow
+            selection = playing.map { [$0] } ?? []
+            playback.cursorRow = nil     // first: a cursor of the old playlist is not a cursor of this one,
+            playback.cursorRow = playing // even if the row numbers happen to be the same
         }
         .onChange(of: preferredBlockWidth) { _, width in
             ConfigStore.shared.update { $0.ui.playbackStatusWidth = Int(width.rounded()) }

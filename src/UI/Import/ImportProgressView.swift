@@ -16,11 +16,11 @@ struct ImportProgressView: View {
 
             HStack {
                 Spacer()
-                Button(session.isAborting || session.stage == .appending ? "Aborting..." : "Abort") {
+                Button(session.isAborting || session.isFinishing ? "Aborting..." : "Abort") {
                     session.abort()
                 }
                 .keyboardShortcut(.cancelAction)
-                .disabled(session.isAborting || session.stage == .appending)
+                .disabled(session.isAborting || session.isFinishing)
                 Spacer()
             }
         }
@@ -33,6 +33,7 @@ struct ImportProgressView: View {
         case .gathering: "Gathering the list of files..."
         case .reading: "Reading tags and album art..."
         case .appending: "Appending to current playlist..."
+        case .updating: "Updating the playlist..."
         }
     }
 

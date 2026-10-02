@@ -78,6 +78,8 @@ final class PlaybackEngine {
         var isDecoding = false
         /// Length of the file in seconds, known once it has been opened.
         var duration: Double?
+        /// Format description of the file (`CodecLabel`), known together with `duration`.
+        var codec: String?
 
         init(url: URL, startSeconds: Double, decoder: TrackDecoder) {
             self.url = url
@@ -181,6 +183,13 @@ final class PlaybackEngine {
     /// Exact length of the current track in seconds, once its file has been opened.
     var duration: Double? {
         pendingRestart == nil && !pendingStop ? slots.first?.duration : nil
+    }
+
+    /// What the current track's file turned out to be, once it has been opened.
+    var currentFile: (url: URL, duration: Double, codec: String)? {
+        guard pendingRestart == nil, !pendingStop, let slot = slots.first,
+              let duration = slot.duration, let codec = slot.codec else { return nil }
+        return (slot.url, duration, codec)
     }
 
     /// Audio scheduled but not yet played.
@@ -464,6 +473,7 @@ final class PlaybackEngine {
         switch result {
         case .chunk(let chunk):
             slot.duration = chunk.fileDuration
+            slot.codec = chunk.codec
             schedule(chunk.buffer, in: slot)
             startPlaybackIfReady()
         case .finished(let warning):
