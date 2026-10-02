@@ -35,7 +35,10 @@ enum PlaylistError: LocalizedError {
 /// The set of playlists living in `playlists/*.json` and the currently active one.
 ///
 /// Only the active playlist is kept in memory (`activePlaylist`): it's loaded from its file when it becomes
-/// active and dropped when another one is selected or it is deleted. The file format is `PlaylistFile`.
+/// active and dropped when another one is selected or it is deleted. The one exception is the playlist that
+/// playback runs from (`playingName`): while something is playing or paused, it stays in memory even when
+/// the user browses another playlist, and is taken back as is (no reload) when selected again.
+/// The file format is `PlaylistFile`.
 /// Loading is asynchronous (`isLoading`); content changes are written back in the background.
 @MainActor
 @Observable
@@ -50,6 +53,11 @@ final class PlaylistStore {
     private(set) var activePlaylist: Playlist = .empty
     /// The active playlist is being read from disk. It can't be modified until that's done.
     private(set) var isLoading = false
+
+    /// The playlist playback runs from, if any (set through `playbackStarted`/`playbackEnded`).
+    private(set) var playingName: String?
+    /// The playing playlist while it isn't the active one.
+    @ObservationIgnored private var background: (name: String, playlist: Playlist)?
 
     @ObservationIgnored private let fm = FileManager.default
     @ObservationIgnored private let configStore = ConfigStore.shared
@@ -99,6 +107,26 @@ final class PlaylistStore {
     /// Whether a playlist write is still queued or running (the app must not quit yet).
     var hasPendingWrites: Bool { pendingWrites > 0 }
 
+    /// Content of the playlist playback runs from, whether it's the active one or kept in the background.
+    var playingPlaylist: Playlist? {
+        guard let playing = playingName else { return nil }
+        if Self.key(playing) == Self.key(activeName) { return isLoading ? nil : activePlaylist }
+        if let background, Self.key(background.name) == Self.key(playing) { return background.playlist }
+        return nil
+    }
+
+    /// Playback has started from the active playlist: keep it in memory until `playbackEnded`.
+    func playbackStarted() {
+        guard !isLoading, !activeName.isEmpty else { return }
+        playingName = activeName
+        if let background, Self.key(background.name) != Self.key(activeName) { self.background = nil }
+    }
+
+    func playbackEnded() {
+        playingName = nil
+        background = nil
+    }
+
     // MARK: - Mutations
 
     /// Adds albums at the end of the active playlist and stores it. Ignored for any other playlist and
@@ -114,6 +142,9 @@ final class PlaylistStore {
 
         activePlaylist = updated
         save(updated, as: match)
+        if let playing = playingName, Self.key(playing) == Self.key(match) {
+            PlaybackState.shared.playlistDidChange()
+        }
     }
 
     /// Waits until everything queued by `save` is on disk.
@@ -124,9 +155,21 @@ final class PlaylistStore {
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
         let changed = Self.key(match) != Self.key(activeName)
+        if changed, let playing = playingName, Self.key(playing) == Self.key(activeName), !isLoading {
+            background = (activeName, activePlaylist)   // keep it for the playback
+        }
         activeName = match
         syncActiveToConfig()
-        if changed { startLoad() }
+        guard changed else { return }
+
+        if let held = background, Self.key(held.name) == Self.key(match) {
+            loadTask?.cancel()
+            activePlaylist = held.playlist
+            isLoading = false
+            background = nil
+        } else {
+            startLoad()
+        }
     }
 
     /// Creates a new empty playlist and makes it active. Returns the final name.
@@ -171,9 +214,14 @@ final class PlaylistStore {
 
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
+        let finalName = existingName(matching: newName) ?? newName
+        if let playing = playingName, Self.key(playing) == Self.key(current) { playingName = finalName }
+        if let held = background, Self.key(held.name) == Self.key(current) {
+            background = (finalName, held.playlist)
+        }
         if wasActive {
             // Same playlist under a new name: keep the loaded content.
-            activeName = existingName(matching: newName) ?? newName
+            activeName = finalName
             syncActiveToConfig()
             if isLoading { startLoad() }   // the file being read has just moved
         }
@@ -188,6 +236,10 @@ final class PlaylistStore {
             try fm.removeItem(at: fileURL(current))
         } catch {
             throw PlaylistError.io(error)
+        }
+
+        if let playing = playingName, Self.key(playing) == Self.key(current) {
+            PlaybackState.shared.stop()   // also releases the playlist held for the playback
         }
 
         let wasActive = Self.key(activeName) == Self.key(current)

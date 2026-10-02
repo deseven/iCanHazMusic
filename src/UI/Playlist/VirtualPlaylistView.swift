@@ -11,10 +11,11 @@ import SwiftUI
 /// up front (`PlaylistLayout.rowOffsets`), so nothing is estimated and nothing can jump.
 ///
 /// Selection (all custom): click = select, ⌘-click = toggle, ⇧-click = range,
-/// ↑/↓ = move (with ⇧ to extend).
+/// ↑/↓ = move (with ⇧ to extend), double click = `onActivate` with the row id.
 struct VirtualPlaylistView: View {
     let playlist: Playlist
     @Binding var selection: Set<Int>
+    let onActivate: (Int) -> Void
 
     private let layout: PlaylistLayout
 
@@ -25,9 +26,10 @@ struct VirtualPlaylistView: View {
     @State private var cursor: Int?   // moving end (keyboard)
     @FocusState private var focused: Bool
 
-    init(playlist: Playlist, selection: Binding<Set<Int>>) {
+    init(playlist: Playlist, selection: Binding<Set<Int>>, onActivate: @escaping (Int) -> Void) {
         self.playlist = playlist
         self._selection = selection
+        self.onActivate = onActivate
         let layout = PlaylistLayout(playlist: playlist)
         self.layout = layout
         self._window = State(initialValue: layout.rowRange(minY: 0, maxY: 800,
@@ -41,7 +43,11 @@ struct VirtualPlaylistView: View {
                 ForEach(window, id: \.self) { i in
                     PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i))
                         .contentShape(Rectangle())
-                        .onTapGesture { click(i) }
+                        .onTapGesture {
+                            click(i)
+                            // A separate count: 2 gesture would delay every single click.
+                            if NSApp.currentEvent?.clickCount == 2 { onActivate(i) }
+                        }
                 }
                 Color.clear.frame(height: layout.totalHeight - layout.rowOffsets[window.upperBound])
             }

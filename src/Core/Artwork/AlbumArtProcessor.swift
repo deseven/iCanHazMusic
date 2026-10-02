@@ -75,7 +75,7 @@ enum AlbumArtProcessor {
     }
 
     /// The original image bytes of a candidate (nil = nothing there / unreadable).
-    private static func load(_ candidate: AlbumArtJob.Candidate) async -> Data? {
+    static func load(_ candidate: AlbumArtJob.Candidate) async -> Data? {
         switch candidate {
         case .file(let url):
             return try? await TagReader.offload(timeout: timeout) { try Data(contentsOf: url, options: .mappedIfSafe) }

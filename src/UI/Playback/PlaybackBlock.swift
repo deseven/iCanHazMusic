@@ -4,6 +4,10 @@ import SwiftUI
 /// The width is dictated by the parent; the art is a square filling that width.
 struct PlaybackBlock: View {
     @Bindable var state: PlaybackState
+    /// Starts playback from what is selected in the playlist (the play button while nothing plays).
+    let playFromSelection: () -> Void
+    /// Whether `playFromSelection` has anything to start.
+    let hasSelection: Bool
     /// Reports the height of everything below the art so the parent can compute how big the art may get.
     /// Reported to the parent: minimal height of everything below the art
     /// (info + minimal gap + buttons + volume), excluding the art-to-info gap.
@@ -11,12 +15,12 @@ struct PlaybackBlock: View {
 
     @State private var infoHeight: CGFloat = 0
     @State private var bottomHeight: CGFloat = 0
-
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// Position the seek bar is being dragged to.
+    @State private var scrubbing: Double?
 
     var body: some View {
         VStack(spacing: 0) {
-            AlbumArtPlaceholder()
+            AlbumArtView(image: state.artwork)
                 .aspectRatio(1, contentMode: .fit)   // width-driven, always 1:1
 
             // Info: centered, right below the art
@@ -41,7 +45,6 @@ struct PlaybackBlock: View {
             }
         }
         .padding(Layout.blockPadding)
-        .onReceive(ticker) { _ in state.tick() }
     }
 
     private func reportHeight() {
@@ -51,20 +54,22 @@ struct PlaybackBlock: View {
     private var info: some View {
         VStack(spacing: 4) {
             Group {
-                Text("\(state.artist) – \(state.track)")
+                Text(line(state.info.map { "\($0.artist) – \($0.title)" }))
                     .font(.headline)
-                Text("\(state.album) (\(state.year))")
+                Text(line(state.info.map { track in
+                    track.year.map { "\(track.album) (\($0))" } ?? track.album
+                }))
                     .foregroundStyle(.secondary)
-                Text("\(format(state.position)) / \(format(state.duration))")
+                Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
                     .font(.body.monospacedDigit())
             }
             .lineLimit(1)
             .truncationMode(.tail)
 
-            SeekBar(value: $state.position, total: state.duration)
+            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
                 .padding(.vertical, 4)
 
-            Text(state.codec)
+            Text(line(state.info?.codec))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -75,19 +80,28 @@ struct PlaybackBlock: View {
     }
 
     private var transportButtons: some View {
-        HStack(spacing: 0) {
-            TransportButton(symbol: "backward.end.fill", help: "Previous album") {}
+        let stopped = state.isStopped
+        return HStack(spacing: 0) {
+            TransportButton(symbol: "backward.end.fill", help: "Previous album") { state.previousAlbum() }
+                .disabled(stopped)
             Spacer(minLength: 0)
-            TransportButton(symbol: "backward.fill", help: "Previous track") {}
+            TransportButton(symbol: "backward.fill", help: "Previous track") { state.previousTrack() }
+                .disabled(stopped)
             Spacer(minLength: 0)
-            TransportButton(symbol: state.isPlaying ? "pause.fill" : "play.fill",
-                            help: state.isPlaying ? "Pause" : "Play", size: 26) { state.togglePlay() }
+            TransportButton(symbol: state.status == .playing ? "pause.fill" : "play.fill",
+                            help: state.status == .playing ? "Pause" : "Play", size: 26) {
+                if stopped { playFromSelection() } else { state.togglePause() }
+            }
+            .disabled(stopped && !hasSelection)
             Spacer(minLength: 0)
-            TransportButton(symbol: "forward.fill", help: "Next track") {}
+            TransportButton(symbol: "forward.fill", help: "Next track") { state.nextTrack() }
+                .disabled(stopped)
             Spacer(minLength: 0)
-            TransportButton(symbol: "forward.end.fill", help: "Next album") {}
+            TransportButton(symbol: "forward.end.fill", help: "Next album") { state.nextAlbum() }
+                .disabled(stopped)
             Spacer(minLength: 0)
             TransportButton(symbol: "stop.fill", help: "Stop") { state.stop() }
+                .disabled(stopped)
         }
     }
 
@@ -100,8 +114,14 @@ struct PlaybackBlock: View {
         .controlSize(.small)
     }
 
+    /// Keeps the line's height when there is nothing to show.
+    private func line(_ text: String?) -> String {
+        guard let text, !text.isEmpty else { return " " }
+        return text
+    }
+
     private func format(_ seconds: Double) -> String {
-        let s = Int(seconds)
+        let s = Int(max(seconds, 0))
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
