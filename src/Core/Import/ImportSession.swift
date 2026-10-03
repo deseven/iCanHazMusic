@@ -83,8 +83,19 @@ final class ImportSession {
     }
 
     func run(inputs: [URL]) async -> Outcome {
+        await run(flat: false) { AudioFileGatherer.gather(from: inputs) }
+    }
+
+    /// Imports the files listed in playlist files (`PlaylistExchange`), in the order of the playlists. The tags are
+    /// read from the files; files that don't exist show up as failed. Every track is an album of its own, so a flat
+    /// playlist keeps the order of the list (a grouped one regroups when it takes them in).
+    func run(playlists: [URL]) async -> Outcome {
+        await run(flat: true) { PlaylistExchange.audioFiles(in: playlists) }
+    }
+
+    private func run(flat: Bool, gathering: @escaping @Sendable () -> [URL]) async -> Outcome {
         // 1. Gather
-        let gather = Task.detached(priority: .userInitiated) { AudioFileGatherer.gather(from: inputs) }
+        let gather = Task.detached(priority: .userInitiated) { gathering() }
         gatherTask = gather
         let files = await gather.value
         gatherTask = nil
@@ -102,7 +113,7 @@ final class ImportSession {
         // 3. Albums. The playlist groups them (or not) itself when it takes them in; these are the same albums
         //    a grouped playlist would make.
         stage = .appending
-        let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results) }.value
+        let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results, flat: flat) }.value
         Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed)")
         return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
     }

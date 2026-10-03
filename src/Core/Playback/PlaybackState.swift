@@ -47,6 +47,8 @@ final class PlaybackState {
     private(set) var duration: Double = 0
     /// Original album art cut to a square. The only one kept in memory; nil while loading or if there is none.
     private(set) var artwork: CGImage?
+    /// The art of the playing album is being looked up (`artwork` is nil meanwhile).
+    private(set) var isLoadingArtwork = false
 
     /// Linear gain, 0...1. Persisted in the config.
     var volume = AppConfig.Playback().volume {
@@ -221,6 +223,7 @@ final class PlaybackState {
         artworkTask = nil
         artworkKey = nil
         artwork = nil
+        isLoadingArtwork = false
         info = nil
         position = 0
         duration = 0
@@ -487,6 +490,7 @@ final class PlaybackState {
         guard key != artworkKey else { return }
         artworkKey = key
         artwork = nil
+        isLoadingArtwork = true
         artworkTask?.cancel()
 
         let directory = album.directory
@@ -497,6 +501,7 @@ final class PlaybackState {
             let image = await PlaybackArtwork.load(directory: directory, embeddedFrom: files)
             guard !Task.isCancelled, let self, self.artworkKey == key else { return }
             self.artwork = image
+            self.isLoadingArtwork = false
         }
     }
 

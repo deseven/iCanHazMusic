@@ -20,7 +20,7 @@ struct PlaybackBlock: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            AlbumArtView(image: state.artwork)
+            AlbumArtView(image: state.artwork, isStopped: state.isStopped, isLoading: state.isLoadingArtwork)
                 .aspectRatio(1, contentMode: .fit)   // width-driven, always 1:1
 
             // Info: centered, right below the art

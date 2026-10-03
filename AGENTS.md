@@ -33,6 +33,7 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
     - `TrackEntry.swift` – one flat stored track, and `TrackID`.
       - **Track IDs**: every track has a positive number unique within its playlist, stable through regrouping, removals, tag reloads and playback updates, never reused (`next_id`). The same file added twice = two IDs. `Playlist` hands them out itself (an import's tracks come in with `unassignedTrackID`; missing/duplicate IDs in a file are repaired on load) and looks tracks up by them (`position(of:)`, `row(of:)`, `track(id:)`). Refer to tracks by ID wherever a reference has to outlive a playlist edit; `(album, track)` positions (`TrackPosition`) and row numbers are only valid for one `Playlist` instance.
     - `Playlist.swift` – the flattened album/track row model.
+    - `PlaylistExchange.swift` – `PlaylistFormat` (`m3u8`/`m3u`/`pls`) and reading/writing those files. Export writes absolute paths, UTF-8, with titles/durations. Import takes **only the paths** (playlist order, deduped, non-local and unsupported-extension entries dropped, missing files kept so the tag reader reports them as failed); tags in the file are ignored and re-read. `ImportSession.run(playlists:)` builds one album per track to keep the order.
     - `AlbumBuilder.swift` – groups flat entries into albums by directory + album tag, for imports and loads alike. With `flat: true` every track is an album of its own: a *flat* playlist has no header rows, but positions/playback still work on `(album, track)`.
     - `AlbumKey` – that identity as a string, also the cover cache key.
   - `Artwork/`
@@ -58,9 +59,9 @@ Split into UI and logic (still one SwiftPM target, so no `public` needed). UI ma
   - `MainWindow/`, `Playback/`, `About/`
   - `Preferences/` – `PreferencesView`, the Preferences window (⌘,, a `Window` scene): vertical tabs General / Playback / Playlist / Integrations / Hotkeys (General and Hotkeys are empty so far; Integrations has the Last.fm Connect/Disconnect block). `LastFMActions` = the UI flows (confirmation sheet `LastFMAuthSheet` + alerts on the Preferences window, `connectionLost` alert + Dock bounce). Controls bind straight to the setting's owner (`PlaybackState.resampleQuality`, `PlaylistStore.tagParsingConcurrency`/`displayAlbumArt`), which persists it via `ConfigStore`.
   - `Playlist/` – virtualised playlist view: `VirtualPlaylistView`, `PlaylistLayout` (row offsets), row views, `CoverCache` (cached thumbnail from `CoverStore` or generated placeholder). The row context menu/keys (Play, Reveal in Finder, Reload Tag(s) = ⌘R behind the import sheet, Remove from Playlist = Backspace) live in `VirtualPlaylistView` + `PlaylistItemActions`.
-  - `Dialogs/` – `Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows.
+  - `Dialogs/` – `Dialogs.swift` + `PlaylistActions.swift`, NSAlert-based flows (`PlaylistActions.exportActive` = the Playlist menu's Export, an `NSSavePanel` with a format popup).
   - `Window/` – `WindowPersistence.swift`, `WindowAccessor.swift`.
-  - `Import/` – `ImportCoordinator` (File menu / drag and drop entry points), `ImportProgressSheet` + `ImportProgressView` (the modal progress sheet).
+  - `Import/` – `ImportCoordinator` (File menu / drag and drop entry points), Playlist > Import playlist...; **drops: playlist files are imported only if nothing but playlist files was dropped, in a mix with audio files/directories they are ignored (albums often carry their own playlist); File > Add File(s)/Directory never import playlists**, `ImportProgressSheet` + `ImportProgressView` (the modal progress sheet).
 
 ## Runtime data
 Everything lives in `~/Library/Application Support/iCanHazMusic-dev` (`AppPaths`, see `Constants.swift`). Pass `--workdir /some/dir` (or `--workdir=/some/dir`) to the app to use another directory instead, e.g. a scratch copy:

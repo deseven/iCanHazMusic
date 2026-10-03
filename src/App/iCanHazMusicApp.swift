@@ -63,6 +63,18 @@ private struct AppCommands: Commands {
                 set: { flat in Task { await store.setFlat(flat) } }
             ))
             .disabled(importer.isBusy)
+
+            Divider()
+
+            Button("Import playlist...") {
+                Task { await importer.importPlaylists() }
+            }
+            .disabled(importer.isBusy)
+
+            Button("Export playlist...") {
+                Task { await PlaylistActions.exportActive() }
+            }
+            .disabled(importer.isBusy || store.activePlaylist.trackCount == 0)
         }
         CommandMenu("Playback") {
             Toggle("Cursor follows playback", isOn: Bindable(playback).cursorFollowsPlayback)
