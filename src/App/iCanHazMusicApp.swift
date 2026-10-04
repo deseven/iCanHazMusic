@@ -4,6 +4,11 @@ import SwiftUI
 struct iCanHazMusicApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // Before anything reads the working directory (the config and playlist stores are created lazily).
+        MigrationActions.askAtLaunch()
+    }
+
     var body: some Scene {
         // Single main window (the first scene is opened on launch).
         // Size and position are restored from the config by `WindowPersistence`.

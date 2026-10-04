@@ -36,16 +36,16 @@ enum AppConstants {
 /// Locations of everything the app stores on disk.
 ///
 /// ```
-/// ~/Library/Application Support/iCanHazMusic-dev/     (or whatever `--workdir` says)
+/// ~/Library/Application Support/iCanHazMusic/     (or whatever `--workdir` says)
 ///   config.json
 ///   playlists/{name}.json
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
 /// ```
 struct AppPaths {
-    /// Name of the default working directory inside Application Support.
-    /// Hardcoded to the dev directory for now.
-    static let workDirName = "iCanHazMusic-dev"
+    /// Name of the default working directory inside Application Support (the previous version used the same one,
+    /// see `LegacyMigration`).
+    static let workDirName = "iCanHazMusic"
     /// Command line option that replaces the default working directory: `--workdir /path` or `--workdir=/path`.
     static let workDirOption = "--workdir"
 

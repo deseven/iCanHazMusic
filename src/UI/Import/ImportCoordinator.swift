@@ -96,6 +96,29 @@ final class ImportCoordinator {
         }
     }
 
+    /// Reads exactly these files, in this order, into the active playlist (the playlist of the previous version,
+    /// see `MigrationActions`). Returns how many files there were and how many of them couldn't be read, `nil` if the
+    /// import didn't happen or was aborted.
+    func importList(_ files: [URL]) async -> (total: Int, failed: Int)? {
+        guard !isBusy, !files.isEmpty, let window = Dialogs.hostWindow else { return nil }
+
+        let session = ImportSession(tagParsingConcurrency: PlaylistStore.shared.effectiveTagParsingConcurrency)
+        self.session = session
+        let sheet = ImportProgressSheet(session: session)
+        sheet.present(on: window)
+
+        let outcome = await session.run(files: files)
+        CoverCache.reset()
+        LyricsService.shared.refreshCurrent()
+        if !outcome.aborted {
+            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
+        }
+
+        await sheet.dismiss()
+        self.session = nil
+        return outcome.aborted ? nil : (outcome.fileCount, session.failed)
+    }
+
     // MARK: - Internals
 
     private func runPanel(_ panel: NSOpenPanel, playlists: Bool = false) async {

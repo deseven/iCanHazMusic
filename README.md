@@ -71,4 +71,4 @@ Optional `.env` file in the repo root (git-ignored), read by `build.sh`:
 - `ICHM_NOTARY_PROFILE` (a `notarytool` keychain profile) or `ICHM_APPLE_ID` + `ICHM_TEAM_ID` + `ICHM_APP_PASSWORD` - notarization of the release builds.
 - `ICHM_LASTFM_API_KEY` + `ICHM_LASTFM_API_SECRET` - your own [Last.fm API](https://www.last.fm/api/account/create) credentials. They are embedded (obfuscated) into the bundle's `Info.plist`; without them the Last.fm integration is disabled.
 
-For now the app keeps its data (config, playlists, caches) in `~/Library/Application Support/iCanHazMusic-dev`; pass `--workdir /some/dir` to the app to use another directory.
+The app keeps its data (config, playlists, caches) in `~/Library/Application Support/iCanHazMusic`; pass `--workdir /some/dir` to the app to use another directory.

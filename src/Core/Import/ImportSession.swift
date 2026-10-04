@@ -98,6 +98,12 @@ final class ImportSession {
         await run(flat: true) { PlaylistExchange.audioFiles(in: playlists) }
     }
 
+    /// Imports exactly these files, in this order, duplicates included (files without a supported extension are
+    /// dropped; missing ones show up as failed). Every track is an album of its own, like `run(playlists:)`.
+    func run(files: [URL]) async -> Outcome {
+        await run(flat: true) { files.filter(AudioFileGatherer.isSupported) }
+    }
+
     private func run(flat: Bool, gathering: @escaping @Sendable () -> [URL]) async -> Outcome {
         // 1. Gather
         let gather = Task.detached(priority: .userInitiated) { gathering() }

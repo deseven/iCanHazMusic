@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyService.shared.start()
         SystemMediaControls.shared.start()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
+        Task { await MigrationActions.finishAfterLaunch() }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
