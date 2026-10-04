@@ -27,6 +27,26 @@ extension AllTests {
         }
     }
 
+    @MainActor @Suite("Album")
+    struct AlbumTests {
+        private func album(_ entries: [TrackEntry]) -> Album {
+            AlbumBuilder.build(from: entries)[0]
+        }
+
+        @Test("track count text")
+        func trackCountText() {
+            #expect(album([Make.entry("/M/A/1.mp3")]).trackCountText == "1 track")
+            #expect(album([Make.entry("/M/A/1.mp3"), Make.entry("/M/A/2.mp3")]).trackCountText == "2 tracks")
+        }
+
+        @Test("total duration adds up the durations that are known")
+        func totalDuration() {
+            #expect(album([Make.entry("/M/A/1.mp3")]).totalDuration == nil)
+            #expect(album([Make.entry("/M/A/1.mp3", duration: 60), Make.entry("/M/A/2.mp3")]).totalDuration == 60)
+            #expect(album([Make.entry("/M/A/1.mp3", duration: 60), Make.entry("/M/A/2.mp3", duration: 40.5)]).totalDuration == 100.5)
+        }
+    }
+
     @MainActor @Suite("AlbumBuilder")
     struct AlbumBuilderTests {
         @Test("no entries, no albums")

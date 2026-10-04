@@ -42,6 +42,17 @@ struct Album {
     /// The tracks have different artists (`artist` is then "Various Artists"), so rows show the artist per track.
     let hasMultipleArtists: Bool
     let tracks: [Track]
+
+    /// "12 tracks" / "1 track": the track count tag of the album block.
+    var trackCountText: String {
+        "\(tracks.count) \(tracks.count == 1 ? "track" : "tracks")"
+    }
+
+    /// The playing time of the album: the track durations that are known, added up; `nil` if none is.
+    var totalDuration: TimeInterval? {
+        let known = tracks.compactMap(\.duration)
+        return known.isEmpty ? nil : known.reduce(0, +)
+    }
 }
 
 /// Where a track is in a playlist: its album and its place in it. Only valid for the playlist it was taken from;

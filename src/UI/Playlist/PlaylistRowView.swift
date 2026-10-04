@@ -44,15 +44,42 @@ private struct AlbumHeaderContent: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(album.artist).font(.system(size: 13, weight: .bold))
                 Text(album.title).font(.system(size: 12))
-                Text(album.year ?? " ")
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? .primary : .secondary)
+                HStack(spacing: 6) {
+                    if let year = album.year {
+                        AlbumTag(text: year, color: tagColor(.secondary))
+                    }
+                    AlbumTag(text: album.trackCountText, color: tagColor(.teal))
+                    if let total = album.totalDuration {
+                        AlbumTag(text: NotificationService.formatDuration(total), color: tagColor(.orange))
+                    }
+                }
+                .padding(.top, 3)
             }
             .lineLimit(1)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The tags turn white together with the rest of the row when that is selected.
+    private func tagColor(_ color: Color) -> Color {
+        isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : color
+    }
+}
+
+/// One of the small rounded labels of the album block's third line, built like the source tag of the lyrics sheet.
+private struct AlbumTag: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
     }
 }
 
