@@ -373,8 +373,11 @@ case "$mode" in
             echo -e "  ${dimColor}signing: ${redColor}ad-hoc${dimColor} (set ICHM_SIGNING_IDENTITY in .env; notifications need a real signature)${noColor}"
         fi
         echo -e "  ${dimColor}artifacts: dist/$name.app${noColor}"
+        # Own working directory, so dev builds don't touch the real config, playlists and caches.
+        devWorkDir="$HOME/Library/Application Support/$name-dev"
+        echo -e "  ${dimColor}workdir: $devWorkDir${noColor}"
         echo -e "  ${dimColor}launching...${noColor}"
-        "$loc/dist/$name.app/Contents/MacOS/$name"
+        "$loc/dist/$name.app/Contents/MacOS/$name" --workdir "$devWorkDir"
         ;;
     dev-release)
         echo -e "  ${dimColor}mode: development release${noColor}"

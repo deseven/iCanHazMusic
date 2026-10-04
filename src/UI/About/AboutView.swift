@@ -6,6 +6,8 @@ struct AboutView: View {
         ?? Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         ?? "?.?.?"
     private let licenseText = AboutView.loadLicenseText()
+    private let updates = UpdateService.shared
+    @State private var window: NSWindow?
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -26,6 +28,7 @@ struct AboutView: View {
         }
         .padding(20)
         .frame(width: 700, height: 520)
+        .background(WindowAccessor { window = $0 })
     }
 
     // MARK: - Left panel
@@ -45,6 +48,15 @@ struct AboutView: View {
             Text(appVersion)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.secondary)
+
+            Button(updates.isChecking ? "checking for updates..." : "check for updates") {
+                Task { await UpdateActions.checkManually(on: window) }
+            }
+            .buttonStyle(.link)
+            .font(.system(size: NSFont.systemFontSize, weight: .medium))
+            .disabled(updates.isChecking)
+            .pointerStyle(.link)
+            .padding(.top, 2)
 
             section("created by") {
                 LinkText("deseven", url: AppConstants.websiteURL)

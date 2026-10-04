@@ -70,10 +70,17 @@ struct AppConfig: Codable, Equatable {
         /// Lyrics are shown (the buttons in the playlist and in the playback block, LRCLIB lookups). Off: embedded
         /// lyrics are still read from the tags, but nothing is shown and nothing is looked up.
         var lyricsSupport = true
+        /// Look for a new version on GitHub (at launch and once a day) and offer to install it. A check started
+        /// from the About window works regardless.
+        var checkForUpdates = true
+        /// Version the user chose "Skip this version" for; empty = none. Only automatic checks respect it.
+        var skippedUpdate = ""
 
         enum CodingKeys: String, CodingKey {
             case playbackNotifications = "playback_notifications"
             case lyricsSupport = "lyrics_support"
+            case checkForUpdates = "check_for_updates"
+            case skippedUpdate = "skipped_update"
         }
 
         init() {}
@@ -83,6 +90,8 @@ struct AppConfig: Codable, Equatable {
             let d = General()
             playbackNotifications = c.value(.playbackNotifications, default: d.playbackNotifications)
             lyricsSupport = c.value(.lyricsSupport, default: d.lyricsSupport)
+            checkForUpdates = c.value(.checkForUpdates, default: d.checkForUpdates)
+            skippedUpdate = c.value(.skippedUpdate, default: d.skippedUpdate)
         }
     }
 

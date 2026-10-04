@@ -44,6 +44,10 @@ enum Layout {
     // Last.fm connection sheet
     static let lastFMSheetWidth: CGFloat = 380
 
+    // Update sheet
+    static let updateSheetWidth: CGFloat = 520
+    static let updateChangelogHeight: CGFloat = 180
+
     // Lyrics sheet
     static let lyricsSheetWidth: CGFloat = 460
     static let lyricsSheetHeight: CGFloat = 580

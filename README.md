@@ -20,6 +20,7 @@ Main app:
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 - Last.fm scrobbling and now playing updates
 - System notifications about the playback
+- Updates from GitHub releases (automatic check can be turned off, manual check in the About window)
 - Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album and volume
 - Dock menu with the current track and playback controls
 
@@ -53,7 +54,7 @@ iCHM is a Swift package (Swift tools 5.10, no third-party dependencies) for macO
 
 1. Install Xcode command line tools (`xcode-select --install`) with a Swift 5.10+ toolchain.
 2. Clone the repo.
-3. Run `./build.sh` to make a dev build: it builds the app for your architecture (arm64), creates `dist/iCanHazMusic.app` and launches it (it runs in the foreground until you quit the app).
+3. Run `./build.sh` to make a dev build: it builds the app for your architecture (arm64), creates `dist/iCanHazMusic.app` and launches it with its own working directory, `~/Library/Application Support/iCanHazMusic-dev` (it runs in the foreground until you quit the app).
 
 Other modes:
 - `./build.sh test` - generates test fixtures and runs the test suite, no artifacts.

@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // behind the launching app.
         NSApp.activate()
         LastFMService.shared.onConnectionLost = { LastFMActions.connectionLost($0) }
+        UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
+        UpdateService.shared.start()
         HotkeyService.shared.start()
         SystemMediaControls.shared.start()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")

@@ -139,6 +139,7 @@ private struct TabPage<Content: View>: View {
 private struct GeneralTab: View {
     @Bindable private var notifications = NotificationService.shared
     @Bindable private var lyrics = LyricsService.shared
+    @Bindable private var updates = UpdateService.shared
 
     var body: some View {
         TabPage {
@@ -159,6 +160,17 @@ private struct GeneralTab: View {
                     + "are added, so they are there when you turn this back on."
             ) {
                 Toggle("", isOn: $lyrics.isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Check for Updates",
+                description: "Look for a new version of \(AppConstants.appName) on GitHub once a day while it "
+                    + "runs, and offer to install it. Nothing is installed without your confirmation. You can always "
+                    + "check by hand in the About window."
+            ) {
+                Toggle("", isOn: $updates.isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
