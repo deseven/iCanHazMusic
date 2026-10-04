@@ -16,7 +16,7 @@ import Observation
 @Observable
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
-                                      listeners: [LastFMService.shared, LyricsService.shared])
+                                      listeners: [LastFMService.shared, LyricsService.shared, NotificationService.shared])
 
     enum Status { case stopped, playing, paused }
 
@@ -449,7 +449,9 @@ final class PlaybackState {
             } else if let last = nextPos?.pos ?? currentPos, let next = nextTarget(after: last) {
                 begin(at: next.pos, foreign: next.foreign)
             } else {
+                let playlist = store.playingName
                 stop()
+                if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
         case .failed(let url, let wasCurrent, _):
             if wasCurrent, let pos = currentPos {
@@ -562,7 +564,7 @@ final class PlaybackState {
         loadArtworkIfNeeded(for: album, playing: pos.track)
 
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
-                                 duration: track.duration ?? 0, startedAt: Date())
+                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key)
         progress = PlayProgress(track: played)
         for listener in listeners { listener.value?.trackDidStart(played) }
     }

@@ -522,6 +522,22 @@ extension AllTests {
             #expect(env.rig.events.last == "finished")
         }
 
+        @Test("the listener is told when the playlist ran out, but not when the user stops")
+        func listenerHearsPlaylistEnd() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)], listener: listener)
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(listener.started.first?.coverKey != nil)
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .stopped)
+            #expect(listener.events == [.started("Only"), .ended("Only")])
+            #expect(listener.playlistsEnded == ["main"])
+
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.stop()
+            #expect(listener.playlistsEnded == ["main"])
+        }
+
         @Test("a one-track playlist plays and stops")
         func singleTrack() async throws {
             let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)])

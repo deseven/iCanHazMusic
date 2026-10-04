@@ -9,6 +9,8 @@ struct PlayedTrack: Equatable, Sendable {
     var duration: TimeInterval
     /// When the track started playing.
     let startedAt: Date
+    /// `AlbumKey` of the track's album, which is what its cover is cached under (`CoverStore`); nil if unknown.
+    var coverKey: String? = nil
 
     /// The track has an artist and a title of its own; without ("Unknown Artist") nobody outside can be told about
     /// it or asked for its lyrics.
@@ -24,6 +26,14 @@ protocol PlaybackListener: AnyObject {
     /// `playedSeconds` is the time actually listened to: seeking forward doesn't add to it, pauses don't either.
     /// `track.duration` is the corrected one (from the opened file) if playback found a different one.
     func trackDidEnd(_ track: PlayedTrack, playedSeconds: TimeInterval)
+
+    /// Playback ran out of tracks by itself (not stopped by the user) and `playlist` was played to its end.
+    /// Comes after the `trackDidEnd` of the last track.
+    func playlistDidEnd(playlist: String)
+}
+
+extension PlaybackListener {
+    func playlistDidEnd(playlist: String) {}
 }
 
 /// How much of the current track has been listened to, from the positions reported while it plays.

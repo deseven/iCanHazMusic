@@ -43,9 +43,13 @@ fi
 can_sign=false
 can_notarize=false
 
-if [ -n "${ICHM_SIGNING_IDENTITY:-}" ] && [ "$mode" != "dev" ] && [ "$mode" != "test" ]; then
+# Every mode but `test` signs with ICHM_SIGNING_IDENTITY when it is set (system notifications don't work for an
+# ad-hoc signed app); `dev` doesn't notarize.
+if [ -n "${ICHM_SIGNING_IDENTITY:-}" ] && [ "$mode" != "test" ]; then
     can_sign=true
-    if [ -n "${ICHM_NOTARY_PROFILE:-}" ]; then
+    if [ "$mode" = "dev" ]; then
+        :
+    elif [ -n "${ICHM_NOTARY_PROFILE:-}" ]; then
         can_notarize=true
     elif [ -n "${ICHM_APPLE_ID:-}" ] && [ -n "${ICHM_TEAM_ID:-}" ] && [ -n "${ICHM_APP_PASSWORD:-}" ]; then
         can_notarize=true
@@ -181,7 +185,10 @@ do_create_bundle() {
 
 do_codesign() {
     xattr -cr "$loc/dist/$name.app"
-    if [ "$can_sign" = true ]; then
+    if [ "$can_sign" = true ] && [ "$mode" = "dev" ]; then
+        # No hardened runtime and no secure timestamp (needs network): neither matters for running it locally.
+        codesign --force --deep --sign "$ICHM_SIGNING_IDENTITY" "$loc/dist/$name.app"
+    elif [ "$can_sign" = true ]; then
         codesign --force --deep --sign "$ICHM_SIGNING_IDENTITY" \
             --options runtime \
             --timestamp \
@@ -351,7 +358,11 @@ echo -e "  ${greenColor}${bold}Build complete!${noColor}"
 case "$mode" in
     dev)
         echo -e "  ${dimColor}mode: development${noColor}"
-        echo -e "  ${dimColor}signing: ${redColor}ad-hoc${noColor}"
+        if [ "$can_sign" = true ]; then
+            echo -e "  ${dimColor}signing: ${greenColor}ICHM_SIGNING_IDENTITY${noColor}"
+        else
+            echo -e "  ${dimColor}signing: ${redColor}ad-hoc${dimColor} (set ICHM_SIGNING_IDENTITY in .env; notifications need a real signature)${noColor}"
+        fi
         echo -e "  ${dimColor}artifacts: dist/$name.app${noColor}"
         echo -e "  ${dimColor}launching...${noColor}"
         "$loc/dist/$name.app/Contents/MacOS/$name"
