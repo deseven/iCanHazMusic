@@ -4,6 +4,7 @@ set -euo pipefail
 
 name="iCanHazMusic"
 shortName="iCHM"
+zipName="ichm"
 ident="wtf.d7.icanhazmusic"
 loc="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logFile="$loc/build.log"
@@ -108,6 +109,8 @@ do_init_log() {
 
 do_clean_dist() {
     rm -rf "$loc/dist/$name.app"
+    rm -rf "$loc/dist/$zipName.zip"
+    rm -rf "$loc/dist/$zipName-dev.zip"
     rm -rf "$loc/dist/$shortName.zip"
     rm -rf "$loc/dist/$shortName-dev.zip"
     rm -rf "$loc/dist/$shortName.dmg"
@@ -201,9 +204,9 @@ do_codesign() {
 }
 
 do_create_zip() {
-    local zipName="$1"
+    local zipFile="$1"
     cd "$loc/dist"
-    zip -r9 "$zipName" "$name.app"
+    zip -r9 "$zipFile" "$name.app"
     cd "$loc"
 }
 
@@ -264,6 +267,11 @@ do_verify() {
     fi
 }
 
+do_install() {
+    rm -rf "/Applications/$name.app"
+    ditto "$loc/dist/$name.app" "/Applications/$name.app"
+}
+
 do_upload() {
     share "$1"
 }
@@ -273,7 +281,7 @@ case "$mode" in
     dev)         totalSteps=5 ;;
     test)        totalSteps=2 ;;
     dev-release)
-        totalSteps=11
+        totalSteps=12
         if [ "$can_notarize" = true ]; then
             totalSteps=$((totalSteps + 2))
         fi
@@ -325,7 +333,7 @@ if [ "$mode" != "dev" ]; then
     run_step "Preparing test fixtures..."      "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
     run_step "Running tests..."                "tests failed"                              do_run_tests
     if [ "$mode" = "release" ]; then
-        run_step "Creating distribution ZIP..."    "failed to pack $shortName.zip"            do_create_zip "$shortName.zip"
+        run_step "Creating distribution ZIP..."    "failed to pack $zipName.zip"              do_create_zip "$zipName.zip"
         run_step "Creating distribution DMG..."    "failed to create dmg"                     do_create_dmg
         if [ "$can_sign" = true ]; then
             run_step "Signing distribution DMG..." "failed to sign dmg"                       do_sign_dmg
@@ -339,15 +347,16 @@ if [ "$mode" != "dev" ]; then
             run_step "Verifying signatures..."     "failed to verify signatures"              do_verify
         fi
     else
-        run_step "Creating dev ZIP..."             "failed to pack $shortName-dev.zip"        do_create_zip "$shortName-dev.zip"
+        run_step "Creating dev ZIP..."             "failed to pack $zipName-dev.zip"          do_create_zip "$zipName-dev.zip"
         if [ "$can_notarize" = true ]; then
-            run_step "Notarizing dev build..."     "failed to notarize dev build"             do_notarize "$loc/dist/$shortName-dev.zip"
+            run_step "Notarizing dev build..."     "failed to notarize dev build"             do_notarize "$loc/dist/$zipName-dev.zip"
             run_step "Stapling APP bundle..."      "failed to staple app bundle"              do_staple_app
         fi
         if [ "$can_sign" = true ]; then
             run_step "Verifying signatures..."     "failed to verify signatures"              do_verify
         fi
-        run_step "Uploading dev build..."          "failed to upload dev build"               do_upload "$loc/dist/$shortName-dev.zip"
+        run_step "Installing to /Applications..."  "failed to copy app to /Applications"     do_install
+        run_step "Uploading dev build..."          "failed to upload dev build"               do_upload "$loc/dist/$zipName-dev.zip"
     fi
 fi
 
@@ -371,13 +380,14 @@ case "$mode" in
         echo -e "  ${dimColor}mode: development release${noColor}"
         echo -e "  ${dimColor}signing: $(if [ "$can_sign" = true ]; then echo "${greenColor}Developer ID${noColor}"; else echo "${redColor}ad-hoc${noColor}"; fi)"
         echo -e "  ${dimColor}notarized: $(if [ "$can_notarize" = true ]; then echo "${greenColor}yes${noColor}"; else echo "${redColor}no${noColor}"; fi)"
-        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$shortName-dev.zip${noColor}"
+        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$zipName-dev.zip${noColor}"
+                echo -e "  ${dimColor}installed: /Applications/$name.app${noColor}"
         ;;
     release)
         echo -e "  ${dimColor}mode: release${noColor}"
         echo -e "  ${dimColor}signing: $(if [ "$can_sign" = true ]; then echo "${greenColor}Developer ID${noColor}"; else echo "${redColor}ad-hoc${noColor}"; fi)"
         echo -e "  ${dimColor}notarized: $(if [ "$can_notarize" = true ]; then echo "${greenColor}yes${noColor}"; else echo "${redColor}no${noColor}"; fi)"
-        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$shortName.zip  dist/$shortName.dmg${noColor}"
+        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$zipName.zip  dist/$shortName.dmg${noColor}"
         ;;
     test)
         echo -e "  ${dimColor}mode: test${noColor}"

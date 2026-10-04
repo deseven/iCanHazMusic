@@ -25,12 +25,12 @@ Main app:
 
 ## Why
 I was a big fan of the legendary [foobar2000](https://www.foobar2000.org/) until I moved to macOS in 2010. Naturally, for some time I continued using foobar under Wine, but the experience was subpar and eventually I started jumping from player to player. Some notable examples in no particular order:
-- [Clementine](https://www.clementine-player.org/) with its [many years old bug](https://github.com/clementine-player/Clementine/issues/4733) that makes it eat up to 50% of CPU for a simple mp3 playback
+- [Clementine](https://www.clementine-player.org/) with its [10+ years old bug](https://github.com/clementine-player/Clementine/issues/4733) that makes it eat up to 50% of CPU for a simple mp3 playback
 - [cmus](https://cmus.github.io/), which was fun and all, but just a bit too minimalistic
-- [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs (back when I was using it, things seems to have improved)
+- [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs (back when I was using it, things seems to have improved since then)
 - [mac version of foobar2000](https://www.foobar2000.org/mac) which is a fucking joke of a player
 
-I remember many other apps, both free and paid, however each and every one of them did lack something important. It's also worth mentioning that with every year the chance to get a decent desktop audio player is only getting lower and lower - it's an age of cloud music now, not many people are still interested in those mammoths of a bygone era. But the urge of having a good desktop player is still here for me, that's why I finally decided to go for it myself.
+I remember many other apps, both free and paid, however each and every one of them did lack something important. It's also worth mentioning that with every year the chance to get a decent desktop audio player is only getting lower and lower - it's the age of cloud music now, not many people are still interested in those mammoths of a bygone era. But the urge of having a good desktop player is still here for me, that's why I finally decided to go for it myself.
 
 It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in an audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
 
@@ -57,8 +57,8 @@ iCHM is a Swift package (Swift tools 5.10, no third-party dependencies) for macO
 
 Other modes:
 - `./build.sh test` - generates test fixtures and runs the test suite, no artifacts.
-- `./build.sh dev-release` - universal (arm64 + x86_64) build, tests, `dist/iCHM-dev.zip`, and uploads it with the `share` tool (specific to the author's setup, remove that step if you don't have it).
-- `./build.sh release` - universal build, tests, `dist/iCHM.zip` and `dist/iCHM.dmg`.
+- `./build.sh dev-release` - universal (arm64 + x86_64) build, tests, `dist/ichm-dev.zip`, copies the app to `/Applications` (overwriting any existing copy), and uploads the zip with the `share` tool (specific to the author's setup, remove that step if you don't have it).
+- `./build.sh release` - universal build, tests, `dist/ichm.zip` and `dist/iCHM.dmg`.
 
 The plain compile check is `swift build -c debug --arch arm64`.
 
