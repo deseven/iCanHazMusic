@@ -13,6 +13,7 @@ extension AllTests {
           "playback": {"playback_follows_cursor": true, "stop_at_queue_end": true,
                        "cursor_follows_playback": false, "playback_order": "shuffle_tracks"},
           "use_genius": true,
+          "use_terminal_notifier": false,
           "window": {"height": 858, "width": 1695, "x": 156, "y": 37, "fullscreen": false},
           "web": {"use_web_server": true, "web_server_port": 8008, "api_key": "x"},
           "volume": 1,
@@ -51,6 +52,7 @@ extension AllTests {
 
             #expect(config.integrations.lastfm == .init(session: "abc", username: "someone"))
             #expect(config.integrations.lrclib.enabled)
+            #expect(!config.general.playbackNotifications)   // use_terminal_notifier
             #expect(config.playback.cursorFollowsPlayback == false)
             #expect(config.playback.playbackFollowsCursor == true)
             #expect(config.hotkeys[.playPause] == "F17")

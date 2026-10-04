@@ -79,16 +79,19 @@ enum LegacyMigration {
 
 /// The values of the old `settings.json` that have a counterpart in this version.
 ///
-/// Ignored on purpose: the column widths and `last_played_track_id` (IDs differ now), `fullscreen`, `volume`, the
-/// web server and `use_terminal_notifier`.
+/// Ignored on purpose: the column widths and `last_played_track_id` (IDs differ now), `fullscreen`, `volume` and the
+/// web server.
 ///
 /// TODO later (no counterpart yet, so they're dropped for now): `shortcuts.find_shortcut` (find in playlist),
-/// `playback.stop_at_queue_end`, `playback.playback_order`, `use_terminal_notifier`.
+/// `playback.stop_at_queue_end`, `playback.playback_order`.
 struct LegacySettings: Equatable {
     var lastFMSession: String?
     var lastFMUser: String?
     /// `use_genius`: lyrics were looked up online; the counterpart is LRCLIB.
     var lookUpLyrics: Bool?
+    /// `use_terminal_notifier`: playback notifications were shown (through terminal-notifier); the counterpart is
+    /// the playback notifications switch, which sends the system's own.
+    var playbackNotifications: Bool?
     var cursorFollowsPlayback: Bool?
     var playbackFollowsCursor: Bool?
     /// `playlist.dont_group_by_albums`; applies to the `main` playlist, not to the config.
@@ -120,6 +123,7 @@ struct LegacySettings: Equatable {
         lastFMUser = lastfm["user"] as? String
 
         lookUpLyrics = bool("use_genius", in: root)
+        playbackNotifications = bool("use_terminal_notifier", in: root)
 
         let playback = section("playback", in: root)
         cursorFollowsPlayback = bool("cursor_follows_playback", in: playback)
@@ -150,6 +154,7 @@ struct LegacySettings: Equatable {
             config.integrations.lastfm = .init(session: session, username: user)
         }
         if let lookUpLyrics { config.integrations.lrclib.enabled = lookUpLyrics }
+        if let playbackNotifications { config.general.playbackNotifications = playbackNotifications }
         if let cursorFollowsPlayback { config.playback.cursorFollowsPlayback = cursorFollowsPlayback }
         if let playbackFollowsCursor { config.playback.playbackFollowsCursor = playbackFollowsCursor }
 

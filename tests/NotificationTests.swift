@@ -62,6 +62,30 @@ extension AllTests {
             #expect(sent.cover == nil)
         }
 
+        @Test("with notifications off nothing is sent; the setting is kept in the config")
+        func disabled() throws {
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let covers = CoverStore(url: dir.path("covers.sqlite"), thumbnailPixels: 112)
+            let delivery = RecordingDelivery()
+            let service = NotificationService(delivery: delivery, coverStore: covers, configStore: config)
+            #expect(service.isEnabled)
+
+            service.isEnabled = false
+            #expect(!config.config.general.playbackNotifications)
+            service.trackDidStart(LastFMTestData.track())
+            service.playlistDidEnd(playlist: "Road trip")
+            #expect(delivery.delivered.isEmpty)
+
+            // Read back by the next instance, and on again.
+            let restarted = NotificationService(delivery: delivery, coverStore: covers, configStore: config)
+            #expect(!restarted.isEnabled)
+            restarted.isEnabled = true
+            #expect(config.config.general.playbackNotifications)
+            restarted.trackDidStart(LastFMTestData.track())
+            #expect(delivery.delivered.count == 1)
+        }
+
         @Test("durations read m:ss, and h:mm:ss from an hour on")
         func durations() {
             #expect(NotificationService.formatDuration(5) == "0:05")

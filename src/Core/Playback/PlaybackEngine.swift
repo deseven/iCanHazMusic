@@ -238,6 +238,11 @@ final class PlaybackEngine {
         fadeOutThenCommit()
     }
 
+    /// Returns once the fade-out in progress (if any) is over and what waited for it, such as a stop, is done.
+    func waitForFade() async {
+        await fadeTask?.value
+    }
+
     /// Moves the current track to `seconds` (at most its last frame).
     func seek(to seconds: Double) {
         guard !pendingStop, let url = pendingRestart?.url ?? slots.first?.url else { return }
@@ -367,7 +372,10 @@ final class PlaybackEngine {
         frozenFrame = 0
         pendingRestart = nil
         wantsPlaying = false
-        if case .device = output, engine.isRunning { engine.stop() }
+        if case .device = output, engine.isRunning {
+            engine.stop()
+            Log.info("audio output: stopped")
+        }
     }
 
     // MARK: - Output
@@ -385,6 +393,7 @@ final class PlaybackEngine {
         engine.prepare()
         do {
             try engine.start()
+            Log.info("audio output: started at \(Int(sampleRate)) Hz")
             return true
         } catch {
             Log.error("audio engine: \(error.localizedDescription)")
@@ -485,7 +494,7 @@ final class PlaybackEngine {
             if slot.scheduledFrames == 0 {
                 fail(slot, message: warning ?? "no audio")
             } else {
-                if let warning { Log.error("\(slot.url.lastPathComponent): \(warning)") }
+                if let warning { Log.error("\(slot.url.path): \(warning)") }
                 armBoundaryTimer()
             }
         case .failed(let message):
@@ -501,7 +510,10 @@ final class PlaybackEngine {
         if node.isPlaying {
             let now = currentFrame()
             if now > scheduledEnd {
-                if slot.hasScheduled { slot.gapFrames += now - scheduledEnd }
+                if slot.hasScheduled {
+                    slot.gapFrames += now - scheduledEnd
+                    Log.error("audio underrun in \(slot.url.lastPathComponent): \(Int((Double(now - scheduledEnd) / sampleRate * 1000).rounded())) ms of silence (decoding too slow, slow disk or share?)")
+                }
                 scheduledEnd = now
             }
         }
@@ -526,7 +538,7 @@ final class PlaybackEngine {
         let wasCurrent = slots.first === slot
         slots.removeAll { $0 === slot }
         slot.decoder.cancel()
-        Log.error("can't play \(slot.url.lastPathComponent): \(message)")
+        Log.error("can't play \(slot.url.path): \(message)")
         if wasCurrent {
             teardown()
         } else {

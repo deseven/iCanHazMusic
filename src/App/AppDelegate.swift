@@ -23,9 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Let a playlist write that's still in flight finish first.
-        guard PlaylistStore.shared.hasPendingWrites else { return .terminateNow }
+        // Stop the music first (it fades out; being cut off in the middle of the sound pops) and let a playlist
+        // write that's still in flight finish.
+        let playback = PlaybackState.shared
+        guard !playback.isStopped || PlaylistStore.shared.hasPendingWrites else { return .terminateNow }
         Task {
+            await playback.stopAndWait()
             await PlaylistStore.shared.flushWrites()
             NSApp.reply(toApplicationShouldTerminate: true)
         }

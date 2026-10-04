@@ -217,9 +217,11 @@ final class PlaybackState {
         case .playing:
             engine.pause()
             status = .paused
+            Log.info("playback: paused at \(Self.clock(engine.position))")
         case .paused:
             engine.resume()
             status = .playing
+            Log.info("playback: resumed at \(Self.clock(engine.position))")
         case .stopped:
             break
         }
@@ -263,6 +265,7 @@ final class PlaybackState {
 
     func stop() {
         endProgress()
+        if status != .stopped { Log.info("playback: stopped") }
         status = .stopped
         engine.stop()
         stopTicking()
@@ -278,6 +281,14 @@ final class PlaybackState {
         position = 0
         duration = 0
         store.playbackEnded()
+    }
+
+    /// `stop()`, returning once the output has faded out and stopped. For quitting: the process ending in the middle
+    /// of the sound pops.
+    func stopAndWait() async {
+        guard status != .stopped else { return }
+        stop()
+        await engine.waitForFade()
     }
 
     /// Does nothing on the last track of the playlist.
@@ -366,6 +377,7 @@ final class PlaybackState {
         guard status != .stopped, duration > 0 else { return }
         let target = min(max(seconds, 0), max(duration - 0.05, 0))
         position = target
+        Log.info("playback: seek to \(Self.clock(target)) of \(Self.clock(duration))")
         engine.seek(to: target)
     }
 
@@ -418,18 +430,20 @@ final class PlaybackState {
         engine.start(track.url, next: nextURL)
 
         status = .playing
-        trackDidChange()
+        trackDidChange(how: "started")
         startTicking()
     }
 
     /// Hands the track following `pos` (if there is one) to the engine.
     private func prepareNext(after pos: Position) {
         guard let next = nextTarget(after: pos), let track = track(at: next.pos, in: playlist(of: next)) else {
+            if nextURL != nil { Log.info("playback: nothing queued next") }
             nextPos = nil
             nextURL = nil
             engine.setNext(nil)
             return
         }
+        if nextURL != track.url { Log.info("playback: next up: \(track.url.path)") }
         nextPos = next
         nextURL = track.url
         engine.setNext(track.url)
@@ -450,6 +464,7 @@ final class PlaybackState {
                 begin(at: next.pos, foreign: next.foreign)
             } else {
                 let playlist = store.playingName
+                Log.info("playback: reached the end of playlist \"\(playlist ?? "")\"")
                 stop()
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
@@ -464,7 +479,8 @@ final class PlaybackState {
                     prepareNext(after: failed.pos)
                 }
             }
-        case .deviceError:
+        case .deviceError(let message):
+            Log.error("playback: stopped, audio output failed: \(message)")
             stop()
         }
     }
@@ -483,7 +499,7 @@ final class PlaybackState {
         }
         currentPos = next.pos
         nextPos = nil
-        trackDidChange()
+        trackDidChange(how: "gapless transition")
         prepareNext(after: next.pos)
     }
 
@@ -547,7 +563,7 @@ final class PlaybackState {
     // MARK: - Current track
 
     /// Fills in everything shown about the (new) current track.
-    private func trackDidChange() {
+    private func trackDidChange(how: String) {
         endProgress()
         // The request is served
         if cursorRequested, store.playingIsActive, cursorTarget()?.pos == currentPos { cursorRequested = false }
@@ -563,6 +579,8 @@ final class PlaybackState {
         duration = track.duration ?? 0
         loadArtworkIfNeeded(for: album, playing: pos.track)
 
+        Log.info("playback: \(how): \(track.artist) – \(track.title) [\(album.title)], \(track.codec.isEmpty ? "format unknown" : track.codec), "
+            + "playlist \"\(store.playingName ?? "")\", \(track.url.path)")
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
                                  duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key)
         progress = PlayProgress(track: played)
@@ -576,7 +594,13 @@ final class PlaybackState {
         progress = nil
         var track = finished.track
         if duration > 0 { track.duration = duration }
+        Log.info("playback: left \(track.artist) – \(track.title), listened to \(Self.clock(finished.played)) of \(Self.clock(track.duration))")
         for listener in listeners { listener.value?.trackDidEnd(track, playedSeconds: finished.played) }
+    }
+
+    /// `3:05` for log messages.
+    private static func clock(_ seconds: Double) -> String {
+        NotificationService.formatDuration(seconds.isFinite ? seconds : 0)
     }
 
     /// Shows the playlist's current values of the current track again, without touching the position.

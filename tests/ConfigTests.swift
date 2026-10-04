@@ -76,6 +76,23 @@ extension AllTests {
             #expect(try JSONDecoder().decode(AppConfig.self, from: data) == config)
         }
 
+        @Test("the general section: playback notifications and lyrics support are on by default, read leniently")
+        func generalSection() throws {
+            let defaults = AppConfig().general
+            #expect(defaults.playbackNotifications && defaults.lyricsSupport)
+            #expect(try decode("{}").general == defaults)
+
+            let off = try decode(#"{"general": {"playback_notifications": false, "lyrics_support": false}}"#)
+            #expect(!off.general.playbackNotifications && !off.general.lyricsSupport)
+
+            let partial = try decode(#"{"general": {"playback_notifications": false, "lyrics_support": "no"}}"#)
+            #expect(!partial.general.playbackNotifications && partial.general.lyricsSupport)
+            #expect(try decode(#"{"general": 5}"#).general == defaults)
+
+            let data = try JSONEncoder().encode(off)
+            #expect(try JSONDecoder().decode(AppConfig.self, from: data) == off)
+        }
+
         @Test("resample quality is high by default, read by name and reset when unknown")
         func resampleQuality() throws {
             #expect(AppConfig().playback.resampleQuality == .high)

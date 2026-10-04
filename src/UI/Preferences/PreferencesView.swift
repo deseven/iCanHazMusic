@@ -134,20 +134,36 @@ private struct TabPage<Content: View>: View {
     }
 }
 
-/// A tab without settings yet.
-private struct EmptyTab: View {
-    var body: some View {
-        TabPage {
-            Text("Nothing here yet.")
-                .foregroundStyle(.secondary)
-        }
-    }
-}
-
 // MARK: - Tabs
 
 private struct GeneralTab: View {
-    var body: some View { EmptyTab() }
+    @Bindable private var notifications = NotificationService.shared
+    @Bindable private var lyrics = LyricsService.shared
+
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "Playback Notifications",
+                description: "Show a system notification when a track starts and when the playlist ends, for when "
+                    + "\(AppConstants.appName) isn't in front. Turning this off sends no notifications at all."
+            ) {
+                Toggle("", isOn: $notifications.isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Lyrics Support",
+                description: "Show the lyrics of tracks: a button in the playlist and in the playback block. Turning this "
+                    + "off also turns off the LRCLIB lookup. Lyrics in the tags of files are still read when files "
+                    + "are added, so they are there when you turn this back on."
+            ) {
+                Toggle("", isOn: $lyrics.isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+        }
+    }
 }
 
 private struct IntegrationsTab: View {
@@ -170,19 +186,25 @@ private struct IntegrationsTab: View {
                 .disabled(!lastFM.isAvailable || lastFM.isAuthorizing)
             }
 
-            PrefRow(
-                title: "LRCLIB",
-                description: "Look up the lyrics of tracks that have none in their tags on lrclib.net (a free, community "
-                    + "driven database), when they start playing. Only tracks whose artist and title match exactly "
-                    + "are used. Lyrics that are found are saved locally and never replace the ones from the "
-                    + "tags. This sends the artist and title of the played tracks to lrclib.net."
-            ) {
-                Toggle("", isOn: $lyrics.isLRCLIBEnabled)
+            PrefRow(title: "LRCLIB", description: lrclibDescription) {
+                // Shows Off while lyrics support is off; the choice itself is kept for when it is turned on again.
+                Toggle("", isOn: Binding(get: { lyrics.isLRCLIBActive }, set: { lyrics.isLRCLIBEnabled = $0 }))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .disabled(!lyrics.isEnabled)
             }
         }
         .background(WindowAccessor { window = $0 })
+    }
+
+    private var lrclibDescription: Text {
+        let text = Text("Look up the lyrics of tracks that have none in their tags on lrclib.net (a free, community "
+            + "driven database), when they start playing. Only tracks whose artist and title match exactly "
+            + "are used. Lyrics that are found are saved locally and never replace the ones from the "
+            + "tags. This sends the artist and title of the played tracks to lrclib.net.")
+        guard !lyrics.isEnabled else { return text }
+        return text + Text("\nNot working: Lyrics Support is turned off (General). Nothing is looked up until it is on.")
+            .foregroundStyle(.red)
     }
 
     private var lastFMDescription: Text {

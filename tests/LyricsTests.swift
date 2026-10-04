@@ -367,6 +367,60 @@ extension AllTests {
             #expect(env.transport.requests.count == 1)
         }
 
+        @Test("without lyrics support nothing is shown or looked up, and what the user chose for LRCLIB is kept")
+        func lyricsSupportOff() async throws {
+            let env = try makeEnv(transport: HTTPStub(always: LRCLIBAnswer.records([LRCLIBAnswer.record(title: "Other", plain: "online")])))
+            #expect(env.service.isEnabled && env.service.isLRCLIBActive)
+            #expect(AppConfig().general.lyricsSupport)
+            let embedded = try #require(Lyrics.embedded("from the file"))
+            env.store.store(embedded, for: key)
+
+            env.service.isEnabled = false
+            #expect(!env.config.config.general.lyricsSupport)
+            #expect(env.service.isLRCLIBEnabled && !env.service.isLRCLIBActive)
+            #expect(env.config.config.integrations.lrclib.enabled)
+
+            env.service.trackDidStart(track)
+            #expect(env.service.current == nil)
+            #expect(env.service.lyrics(artist: "Artist", title: "Title", album: "Album") == nil)
+            #expect(!env.service.hasLyrics(artist: "Artist", title: "Title", album: "Album"))
+            env.service.trackDidEnd(track, playedSeconds: 10)
+
+            let other = LRCLIBTestData.track(title: "Other")
+            env.service.trackDidStart(other)
+            try? await Task.sleep(for: .milliseconds(30))
+            #expect(env.transport.requests.isEmpty)
+            env.service.trackDidEnd(other, playedSeconds: 10)
+
+            // The lyrics of the file are in the store all along; with support back on they show up.
+            env.service.trackDidStart(track)
+            env.service.isEnabled = true
+            #expect(env.service.current == embedded)
+            #expect(env.service.hasLyrics(artist: "Artist", title: "Title", album: "Album"))
+            env.service.trackDidEnd(track, playedSeconds: 10)
+
+            // Turned on during a track without lyrics: LRCLIB is asked then.
+            env.service.isEnabled = false
+            env.service.trackDidStart(other)
+            env.service.isEnabled = true
+            #expect(await waitUntil { env.service.current != nil })
+            #expect(env.transport.requests.count == 1)
+        }
+
+        @Test("turning lyrics support off hides the lyrics of the playing track")
+        func lyricsSupportOffWhilePlaying() throws {
+            let env = try makeEnv(enabled: false)
+            let embedded = try #require(Lyrics.embedded("from the file"))
+            env.store.store(embedded, for: key)
+            env.service.trackDidStart(track)
+            #expect(env.service.current == embedded)
+
+            env.service.isEnabled = false
+            #expect(env.service.current == nil)
+            env.service.isEnabled = true
+            #expect(env.service.current == embedded)
+        }
+
         @Test("tracks without tags are never looked up")
         func untagged() async throws {
             let env = try makeEnv()

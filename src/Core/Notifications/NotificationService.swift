@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// What a notification says. Plain text, so what is shown can be tested without a notification center.
 struct NotificationMessage: Equatable, Sendable {
@@ -20,19 +21,37 @@ protocol NotificationDelivery: AnyObject {
 /// A `PlaybackListener`, like `LastFMService` and `LyricsService`. The notifications replace each other (see
 /// `NotificationDelivery`), so the one on screen is always the latest: a track that starts replaces the previous
 /// track's, and the end of the playlist replaces the last track's.
+///
+/// `isEnabled` (config `general.playback_notifications`, on by default) turns all of it off: nothing is sent, so the
+/// system doesn't even ask for permission.
 @MainActor
+@Observable
 final class NotificationService: PlaybackListener {
-    static let shared = NotificationService(delivery: SystemNotificationDelivery(), coverStore: .shared)
+    static let shared = NotificationService(delivery: SystemNotificationDelivery(), coverStore: .shared, configStore: .shared)
 
-    private let delivery: NotificationDelivery
-    private let coverStore: CoverStore
+    /// Send notifications. Persisted in the config.
+    var isEnabled: Bool {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            configStore?.update { $0.general.playbackNotifications = isEnabled }
+            Log.info("playback notifications: \(isEnabled ? "on" : "off")")
+        }
+    }
 
-    init(delivery: NotificationDelivery, coverStore: CoverStore) {
+    @ObservationIgnored private let delivery: NotificationDelivery
+    @ObservationIgnored private let coverStore: CoverStore
+    @ObservationIgnored private let configStore: ConfigStore?
+
+    /// `configStore`: where `isEnabled` is read from and kept; `nil` = on, and nothing is persisted.
+    init(delivery: NotificationDelivery, coverStore: CoverStore, configStore: ConfigStore? = nil) {
         self.delivery = delivery
         self.coverStore = coverStore
+        self.configStore = configStore
+        isEnabled = configStore?.config.general.playbackNotifications ?? true
     }
 
     func trackDidStart(_ track: PlayedTrack) {
+        guard isEnabled else { return }
         let cover = track.coverKey.flatMap { coverStore.data(for: $0) }
         delivery.deliver(Self.message(starting: track), cover: cover)
     }
@@ -40,6 +59,7 @@ final class NotificationService: PlaybackListener {
     func trackDidEnd(_ track: PlayedTrack, playedSeconds: TimeInterval) {}
 
     func playlistDidEnd(playlist: String) {
+        guard isEnabled else { return }
         delivery.deliver(Self.message(playlistEnded: playlist), cover: nil)
     }
 

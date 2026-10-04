@@ -11,25 +11,52 @@ import Observation
 ///   and shown as soon as they are there. A "no" is remembered until the app quits, so replaying a track doesn't ask
 ///   again; a lookup that failed is tried again the next time the track starts.
 /// - Tracks without tags (`PlayedTrack.hasTags`) are never looked up.
+/// - `isEnabled` ("Lyrics Support", config `general.lyrics_support`, on by default) turns showing lyrics off: there
+///   are no lyrics for the playing track (`current`), none for any track (`lyrics`, `hasLyrics`) and LRCLIB isn't asked.
+///   The lyrics in the tags are still read into the store when files are added, so they are there when it is turned
+///   on again. `isLRCLIBEnabled` stays what the user chose meanwhile; `isLRCLIBActive` is what counts.
 @MainActor
 @Observable
 final class LyricsService: PlaybackListener {
     static let shared = LyricsService(configStore: .shared, store: .shared)
 
-    /// Ask LRCLIB for the lyrics of tracks that have none. Persisted in the config.
+    /// Lyrics are shown at all. Persisted in the config.
+    var isEnabled: Bool {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            configStore.update { $0.general.lyricsSupport = isEnabled }
+            Log.info("lyrics support: \(isEnabled ? "on" : "off")")
+            if isEnabled {
+                // Lyrics support came back while a track plays: show what is known, else ask LRCLIB (if it is active).
+                if let currentKey, let playing {
+                    current = store.lyrics(for: currentKey)
+                    if current == nil { lookUpOnLRCLIB(playing) }
+                }
+            } else {
+                current = nil
+                stopLookups()
+            }
+            revision += 1
+        }
+    }
+
+    /// Ask LRCLIB for the lyrics of tracks that have none. Persisted in the config. Only takes effect while lyrics
+    /// support (`isEnabled`) is on, see `isLRCLIBActive`.
     var isLRCLIBEnabled: Bool {
         didSet {
             guard isLRCLIBEnabled != oldValue else { return }
             configStore.update { $0.integrations.lrclib.enabled = isLRCLIBEnabled }
             Log.info("lrclib: \(isLRCLIBEnabled ? "on" : "off")")
-            if isLRCLIBEnabled {
+            if isLRCLIBActive {
                 if let playing, current == nil { lookUpOnLRCLIB(playing) }
             } else {
-                queue?.cancelAll()
-                pending.removeAll()
+                stopLookups()
             }
         }
     }
+
+    /// LRCLIB is asked for lyrics: it is turned on and so is lyrics support.
+    var isLRCLIBActive: Bool { isEnabled && isLRCLIBEnabled }
 
     /// The lyrics of the track that plays (or is paused), nil if there are none (yet).
     private(set) var current: Lyrics?
@@ -60,6 +87,7 @@ final class LyricsService: PlaybackListener {
         self.transport = transport
         self.spacing = spacing
         self.sleep = sleep
+        isEnabled = configStore.config.general.lyricsSupport
         isLRCLIBEnabled = configStore.config.integrations.lrclib.enabled
     }
 
@@ -67,21 +95,26 @@ final class LyricsService: PlaybackListener {
 
     /// The stored lyrics of a track; nil if there are none, or the track has no tags.
     func lyrics(artist: String, title: String, album: String) -> Lyrics? {
-        guard TagFallback.isIdentified(artist: artist, title: title) else { return nil }
+        guard isEnabled, TagFallback.isIdentified(artist: artist, title: title) else { return nil }
         return store.lyrics(for: LyricsKey.make(artist: artist, title: title, album: album))
     }
 
     func hasLyrics(artist: String, title: String, album: String) -> Bool {
         _ = revision
-        guard TagFallback.isIdentified(artist: artist, title: title) else { return false }
+        guard isEnabled, TagFallback.isIdentified(artist: artist, title: title) else { return false }
         return store.contains(LyricsKey.make(artist: artist, title: title, album: album))
     }
 
     /// The store changed under the playing track (its tags were read again): look again.
     func refreshCurrent() {
         revision += 1
-        guard let currentKey else { return }
+        guard isEnabled, let currentKey else { return }
         current = store.lyrics(for: currentKey)
+    }
+
+    private func stopLookups() {
+        queue?.cancelAll()
+        pending.removeAll()
     }
 
     // MARK: - Playback
@@ -95,8 +128,8 @@ final class LyricsService: PlaybackListener {
         }
         let key = LyricsKey.make(artist: track.artist, title: track.title, album: track.album)
         currentKey = key
-        current = store.lyrics(for: key)
-        if current == nil { lookUpOnLRCLIB(track) }
+        current = isEnabled ? store.lyrics(for: key) : nil
+        if isEnabled, current == nil { lookUpOnLRCLIB(track) }
     }
 
     func trackDidEnd(_ track: PlayedTrack, playedSeconds: TimeInterval) {
@@ -110,7 +143,7 @@ final class LyricsService: PlaybackListener {
 
     private func lookUpOnLRCLIB(_ track: PlayedTrack) {
         let key = LyricsKey.make(artist: track.artist, title: track.title, album: track.album)
-        guard isLRCLIBEnabled, track.hasTags, !unavailable.contains(key), pending.insert(key).inserted else { return }
+        guard isLRCLIBActive, track.hasTags, !unavailable.contains(key), pending.insert(key).inserted else { return }
         let queue = self.queue ?? makeQueue()
         queue.enqueue(LRCLIBQuery(artist: track.artist, title: track.title, album: track.album, duration: track.duration))
     }
@@ -130,7 +163,7 @@ final class LyricsService: PlaybackListener {
         case .found(let lyrics):
             // The file's own lyrics may have turned up while the request was on its way: they win.
             if store.store(lyrics, for: key, replacing: false) { revision += 1 }
-            if key == currentKey { current = store.lyrics(for: key) ?? lyrics }
+            if key == currentKey, isEnabled { current = store.lyrics(for: key) ?? lyrics }
         case .notFound:
             unavailable.insert(key)
         case .failed:

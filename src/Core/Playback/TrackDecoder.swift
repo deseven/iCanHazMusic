@@ -143,6 +143,14 @@ final class TrackDecoder: @unchecked Sendable {
         let start = min(max(Int64((startSeconds * format.sampleRate).rounded()), 0), file.length - 1)
         if start > 0 { file.framePosition = start }
         opened = true
+
+        let channels = format.channelCount == 2 ? "stereo" : "\(format.channelCount) ch -> stereo"
+        let conversion = converter == nil
+            ? "no resampling"
+            : "resampled to \(Int(outputFormat.sampleRate)) Hz (\(resampleQuality.rawValue) quality)"
+        let from = start > 0 ? ", from \(String(format: "%.1f", Double(start) / format.sampleRate)) s" : ""
+        Log.info("decoder: opened \(url.path): \(codec), \(Int(format.sampleRate)) Hz, \(channels), "
+            + "\(String(format: "%.1f", fileDuration)) s, \(conversion)\(from)")
     }
 
     private func makeChunk() throws -> AVAudioPCMBuffer? {

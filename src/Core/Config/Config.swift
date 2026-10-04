@@ -64,6 +64,28 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
+    struct General: Codable, Equatable {
+        /// System notifications about playback (the track that starts, the end of the playlist). Off: none is sent.
+        var playbackNotifications = true
+        /// Lyrics are shown (the buttons in the playlist and in the playback block, LRCLIB lookups). Off: embedded
+        /// lyrics are still read from the tags, but nothing is shown and nothing is looked up.
+        var lyricsSupport = true
+
+        enum CodingKeys: String, CodingKey {
+            case playbackNotifications = "playback_notifications"
+            case lyricsSupport = "lyrics_support"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = General()
+            playbackNotifications = c.value(.playbackNotifications, default: d.playbackNotifications)
+            lyricsSupport = c.value(.lyricsSupport, default: d.lyricsSupport)
+        }
+    }
+
     struct Playback: Codable, Equatable {
         /// The selection moves to the track that starts playing.
         var cursorFollowsPlayback = true
@@ -211,6 +233,7 @@ struct AppConfig: Codable, Equatable {
     static let defaultPlaylistName = "main"
 
     var ui = UI()
+    var general = General()
     var playback = Playback()
     var playlist = Playlist()
     var hotkeys = Hotkeys()
@@ -219,6 +242,7 @@ struct AppConfig: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case ui
+        case general
         case playback
         case playlist
         case hotkeys
@@ -232,6 +256,7 @@ struct AppConfig: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppConfig()
         ui = c.value(.ui, default: d.ui)
+        general = c.value(.general, default: d.general)
         playback = c.value(.playback, default: d.playback)
         playlist = c.value(.playlist, default: d.playlist)
         hotkeys = c.value(.hotkeys, default: d.hotkeys)
