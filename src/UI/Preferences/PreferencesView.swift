@@ -226,7 +226,7 @@ private struct PlaylistTab: View {
             PrefRow(
                 title: "Tag Parsing Concurrency",
                 description: "How many files are read at the same time when adding them to a playlist. Auto uses "
-                    + "half of the physical CPU cores. Higher values can speed things up on network shares."
+                    + "the number of physical CPU cores. Higher values can speed things up on network shares."
             ) {
                 Picker("", selection: $store.tagParsingConcurrency) {
                     ForEach(ConfigLimits.tagParsingConcurrencyOptions, id: \.self) { count in

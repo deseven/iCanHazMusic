@@ -14,7 +14,7 @@ They explain *why* the reader looks the way it does. Behaviour described here is
    MP3, AudioFile is ~1.4x faster for FLAC. So `.mp3` goes to AVFoundation, everything else to AudioFile; the
    other backend is consulted only if the artist is still missing.
 3. **Concurrency pays off on a network share** (1 -> 16 parallel: ~30 -> ~160 files/s) and saturates at ~16.
-   `TagReader.defaultConcurrency` is physical cores / 2; `ImportSession` passes 16.
+   `TagReader.defaultConcurrency` is the number of physical cores; `ImportSession` passes 16.
 4. **Both APIs read ID3v1.** AVFoundation exposes no metadata formats for ID3v1-only files, AudioFile does.
 5. **ID3v2.2 is a trap.** AVFoundation exposes its 3-char frames (`TT2`, `TP1`, ...) with `identifier == nil`
    and only a bare `key`; a reader that requires `identifier` silently reports "no tags" for those files.

@@ -2,7 +2,7 @@ import Foundation
 
 /// Reads tags for many files with bounded parallelism and streams results back as soon as each file is done.
 ///
-///     let reader = TagReader(strategy: .auto)   // concurrency: physical cores / 2
+///     let reader = TagReader(strategy: .auto)   // concurrency: physical cores
 ///     for await result in reader.read(paths: paths) { ... }   // arrives in completion order, not input order
 ///
 /// Every input yields exactly one result (unless the consumer cancels). Failures never throw:
@@ -25,7 +25,7 @@ final class TagReader: Sendable {
         var id: String { rawValue }
     }
 
-    /// Default parallelism: physical CPU cores / 2 (at least 1). `hw.physicalcpu` counts performance and
+    /// Default parallelism: the number of physical CPU cores (at least 1). `hw.physicalcpu` counts performance and
     /// efficiency cores alike; falls back to the logical count if the sysctl fails.
     static let defaultConcurrency: Int = {
         var cores: Int32 = 0
@@ -33,7 +33,7 @@ final class TagReader: Sendable {
         if sysctlbyname("hw.physicalcpu", &cores, &size, nil, 0) != 0 || cores < 1 {
             cores = Int32(ProcessInfo.processInfo.processorCount)
         }
-        return max(1, Int(cores) / 2)
+        return max(1, Int(cores))
     }()
 
     let strategy: Strategy
