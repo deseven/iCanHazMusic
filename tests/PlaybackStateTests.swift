@@ -634,6 +634,135 @@ extension AllTests {
             #expect(env.state.info?.title == "A1")
         }
 
+        // MARK: Random, play/pause, volume (the hotkeys' commands)
+
+        @Test("random track plays any other track of the playing playlist, never the current one")
+        func randomTrack() async throws {
+            let env = try await standard()
+            let titles = ["A1", "A2", "A3", "B1", "B2"]
+            for (current, title) in titles.enumerated() {
+                var picked: Set<String> = []
+                for choice in 0..<4 {
+                    env.state.play(albumIndex: current < 3 ? 0 : 1, trackIndex: current < 3 ? current : current - 3)
+                    env.state.randomIndex = { count in
+                        #expect(count == 4)           // the current track is not among the candidates
+                        return choice
+                    }
+                    env.state.randomTrack()
+                    let new = try #require(env.state.info?.title)
+                    #expect(new != title)
+                    picked.insert(new)
+                }
+                #expect(picked == Set(titles).subtracting([title]))   // every other track is reachable
+            }
+        }
+
+        @Test("random album plays the first track of another album")
+        func randomAlbum() async throws {
+            let env = try await standard()
+            env.state.randomIndex = { count in
+                #expect(count == 1)
+                return 0
+            }
+            env.state.play(albumIndex: 0, trackIndex: 2)
+            env.state.randomAlbum()
+            #expect(env.state.info?.title == "B1")
+            env.state.randomAlbum()
+            #expect(env.state.info?.title == "A1")
+        }
+
+        @Test("random with nothing else to pick plays the only track")
+        func randomSingle() async throws {
+            let env = try await makeEnv([entry(.a, title: "Only", album: "X", track: 1)])
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.randomTrack()
+            #expect(env.state.info?.title == "Only")
+            #expect(env.state.status == .playing)
+            env.state.randomAlbum()
+            #expect(env.state.info?.title == "Only")
+        }
+
+        @Test("random while stopped starts a track of the active playlist")
+        func randomWhileStopped() async throws {
+            let env = try await standard()
+            env.state.randomIndex = { _ in 3 }
+            env.state.randomTrack()
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "B1")
+
+            env.state.stop()
+            env.state.randomIndex = { _ in 1 }
+            env.state.randomAlbum()
+            #expect(env.state.info?.title == "B1")
+        }
+
+        @Test("play/pause starts the track under the cursor while stopped, otherwise pauses and resumes")
+        func playPause() async throws {
+            let env = try await standard()
+            env.state.playPause()                         // no cursor: nothing to start
+            #expect(env.state.status == .stopped)
+
+            env.state.cursorRow = 3                       // header X, A1, A2, A3 -> row 3 is A3
+            env.state.playPause()
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A3")
+            env.state.playPause()
+            #expect(env.state.status == .paused)
+            env.state.playPause()
+            #expect(env.state.status == .playing)
+        }
+
+        @Test("resume and pause only do their own thing")
+        func resumeAndPause() async throws {
+            let env = try await standard()
+            env.state.pause()
+            #expect(env.state.status == .stopped)
+            env.state.resume()                            // stopped, no cursor
+            #expect(env.state.status == .stopped)
+
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.resume()
+            #expect(env.state.status == .playing)
+            env.state.pause()
+            #expect(env.state.status == .paused)
+            env.state.pause()
+            #expect(env.state.status == .paused)
+            env.state.resume()
+            #expect(env.state.status == .playing)
+
+            env.state.stop()
+            env.state.cursorRow = 1
+            env.state.resume()                            // stopped: starts what is under the cursor
+            #expect(env.state.info?.title == "A1")
+        }
+
+        @Test("volume steps by 5% and stays within 0...1")
+        func volumeSteps() async throws {
+            let env = try await standard()
+            env.state.volume = 0.7
+            env.state.volumeUp()
+            #expect(env.state.volume == 0.75)
+            env.state.volumeDown()
+            env.state.volumeDown()
+            #expect(env.state.volume == 0.65)
+
+            env.state.volume = 0.97
+            env.state.volumeUp()
+            #expect(env.state.volume == 1)
+            env.state.volumeUp()
+            #expect(env.state.volume == 1)
+
+            env.state.volume = 0.02
+            env.state.volumeDown()
+            #expect(env.state.volume == 0)
+            env.state.volumeDown()
+            #expect(env.state.volume == 0)
+
+            env.state.volume = 0
+            for _ in 0..<20 { env.state.volumeUp() }
+            #expect(env.state.volume == 1)                // no drift from repeated steps
+        }
+
         @Test("navigation commands do nothing while stopped")
         func navigationWhileStopped() async throws {
             let env = try await standard()

@@ -130,6 +130,8 @@ final class PlaybackState {
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
     @ObservationIgnored private weak var listener: PlaybackListener?
+    /// A random number in `0..<count` (replaced by tests).
+    @ObservationIgnored var randomIndex: (Int) -> Int = { Int.random(in: 0..<$0) }
     /// How much of the current track has been listened to (reported to the listener when the track is left).
     @ObservationIgnored private var progress: PlayProgress?
 
@@ -211,6 +213,42 @@ final class PlaybackState {
         }
     }
 
+    /// What the play button does: pauses or resumes, and while stopped starts the track under the cursor.
+    func playPause() {
+        if status == .stopped { playFromCursor() } else { togglePause() }
+    }
+
+    /// Resumes if paused; while stopped starts the track under the cursor. Does nothing while playing.
+    func resume() {
+        switch status {
+        case .playing: break
+        case .paused: togglePause()
+        case .stopped: playFromCursor()
+        }
+    }
+
+    /// Pauses if playing.
+    func pause() {
+        if status == .playing { togglePause() }
+    }
+
+    private func playFromCursor() {
+        guard let row = cursorRow else { return }
+        play(row: row)
+    }
+
+    /// How much the volume changes with `volumeUp`/`volumeDown`.
+    static let volumeStep = 0.05
+
+    func volumeUp() { changeVolume(by: Self.volumeStep) }
+    func volumeDown() { changeVolume(by: -Self.volumeStep) }
+
+    private func changeVolume(by delta: Double) {
+        // Rounded, so that repeated steps don't pile up floating point noise (0.7000000000000001...).
+        let stepped = ((volume + delta) * 100).rounded() / 100
+        volume = min(max(stepped, ConfigLimits.volumeMin), ConfigLimits.volumeMax)
+    }
+
     func stop() {
         endProgress()
         status = .stopped
@@ -257,6 +295,59 @@ final class PlaybackState {
         syncWithEngine()
         guard let pos = currentPos else { return }
         begin(at: Position(album: max(pos.album - 1, 0), track: 0))
+    }
+
+    /// Plays a random track of the playing playlist (of the active one while stopped), other than the current one
+    /// unless it is the only one.
+    func randomTrack() { playRandom(wholeAlbum: false) }
+
+    /// Plays the first track of a random album, other than the current one unless it is the only one.
+    func randomAlbum() { playRandom(wholeAlbum: true) }
+
+    private func playRandom(wholeAlbum: Bool) {
+        let wasStopped = status == .stopped
+        if wasStopped {
+            guard !store.isLoading else { return }
+        } else {
+            syncWithEngine()
+        }
+        guard let playlist = wasStopped ? store.activePlaylist : store.playingPlaylist else { return }
+        let current = wasStopped ? nil : currentPos
+
+        // Pick among the candidates without the current one by index, then step over where it would be.
+        let count = wholeAlbum ? playlist.albums.count : playlist.trackCount
+        guard count > 0 else { return }
+        var currentIndex: Int?
+        if let current, playlist.albums.indices.contains(current.album) {
+            currentIndex = wholeAlbum
+                ? current.album
+                : playlist.albums[..<current.album].reduce(0) { $0 + $1.tracks.count } + current.track
+        }
+        var index: Int
+        if let currentIndex, count > 1 {
+            index = min(max(randomIndex(count - 1), 0), count - 2)
+            if index >= currentIndex { index += 1 }
+        } else {
+            index = min(max(randomIndex(count), 0), count - 1)
+        }
+
+        let pos: Position
+        if wholeAlbum {
+            pos = Position(album: index, track: 0)
+        } else {
+            var album = 0
+            while index >= playlist.albums[album].tracks.count {
+                index -= playlist.albums[album].tracks.count
+                album += 1
+            }
+            pos = Position(album: album, track: index)
+        }
+
+        if wasStopped {
+            play(albumIndex: pos.album, trackIndex: pos.track)
+        } else {
+            begin(at: pos)
+        }
     }
 
     func seek(to seconds: Double) {

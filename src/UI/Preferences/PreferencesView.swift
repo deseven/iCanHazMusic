@@ -191,7 +191,63 @@ private struct IntegrationsTab: View {
 }
 
 private struct HotkeysTab: View {
-    var body: some View { EmptyTab() }
+    @Bindable private var service = HotkeyService.shared
+
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "React to Media Keys",
+                description: "Control playback with the play/pause, next and previous media keys of your keyboard, "
+                    + "headset or AirPods; the current track also shows up in Control Center. The system hands these "
+                    + "keys to the app that played audio last, so before you play something they may go to another app."
+            ) {
+                Toggle("", isOn: $service.mediaKeys)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Custom Hotkeys")
+                    .font(.body)
+                Text("Global hotkeys, they work in any app. Click a field and press the keys: Esc cancels, Delete "
+                    + "clears. Keys other than F-keys need a modifier (⌃ ⌥ ⇧ ⌘), and a combination can only be used "
+                    + "once: setting it again moves it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(HotkeyAction.allCases) { action in
+                        HotkeyRow(action: action, service: service)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+}
+
+private struct HotkeyRow: View {
+    let action: HotkeyAction
+    let service: HotkeyService
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(action.title)
+                .frame(width: 110, alignment: .leading)
+            HotkeyPicker(
+                hotkey: service.hotkeys[action],
+                onChange: { service.setHotkey($0, for: action) },
+                onRecordingChange: { service.setRecording($0) }
+            )
+            .frame(width: 170, height: 22)
+            if service.failed.contains(action) {
+                Text("Already in use")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .help("The system or another app already uses this combination.")
+            }
+        }
+    }
 }
 
 private struct PlaybackTab: View {

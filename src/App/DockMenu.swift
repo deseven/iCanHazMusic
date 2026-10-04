@@ -45,13 +45,7 @@ extension AppDelegate {
     }
 
     @objc private func dockPlayPause() {
-        let playback = PlaybackState.shared
-        if playback.isStopped {
-            guard let row = playback.cursorRow else { return }
-            playback.play(row: row)
-        } else {
-            playback.togglePause()
-        }
+        PlaybackState.shared.playPause()
     }
 
     @objc private func dockNextTrack() { PlaybackState.shared.nextTrack() }

@@ -114,6 +114,50 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
+    struct Hotkeys: Codable, Equatable {
+        /// The play/pause, next and previous keys of the keyboard (and headsets) control the player.
+        var mediaKeys = true
+        /// Hotkey of each action in its text form (see `Hotkey`); an action without one is not in here.
+        private var bindings: [HotkeyAction: String] = [:]
+
+        /// The hotkey of an action in its text form, empty = none.
+        subscript(action: HotkeyAction) -> String {
+            get { bindings[action] ?? "" }
+            set { bindings[action] = newValue.isEmpty ? nil : newValue }
+        }
+
+        private struct Key: CodingKey {
+            let stringValue: String
+            let intValue: Int? = nil
+            init(_ name: String) { stringValue = name }
+            init?(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { return nil }
+
+            static let mediaKeys = Key("media_keys")
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Key.self)
+            mediaKeys = (try? c.decodeIfPresent(Bool.self, forKey: .mediaKeys)) ?? Hotkeys().mediaKeys
+            for action in HotkeyAction.allCases {
+                if let value = try? c.decodeIfPresent(String.self, forKey: Key(action.rawValue)) {
+                    self[action] = value
+                }
+            }
+        }
+
+        /// Every action is written, with an empty string for none, so the file shows what can be set.
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: Key.self)
+            try c.encode(mediaKeys, forKey: .mediaKeys)
+            for action in HotkeyAction.allCases {
+                try c.encode(self[action], forKey: Key(action.rawValue))
+            }
+        }
+    }
+
     struct Integrations: Codable, Equatable {
         struct LastFM: Codable, Equatable {
             /// Session key from the authorization; empty = not connected. Only the session is kept, never the
@@ -154,6 +198,7 @@ struct AppConfig: Codable, Equatable {
     var ui = UI()
     var playback = Playback()
     var playlist = Playlist()
+    var hotkeys = Hotkeys()
     var integrations = Integrations()
     var activePlaylist = AppConfig.defaultPlaylistName
 
@@ -161,6 +206,7 @@ struct AppConfig: Codable, Equatable {
         case ui
         case playback
         case playlist
+        case hotkeys
         case integrations
         case activePlaylist = "active_playlist"
     }
@@ -173,6 +219,7 @@ struct AppConfig: Codable, Equatable {
         ui = c.value(.ui, default: d.ui)
         playback = c.value(.playback, default: d.playback)
         playlist = c.value(.playlist, default: d.playlist)
+        hotkeys = c.value(.hotkeys, default: d.hotkeys)
         integrations = c.value(.integrations, default: d.integrations)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
@@ -207,6 +254,18 @@ struct AppConfig: Codable, Equatable {
 
         if !ConfigLimits.tagParsingConcurrencyOptions.contains(playlist.tagParsingConcurrency) {
             result.playlist.tagParsingConcurrency = defaults.playlist.tagParsingConcurrency
+        }
+
+        // A hotkey that isn't valid, or that an earlier action has already, is none. The others are written in
+        // their canonical form.
+        var taken = Set<Hotkey>()
+        for action in HotkeyAction.allCases {
+            guard !hotkeys[action].isEmpty else { continue }
+            if let hotkey = Hotkey(string: hotkeys[action]), taken.insert(hotkey).inserted {
+                result.hotkeys[action] = hotkey.string
+            } else {
+                result.hotkeys[action] = ""
+            }
         }
 
         // A session without a user name (or the other way round) is half of a connection: not connected.

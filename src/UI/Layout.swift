@@ -33,7 +33,7 @@ enum Layout {
 
     // Preferences window
     static let preferencesWidth: CGFloat = 610
-    static let preferencesHeight: CGFloat = 380
+    static let preferencesHeight: CGFloat = 540
     static let preferencesTabsWidth: CGFloat = 170
 
     // Import progress sheet

@@ -105,6 +105,74 @@ extension AllTests {
             }
         }
 
+        @Test("the media keys are on and no custom hotkey is set by default")
+        func hotkeyDefaults() throws {
+            let defaults = AppConfig().hotkeys
+            #expect(defaults.mediaKeys)
+            #expect(HotkeyAction.allCases.allSatisfy { defaults[$0].isEmpty })
+            #expect(try decode("{}").hotkeys == defaults)
+        }
+
+        @Test("hotkeys are read by the names of the actions")
+        func hotkeyKeys() throws {
+            let config = try decode("""
+            {"hotkeys": {"media_keys": false, "play_pause": "⌃⌥P", "next_track": "⌃⌥→", "previous_track": "⌃⌥←",
+                         "next_album": "⌃⌥⌘→", "previous_album": "⌃⌥⌘←", "random_track": "⌃⌥R",
+                         "random_album": "⌃⌥⌘R", "volume_up": "⌃⌥↑", "volume_down": "⌃⌥↓"}}
+            """)
+            #expect(!config.hotkeys.mediaKeys)
+            #expect(config.hotkeys[.playPause] == "⌃⌥P")
+            #expect(config.hotkeys[.nextTrack] == "⌃⌥→")
+            #expect(config.hotkeys[.previousTrack] == "⌃⌥←")
+            #expect(config.hotkeys[.nextAlbum] == "⌃⌥⌘→")
+            #expect(config.hotkeys[.previousAlbum] == "⌃⌥⌘←")
+            #expect(config.hotkeys[.randomTrack] == "⌃⌥R")
+            #expect(config.hotkeys[.randomAlbum] == "⌃⌥⌘R")
+            #expect(config.hotkeys[.volumeUp] == "⌃⌥↑")
+            #expect(config.hotkeys[.volumeDown] == "⌃⌥↓")
+            #expect(config.validated() == config)
+        }
+
+        @Test("the hotkeys section is read leniently")
+        func hotkeysLenient() throws {
+            let config = try decode(#"{"hotkeys": {"media_keys": "no", "play_pause": 5, "next_track": "⌃⌥N"}}"#)
+            #expect(config.hotkeys.mediaKeys)
+            #expect(config.hotkeys[.playPause].isEmpty)
+            #expect(config.hotkeys[.nextTrack] == "⌃⌥N")
+            #expect(try decode(#"{"hotkeys": 5}"#).hotkeys == AppConfig().hotkeys)
+        }
+
+        @Test("every hotkey is written, empty when not set")
+        func hotkeysEncoding() throws {
+            var config = AppConfig()
+            config.hotkeys[.playPause] = "⌃⌥P"
+            let data = try #require(ConfigStore.encode(config))
+            let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let hotkeys = try #require(object["hotkeys"] as? [String: Any])
+            #expect(hotkeys["media_keys"] as? Bool == true)
+            #expect(hotkeys["play_pause"] as? String == "⌃⌥P")
+            #expect(hotkeys["volume_down"] as? String == "")
+            #expect(hotkeys.count == 1 + HotkeyAction.allCases.count)
+            #expect(try decode(String(decoding: data, as: UTF8.self)) == config)
+        }
+
+        @Test("invalid and repeated hotkeys are reset, the others written canonically")
+        func hotkeysValidation() {
+            var config = AppConfig()
+            config.hotkeys[.playPause] = "G"               // needs a modifier
+            config.hotkeys[.nextTrack] = "⌘⌥⌃N"            // not canonical
+            config.hotkeys[.previousTrack] = "⌃⌥⌘N"       // the same again
+            config.hotkeys[.nextAlbum] = "nonsense"
+            config.hotkeys[.volumeUp] = "⌃⌥↑"
+
+            let valid = config.validated().hotkeys
+            #expect(valid[.playPause].isEmpty)
+            #expect(valid[.nextTrack] == "⌃⌥⌘N")
+            #expect(valid[.previousTrack].isEmpty)         // the first action keeps it
+            #expect(valid[.nextAlbum].isEmpty)
+            #expect(valid[.volumeUp] == "⌃⌥↑")
+        }
+
         @Test("last.fm is not connected by default; the session and user name are read leniently")
         func lastFMSection() throws {
             let defaults = AppConfig().integrations.lastfm
