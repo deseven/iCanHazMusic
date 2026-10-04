@@ -1,65 +1,74 @@
 # iCanHazMusic
-A music player for macOS 10.12 or higher. Currently in development, the latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
+A music player for macOS 15.4 or higher. The latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
 
 Main app:  
 ![iCHM screenshot](https://d7.wtf/s/ichm.png)
 
-Basic web interface:  
-![iCHM web screenshot](https://d7.wtf/s/ichm-web.png)
+## Features
+- Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies
+- Very low resource usage
+- Playback of everything macOS can decode natively:
+  - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, WAV, AIFF/AIFC, CAF
+  - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
+- Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
+- Tags reading (ID3v1/v2, Vorbis comments, MP4, with recovery of truncated ID3v1 values), fast!
+- Album art (embedded or external images in the album directory)
+- Albums grouping with album art, or a flat list if you prefer (can be switched per playlist)
+- Very large playlists (tens of thousands of entries at the very least)
+- Playlists import/export (M3U8, M3U, PLS)
+- Drag and drop of files, directories and playlists, recursive directory import
+- Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
+- Last.fm scrobbling and now playing updates
+- System notifications about the playback
+- Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album and volume
+- Dock menu with the current track and playback controls
 
 ## Why
 I was a big fan of the legendary [foobar2000](https://www.foobar2000.org/) until I moved to macOS in 2010. Naturally, for some time I continued using foobar under Wine, but the experience was subpar and eventually I started jumping from player to player. Some notable examples in no particular order:
- - [Clementine](https://www.clementine-player.org/) with its [6 year old bug](https://github.com/clementine-player/Clementine/issues/4733) that makes it eat up to 50% of CPU for a simple mp3 playback
- - [cmus](https://cmus.github.io/), which was fun and all, but just a bit too minimalistic
- - [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs, although the development of the macOS version started 7 years ago and is pretty active to this day
- - [mac version of foobar2000](https://www.foobar2000.org/mac) which is a fucking joke of a player
+- [Clementine](https://www.clementine-player.org/) with its [many years old bug](https://github.com/clementine-player/Clementine/issues/4733) that makes it eat up to 50% of CPU for a simple mp3 playback
+- [cmus](https://cmus.github.io/), which was fun and all, but just a bit too minimalistic
+- [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs (back when I was using it, things seems to have improved)
+- [mac version of foobar2000](https://www.foobar2000.org/mac) which is a fucking joke of a player
 
-I remember many other apps, both free and paid, however each and every one of them did lack something important. It's also worth mentioning that with every year the chance to get a decent desktop audio player is only getting lower and lower - it's an age of cloud music now, not many people are still interested in those mammoths of a bygone era. Hell, even I will probably go cloud in the coming years, I already use [iBroadcast](https://www.ibroadcast.com/) as a mobile and web player. However, the urge of having a good desktop player is still here for me, that's why I finally decided to go for it myself.
+I remember many other apps, both free and paid, however each and every one of them did lack something important. It's also worth mentioning that with every year the chance to get a decent desktop audio player is only getting lower and lower - it's an age of cloud music now, not many people are still interested in those mammoths of a bygone era. But the urge of having a good desktop player is still here for me, that's why I finally decided to go for it myself.
 
 It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in an audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
 
-## Current state
-#### What should work
- - m4a, aac, mp3, wav, ogg, oga, flac, alac, wv and ape playback
- - last.fm scrobbling and now playing updates (enable it in the menu)
- - playback navigation and queue
- - grouping by albums
- - dock menu
- - seekbar
- - big (10k+ entries) playlists
- - window size and position saving
- - album art from external files and tags
- - lyrics loading from Genius (if you installed the lyricsgenius module, see the section below)
- - queue, playback orders
- - simple web interface and API
- - playlist search
- - global hotkeys for playback (no media keys)
- - playlist entries rearrangement
-
-#### What should work in the future 
- - volume control
- - drag'n'drop operations
+## Roadmap
+- playback queue
+- queue, playback orders
+- simple web interface and API
+- playlist search
+- playlist entries rearrangement
+- better Last.fm integration (like tracks, track info, number of plays, etc)
 
 #### What is not planned
- - gapless playback (well, maybe someday...)
- - CUE support
- - equalizer
- - tags editing, format conversion and other Swiss knife functions
- - advanced foobar2000-level customization (I'm too dumb for that, sorry)
-
-## Web interface & API
-Enable web server in preferences, then open http://0.0.0.0:8008/ (change port according to your settings), enter your API key when prompted. Go to http://0.0.0.0:8008/api/ to get the list of available methods. Example usage with curl:  
-`curl http://127.0.0.1:8008/api/play-pause -H 'X-Api-Key: your_api_key'`
-
-## Enabling lyrics loading
-This should be changed in the future but for now in order for this to work you need to install [python3 from homebrew](https://formulae.brew.sh/formula/python@3.9) with `brew install python@3.9` and then [lyricgenius module](https://pypi.org/project/lyricsgenius/) with `pip3 install lyricsgenius`. Test that this works in your terminal:  
-`/usr/local/bin/python3 -m lyricsgenius -h`
+- CUE support
+- equalizer
+- tags editing, format conversion and other Swiss knife functions
+- advanced foobar2000-level customization
 
 ## Compiling from source
-iCHM is created in [PB](http://purebasic.com) and depends on [pb-macos-audioplayer](https://github.com/deseven/pb-macos-audioplayer), along with [pb-httprequest-manager](https://github.com/deseven/pb-httprequest-manager), [pb-macos-globalhotkeys](https://github.com/deseven/pb-macos-globalhotkeys) and [pb-macos-task](https://github.com/deseven/pb-macos-task). [FFmpeg](https://www.ffmpeg.org/) is an external dependency, but the build script should handle that for you automatically.  
-You also need [node-appdmg](https://github.com/LinusU/node-appdmg) if you want to build dmg.  
-1. Obtain the latest LTS version of pbcompiler, install it to ```/Applications```.  
-2. Install xcode command line tools by running ```xcode-select --install```.  
-3. Clone iCHM repo.  
-4. Clone all required `pb-*` modules to neighboring directories.  
-5. Run the included ```build/build.sh``` script to build the app. If you want codesigning then provide your developer ID as a first argument.  
+iCHM is a Swift package (Swift tools 5.10, no third-party dependencies) for macOS 15.4 or higher.
+
+1. Install Xcode command line tools (`xcode-select --install`) with a Swift 5.10+ toolchain.
+2. Clone the repo.
+3. Run `./build.sh` to make a dev build: it builds the app for your architecture (arm64), creates `dist/iCanHazMusic.app` and launches it (it runs in the foreground until you quit the app).
+
+Other modes:
+- `./build.sh test` - generates test fixtures and runs the test suite, no artifacts.
+- `./build.sh dev-release` - universal (arm64 + x86_64) build, tests, `dist/iCHM-dev.zip`, and uploads it with the `share` tool (specific to the author's setup, remove that step if you don't have it).
+- `./build.sh release` - universal build, tests, `dist/iCHM.zip` and `dist/iCHM.dmg`.
+
+The plain compile check is `swift build -c debug --arch arm64`.
+
+Optional requirements:
+- [FFmpeg](https://www.ffmpeg.org/) (`brew install ffmpeg`) for generating the test fixtures (`./build.sh test` and the release modes).
+- [create-dmg](https://github.com/create-dmg/create-dmg) (`brew install create-dmg`) for `release`.
+
+Optional `.env` file in the repo root (git-ignored), read by `build.sh`:
+- `ICHM_SIGNING_IDENTITY` - the codesigning identity (e.g. `Developer ID Application: ...`). Without it the app is signed ad-hoc, which is fine for running locally, but **system notifications won't work** in an ad-hoc signed build.
+- `ICHM_NOTARY_PROFILE` (a `notarytool` keychain profile) or `ICHM_APPLE_ID` + `ICHM_TEAM_ID` + `ICHM_APP_PASSWORD` - notarization of the release builds.
+- `ICHM_LASTFM_API_KEY` + `ICHM_LASTFM_API_SECRET` - your own [Last.fm API](https://www.last.fm/api/account/create) credentials. They are embedded (obfuscated) into the bundle's `Info.plist`; without them the Last.fm integration is disabled.
+
+For now the app keeps its data (config, playlists, caches) in `~/Library/Application Support/iCanHazMusic-dev`; pass `--workdir /some/dir` to the app to use another directory.
