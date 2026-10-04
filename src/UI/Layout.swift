@@ -19,6 +19,8 @@ enum Layout {
     static let trackRowHeight: CGFloat = 20
     /// First column of a track row: holds the play symbol of the playing track.
     static let trackStatusColumnWidth: CGFloat = 22
+    /// Column of a track row (right of the title) that holds the lyrics symbol.
+    static let trackLyricsColumnWidth: CGFloat = 24
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
     static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
     /// Extra points of rows rendered above/below the visible area of the playlist.
@@ -41,6 +43,10 @@ enum Layout {
 
     // Last.fm connection sheet
     static let lastFMSheetWidth: CGFloat = 380
+
+    // Lyrics sheet
+    static let lyricsSheetWidth: CGFloat = 460
+    static let lyricsSheetHeight: CGFloat = 580
 
     // Divider between playlist and playback block
     static let dividerLineWidth: CGFloat = 1

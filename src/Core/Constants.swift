@@ -5,6 +5,12 @@ enum AppConstants {
     static let appName = "iCanHazMusic"
     static let appShortName = "iCHM"
 
+    /// `CFBundleShortVersionString` of the running bundle ("0" when there is none, as in tests and plain `swift build`).
+    static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+
+    /// What every HTTP request of the app (Last.fm, LRCLIB) identifies itself with.
+    static let userAgent = "\(appName)/\(appVersion)"
+
     // MARK: - Window IDs
 
     static let mainWindowID = "main"
@@ -34,6 +40,7 @@ enum AppConstants {
 ///   config.json
 ///   playlists/{name}.json
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
+///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
 /// ```
 struct AppPaths {
     /// Name of the default working directory inside Application Support.
@@ -51,6 +58,7 @@ struct AppPaths {
     /// Everything in here can be rebuilt, so it is always safe to delete.
     let cacheDir: URL
     let coverCacheURL: URL
+    let lyricsCacheURL: URL
 
     init(workDir: URL) {
         self.workDir = workDir
@@ -58,6 +66,7 @@ struct AppPaths {
         playlistsDir = workDir.appendingPathComponent("playlists", isDirectory: true)
         cacheDir = workDir.appendingPathComponent(".cache", isDirectory: true)
         coverCacheURL = cacheDir.appendingPathComponent("covers.sqlite")
+        lyricsCacheURL = cacheDir.appendingPathComponent("lyrics.sqlite")
     }
 
     static var defaultWorkDir: URL {

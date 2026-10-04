@@ -95,6 +95,7 @@ final class TagReader: Sendable {
         var raw = RawTags()
         var sources: [String] = []
         var errors: [String] = []
+        var avFoundationRead = false
         let timeout = self.timeout
 
         func viaAudioFile() async -> Bool {
@@ -107,6 +108,7 @@ final class TagReader: Sendable {
         func viaAVFoundation(recordErrors: Bool = true) async -> Bool {
             do {
                 merge(try await AVFoundationBackend.read(url: url), from: "AVFoundation")
+                avFoundationRead = true
                 return true
             } catch { if recordErrors { errors.append(error.localizedDescription) }; return false }
         }
@@ -130,9 +132,11 @@ final class TagReader: Sendable {
         // AVFoundation returns garbage for an ID3v1 tag that follows an APEv2 tag; AudioFile gets it right.
         // Then AVFoundation isn't consulted at all (not even as a fallback), it would only fill gaps with that garbage.
         let isMP3 = url.pathExtension.lowercased() == "mp3"
+        var avFoundationIsUnreliable = false
         if isMP3, effective != .audioFile,
            (try? await Self.offload(timeout: timeout, { try TrailingTags.hasApeBeforeV1(url: url) })) == true {
             effective = .audioFile
+            avFoundationIsUnreliable = true
         }
 
         switch effective {
@@ -164,6 +168,10 @@ final class TagReader: Sendable {
         }
 
         let failed = sources.isEmpty
+        if !failed, raw.fields[.lyrics] == nil, !avFoundationRead, !avFoundationIsUnreliable,
+           let lyrics = await embeddedLyrics(url: url) {
+            raw.set(.lyrics, lyrics)
+        }
         var artwork = ArtworkSource.none
         if detectArtwork, !failed {
             if let name = folder.preferred {
@@ -178,6 +186,15 @@ final class TagReader: Sendable {
         let (tags, status) = Self.finalize(raw: raw, failed: failed ? explainFailure(errors, url) : nil)
         return TagReadResult(id: index, url: url, tags: tags, status: status,
                              sources: sources, elapsed: elapsed, rawFields: raw.fields, artwork: artwork)
+    }
+
+    /// Lyrics are in the tags AudioToolbox doesn't list (everything but CAF), so a file that was not read through
+    /// AVFoundation needs a look of its own: FLAC by hand (cheap), the rest through AVFoundation.
+    private func embeddedLyrics(url: URL) async -> String? {
+        if url.pathExtension.lowercased() == "flac" {
+            return (try? await Self.offload(timeout: timeout) { try FlacComments.lyrics(url: url) }) ?? nil
+        }
+        return await AVFoundationBackend.lyrics(url: url)
     }
 
     /// `known` is what the tag read already found out (nil = AVFoundation didn't run). FLAC pictures are invisible
@@ -235,6 +252,7 @@ final class TagReader: Sendable {
     static func finalize(raw: RawTags, failed: String?) -> (TrackTags, TagReadStatus) {
         var tags = TrackTags()
         tags.duration = raw.duration
+        tags.lyrics = raw.fields[.lyrics].flatMap(Lyrics.normalized)
 
         if let failed {
             return (tags, .failed(failed.isEmpty ? "unknown error" : failed))

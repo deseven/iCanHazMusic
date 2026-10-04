@@ -9,6 +9,10 @@ struct PlayedTrack: Equatable, Sendable {
     var duration: TimeInterval
     /// When the track started playing.
     let startedAt: Date
+
+    /// The track has an artist and a title of its own; without ("Unknown Artist") nobody outside can be told about
+    /// it or asked for its lyrics.
+    var hasTags: Bool { TagFallback.isIdentified(artist: artist, title: title) }
 }
 
 /// Told by `PlaybackState` when a track starts and when it is left, however that happens (the next track, the user

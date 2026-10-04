@@ -169,7 +169,7 @@ enum LastFMAPI {
         params["api_sig"] = signature(for: params, secret: credentials.secret)
         params["format"] = "json"
 
-        var request = URLRequest(url: endpoint, timeoutInterval: requestTimeout)
+        var request = URLRequest(appURL: endpoint, timeout: requestTimeout)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(formEncoded(params).utf8)

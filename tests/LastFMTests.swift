@@ -42,6 +42,8 @@ extension AllTests {
             #expect(request.httpMethod == "POST")
             #expect(request.url == LastFMAPI.endpoint)
             #expect(request.timeoutInterval == 30)
+            #expect(request.value(forHTTPHeaderField: "User-Agent") == AppConstants.userAgent)
+            #expect(AppConstants.userAgent.hasPrefix("iCanHazMusic/"))
 
             let body = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
             #expect(!body.contains("A&B"))
@@ -624,6 +626,21 @@ extension AllTests {
             #expect(first["timestamp"] == "1700000123")
             #expect(first["sk"] == "K")
             #expect(first["duration"] == "200")
+        }
+
+        @Test("tracks without tags are neither announced nor scrobbled")
+        func untaggedTracks() async throws {
+            let env = try makeEnv(connected: true)
+            for track in [LastFMTestData.track(artist: TagFallback.artist),
+                          LastFMTestData.track(title: TagFallback.title)] {
+                env.service.trackDidStart(track)
+                env.service.trackDidEnd(track, playedSeconds: 200)
+            }
+            try? await Task.sleep(for: .milliseconds(30))
+            #expect(env.transport.requests.isEmpty)
+
+            env.service.trackDidStart(LastFMTestData.track(album: TagFallback.album))   // an unknown album is fine
+            #expect(await waitUntil { env.transport.requests.count == 1 })
         }
 
         @Test("the scrobble rule")

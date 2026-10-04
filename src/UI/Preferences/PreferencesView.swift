@@ -152,6 +152,7 @@ private struct GeneralTab: View {
 
 private struct IntegrationsTab: View {
     private let lastFM = LastFMService.shared
+    @Bindable private var lyrics = LyricsService.shared
     @State private var window: NSWindow?
 
     var body: some View {
@@ -167,6 +168,18 @@ private struct IntegrationsTab: View {
                     }
                 }
                 .disabled(!lastFM.isAvailable || lastFM.isAuthorizing)
+            }
+
+            PrefRow(
+                title: "LRCLIB",
+                description: "Look up the lyrics of tracks that have none in their tags on lrclib.net (a free, community "
+                    + "driven database), when they start playing. Only tracks whose artist and title match exactly "
+                    + "are used. Lyrics that are found are saved locally and never replace the ones from the "
+                    + "tags. This sends the artist and title of the played tracks to lrclib.net."
+            ) {
+                Toggle("", isOn: $lyrics.isLRCLIBEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
         .background(WindowAccessor { window = $0 })

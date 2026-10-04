@@ -59,6 +59,10 @@ the folder. Embedded art is detected through AVFoundation item keys (`APIC`/`PIC
 Vorbis `METADATA_BLOCK_PICTURE`), for FLAC through `FlacArtwork`. Folders are listed once per directory
 (`ArtworkDirectoryCache`), hidden `._cover.jpg` AppleDouble leftovers are ignored.
 
+## Lyrics
+
+`TrackTags.lyrics` (see `lyrics.md` for the details): ID3 `USLT`/`ULT`, Vorbis `LYRICS`/`UNSYNCEDLYRICS`, MP4 `©lyr` and the CAF info chunk. **AudioToolbox only lists them for CAF.** AVFoundation (always used for MP3) has them all, so a file that was read without it gets one more pass: FLAC by hand (`FlacComments`, the Vorbis comment block), the rest through `AVFoundationBackend.lyrics`. That is an extra AVFoundation load for every M4A/Ogg/WAV/AIFF file. MP3s with APEv2 before ID3v1 (read with AudioToolbox only, see above) get no lyrics. The value is trimmed and its line breaks are made `\n`; text over 1 MB is dropped.
+
 ## Limitations / open questions
 
 - **OGG Opus / `.oga`**: tags are readable and `AVAudioPlayer` opens `.opus`, but `prepareToPlay()` fails for

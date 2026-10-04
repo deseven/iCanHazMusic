@@ -183,13 +183,28 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
+        struct LRCLIB: Codable, Equatable {
+            /// Look up the lyrics of played tracks on lrclib.net when the file has none embedded.
+            var enabled = false
+
+            init() {}
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                enabled = c.value(.enabled, default: LRCLIB().enabled)
+            }
+        }
+
         var lastfm = LastFM()
+        var lrclib = LRCLIB()
 
         init() {}
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            lastfm = c.value(.lastfm, default: Integrations().lastfm)
+            let d = Integrations()
+            lastfm = c.value(.lastfm, default: d.lastfm)
+            lrclib = c.value(.lrclib, default: d.lrclib)
         }
     }
 

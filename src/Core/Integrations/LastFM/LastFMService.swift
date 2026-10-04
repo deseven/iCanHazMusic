@@ -37,7 +37,7 @@ final class LastFMService: PlaybackListener {
 
     @ObservationIgnored private let configStore: ConfigStore
     @ObservationIgnored private let credentials: LastFMCredentials?
-    @ObservationIgnored private let transport: any LastFMTransport
+    @ObservationIgnored private let transport: any HTTPTransport
     @ObservationIgnored private let pollInterval: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var queue: LastFMQueue?
@@ -45,7 +45,7 @@ final class LastFMService: PlaybackListener {
     @ObservationIgnored private var authTask: Task<LastFMAuth.Outcome, Never>?
 
     init(configStore: ConfigStore, credentials: LastFMCredentials?,
-         transport: any LastFMTransport = URLSessionTransport(),
+         transport: any HTTPTransport = URLSessionTransport(timeout: LastFMAPI.requestTimeout),
          pollInterval: Duration = LastFMAuth.defaultPollInterval,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.configStore = configStore
@@ -145,10 +145,12 @@ final class LastFMService: PlaybackListener {
         queue.enqueue(.scrobble(track), label: "scrobble \(track.artist) - \(track.title)")
     }
 
-    /// Last.fm needs at least the artist and the title.
+    /// Last.fm needs at least the artist and the title, and they have to be real ones: a track without tags
+    /// ("Unknown Artist") is nothing to report.
     static func isReportable(_ track: PlayedTrack) -> Bool {
         !track.artist.trimmingCharacters(in: .whitespaces).isEmpty
             && !track.title.trimmingCharacters(in: .whitespaces).isEmpty
+            && track.hasTags
     }
 
     static func isScrobbleWorthy(_ track: PlayedTrack, playedSeconds: TimeInterval) -> Bool {

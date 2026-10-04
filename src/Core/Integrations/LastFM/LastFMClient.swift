@@ -1,40 +1,12 @@
 import Foundation
 
-/// Sends one HTTP request and returns the status and body; abstracted so tests can answer instead of Last.fm.
-protocol LastFMTransport: Sendable {
-    /// Throws `CancellationError` if the task is cancelled, any other error for a failed connection.
-    func perform(_ request: URLRequest) async throws -> (status: Int, body: Data)
-}
-
-/// The real thing. Every request has a hard limit of `LastFMAPI.requestTimeout` seconds: the idle timeout of the
-/// request, and the one for the whole transfer (which is what makes it hard).
-struct URLSessionTransport: LastFMTransport {
-    private let session: URLSession
-
-    init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = LastFMAPI.requestTimeout
-        configuration.timeoutIntervalForResource = LastFMAPI.requestTimeout
-        configuration.waitsForConnectivity = false
-        session = URLSession(configuration: configuration)
-    }
-
-    func perform(_ request: URLRequest) async throws -> (status: Int, body: Data) {
-        do {
-            let (data, response) = try await session.data(for: request)
-            return ((response as? HTTPURLResponse)?.statusCode ?? 0, data)
-        } catch let error as URLError where error.code == .cancelled {
-            throw CancellationError()
-        }
-    }
-}
 
 /// Last.fm calls. Everything that goes wrong comes out as a `LastFMError` (or `CancellationError`).
 struct LastFMClient: Sendable {
     let credentials: LastFMCredentials
-    let transport: any LastFMTransport
+    let transport: any HTTPTransport
 
-    init(credentials: LastFMCredentials, transport: any LastFMTransport = URLSessionTransport()) {
+    init(credentials: LastFMCredentials, transport: any HTTPTransport = URLSessionTransport(timeout: LastFMAPI.requestTimeout)) {
         self.credentials = credentials
         self.transport = transport
     }
@@ -43,7 +15,7 @@ struct LastFMClient: Sendable {
     @discardableResult
     func send(_ call: LastFMCall, sessionKey: String? = nil) async throws -> Data {
         let request = LastFMAPI.request(for: call, credentials: credentials, sessionKey: sessionKey)
-        let answer: (status: Int, body: Data)
+        let answer: HTTPAnswer
         do {
             answer = try await transport.perform(request)
         } catch is CancellationError {

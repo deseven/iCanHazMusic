@@ -42,7 +42,7 @@ extension AllTests {
             await store.append(Make.albums(entries), to: "main")
             let rig = EngineRig(lookahead: lookahead)
             let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: positionStep,
-                                      listener: listener)
+                                      listeners: listener.map { [$0] } ?? [])
             state.volume = 1        // the app's default is 0.7; the tests compare against the files' samples
             // The state is the engine's listener now; keep recording what the engine reports.
             let listener = rig.engine.onEvent

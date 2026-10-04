@@ -13,8 +13,8 @@ import SwiftUI
 /// Selection (all custom): click = select, ⌘-click = toggle, ⇧-click = range,
 /// ↑/↓ = move (with ⇧ to extend), double click = `onActivate` with the row id.
 ///
-/// Every row has a context menu (Play, Reveal in Finder, Reload Tag(s), Remove from Playlist, see
-/// `PlaylistItemActions`); the keys are Return, ⌘R and Backspace. A right click on a row outside the selection
+/// Every row has a context menu (Play, Reveal in Finder, Reload Tag(s), Remove
+/// from Playlist, see `PlaylistItemActions`); the keys are Return, ⌘R and Backspace. A right click on a row outside the selection
 /// selects that row first. The actions apply to the selection.
 ///
 /// `cursor` is the row the selection last moved to (the moving end of a range). `playingRow` gets the play
@@ -78,7 +78,7 @@ struct VirtualPlaylistView: View {
                         .onHover { inside in
                             if inside { pointer.row = i } else if pointer.row == i { pointer.row = nil }
                         }
-                        .contextMenu { contextMenu }
+                        .contextMenu { contextMenu(for: i) }
                 }
                 Color.clear.frame(height: layout.totalHeight - layout.rowOffsets[shown.upperBound])
             }
@@ -164,10 +164,11 @@ struct VirtualPlaylistView: View {
 
     // MARK: Context menu
 
-    private var contextMenu: some View {
+    private func contextMenu(for row: Int) -> some View {
         Group {
             Button("Play") { playSelected() }
                 .keyboardShortcut(.return, modifiers: [])
+
             Button("Reveal in Finder") { PlaylistItemActions.reveal(selection) }
             Button("Reload Tag(s)") { reloadSelected() }
                 .keyboardShortcut("r", modifiers: .command)

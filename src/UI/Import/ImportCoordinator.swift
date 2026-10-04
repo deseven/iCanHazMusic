@@ -80,6 +80,7 @@ final class ImportCoordinator {
 
         let outcome = await session.reload(files: files)
         CoverCache.reset()
+        LyricsService.shared.refreshCurrent()
         if !outcome.aborted {
             await store.applyTags(outcome.results, to: name)
         }
@@ -115,6 +116,7 @@ final class ImportCoordinator {
 
         let outcome = playlists ? await session.run(playlists: urls) : await session.run(inputs: urls)
         CoverCache.reset()   // the import may have found art for albums that currently show a placeholder
+        LyricsService.shared.refreshCurrent()
         if !outcome.aborted {
             await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
         }

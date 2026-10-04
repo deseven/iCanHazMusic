@@ -45,9 +45,12 @@ final class ImportSession {
     private(set) var albumsProcessed = 0
     /// Of those, albums whose art was found and put into the cover cache.
     private(set) var artsProcessed = 0
+    /// Files that have lyrics in their tags (those are put into the lyrics store).
+    private(set) var lyricsFound = 0
     private(set) var isAborting = false
 
     @ObservationIgnored private let coverStore: CoverStore
+    @ObservationIgnored private let lyricsStore: LyricsStore
     /// Files read in parallel.
     @ObservationIgnored private let tagParsingConcurrency: Int
     @ObservationIgnored private var readingStartedAt: Date?
@@ -58,8 +61,10 @@ final class ImportSession {
 
     /// `tagParsingConcurrency`: how many files are read at the same time (the app takes it from the settings,
     /// see `PlaylistStore.effectiveTagParsingConcurrency`).
-    init(coverStore: CoverStore = .shared, tagParsingConcurrency: Int = TagReader.defaultConcurrency) {
+    init(coverStore: CoverStore = .shared, lyricsStore: LyricsStore = .shared,
+         tagParsingConcurrency: Int = TagReader.defaultConcurrency) {
         self.coverStore = coverStore
+        self.lyricsStore = lyricsStore
         self.tagParsingConcurrency = max(1, tagParsingConcurrency)
     }
 
@@ -114,7 +119,7 @@ final class ImportSession {
         //    a grouped playlist would make.
         stage = .appending
         let albums = await Task.detached(priority: .userInitiated) { AlbumBuilder.build(from: results, flat: flat) }.value
-        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed)")
+        Log.info("import: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), \(albums.count) albums, art for \(artsProcessed)/\(albumsProcessed), lyrics in \(lyricsFound) files")
         return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
     }
 
@@ -124,7 +129,7 @@ final class ImportSession {
         guard !files.isEmpty else { return ReloadOutcome(results: [], aborted: false) }
         guard let results = await read(files) else { return ReloadOutcome(results: [], aborted: true) }
         stage = .updating
-        Log.info("reload: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), art for \(artsProcessed)/\(albumsProcessed)")
+        Log.info("reload: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), art for \(artsProcessed)/\(albumsProcessed), lyrics in \(lyricsFound) files")
         return ReloadOutcome(results: results, aborted: false)
     }
 
@@ -192,8 +197,20 @@ final class ImportSession {
         if found { artsProcessed += 1 }
     }
 
+    /// The lyrics of the file are the source of truth: they replace what the store has for the track (also what
+    /// LRCLIB brought). Tracks without tags have no identity to keep them under.
+    private func recordLyrics(_ result: TagReadResult) {
+        guard AlbumBuilder.isUsable(result.status), let text = result.tags.lyrics,
+              let lyrics = Lyrics.embedded(text) else { return }
+        let entry = TrackEntry(result: result)
+        guard TagFallback.isIdentified(artist: entry.artist, title: entry.title) else { return }
+        lyricsStore.store(lyrics, for: LyricsKey.make(artist: entry.artist, title: entry.title, album: entry.album))
+        lyricsFound += 1
+    }
+
     private func record(_ result: TagReadResult) {
         processed += 1
+        recordLyrics(result)
         switch result.status {
         case .failed(let reason):
             failed += 1

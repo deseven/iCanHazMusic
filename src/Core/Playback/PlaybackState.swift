@@ -16,7 +16,7 @@ import Observation
 @Observable
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
-                                      listener: LastFMService.shared)
+                                      listeners: [LastFMService.shared, LyricsService.shared])
 
     enum Status { case stopped, playing, paused }
 
@@ -30,6 +30,10 @@ final class PlaybackState {
     }
 
     private typealias Position = TrackPosition
+
+    private struct WeakListener {
+        weak var value: PlaybackListener?
+    }
 
     /// A track to play: in the playing playlist, or (`foreign`) in the active one when that is another playlist
     /// (the user moved the cursor there, see `playbackFollowsCursor`). Playback only switches to that playlist when
@@ -122,6 +126,14 @@ final class PlaybackState {
 
     var isStopped: Bool { status == .stopped }
 
+    /// The exact position in the current track, read from the engine on every call (not observed: `position` only
+    /// moves in whole seconds). For views that follow the music closely, such as synchronised lyrics.
+    var livePosition: Double {
+        guard status != .stopped else { return 0 }
+        let time = engine.position
+        return time.isFinite ? max(time, 0) : 0
+    }
+
     // MARK: Internals
 
     @ObservationIgnored private let engine: PlaybackEngine
@@ -129,7 +141,7 @@ final class PlaybackState {
     @ObservationIgnored private let tickInterval: Duration?
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
-    @ObservationIgnored private weak var listener: PlaybackListener?
+    @ObservationIgnored private var listeners: [WeakListener]
     /// A random number in `0..<count` (replaced by tests).
     @ObservationIgnored var randomIndex: (Int) -> Int = { Int.random(in: 0..<$0) }
     /// How much of the current track has been listened to (reported to the listener when the track is left).
@@ -157,15 +169,15 @@ final class PlaybackState {
     /// 4 updates a second); 0 publishes every change.
     /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality` and `volume` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
-    /// `listener`: told about every track that starts and ends (held weakly).
+    /// `listeners`: told about every track that starts and ends (held weakly).
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
-         positionStep: Double = 1, configStore: ConfigStore? = nil, listener: PlaybackListener? = nil) {
+         positionStep: Double = 1, configStore: ConfigStore? = nil, listeners: [PlaybackListener] = []) {
         self.store = store
         self.engine = engine
         self.tickInterval = tickInterval
         self.positionStep = positionStep
         self.configStore = configStore
-        self.listener = listener
+        self.listeners = listeners.map(WeakListener.init)
         if let settings = configStore?.config.playback {
             cursorFollowsPlayback = settings.cursorFollowsPlayback
             playbackFollowsCursor = settings.playbackFollowsCursor
@@ -552,7 +564,7 @@ final class PlaybackState {
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
                                  duration: track.duration ?? 0, startedAt: Date())
         progress = PlayProgress(track: played)
-        listener?.trackDidStart(played)
+        for listener in listeners { listener.value?.trackDidStart(played) }
     }
 
     /// The current track is left (another one starts, or playback stops): the listener hears how far it got.
@@ -562,7 +574,7 @@ final class PlaybackState {
         progress = nil
         var track = finished.track
         if duration > 0 { track.duration = duration }
-        listener?.trackDidEnd(track, playedSeconds: finished.played)
+        for listener in listeners { listener.value?.trackDidEnd(track, playedSeconds: finished.played) }
     }
 
     /// Shows the playlist's current values of the current track again, without touching the position.

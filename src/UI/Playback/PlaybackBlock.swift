@@ -13,6 +13,8 @@ struct PlaybackBlock: View {
     /// (info + minimal gap + buttons + volume), excluding the art-to-info gap.
     @Binding var controlsHeight: CGFloat
 
+    private let lyrics = LyricsService.shared
+
     @State private var infoHeight: CGFloat = 0
     @State private var bottomHeight: CGFloat = 0
     /// Position the seek bar is being dragged to.
@@ -71,9 +73,29 @@ struct PlaybackBlock: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .padding(.horizontal, 24)
+                .overlay(alignment: .trailing) { lyricsButton }
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
+    }
+
+    /// Only there for a track that has lyrics; the space stays, so nothing moves when it comes and goes.
+    private var lyricsButton: some View {
+        let available = lyrics.current != nil
+        return Button {
+            LyricsSheet.present(.playing)
+        } label: {
+            Image(systemName: "text.page")
+                .font(.system(size: 14))
+                .frame(width: 24, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help("Lyrics")
+        .opacity(available ? 1 : 0)
+        .disabled(!available)
+        .accessibilityHidden(!available)
     }
 
     private var transportButtons: some View {

@@ -51,6 +51,10 @@ enum TagKeyMap {
         // iTunes / MP4
         "©nam": .title, "©art": .artist, "aart": .albumArtist,
         "©wrt": .composer, "©alb": .album, "©day": .year, "trkn": .track,
+        // Lyrics: ID3 USLT (v2.2: ULT), Vorbis comments, MP4 "©lyr", CAF/WAV/AIFF info chunk. The synchronised
+        // ID3 SYLT frame is binary and not read.
+        "uslt": .lyrics, "ult": .lyrics, "lyrics": .lyrics, "unsyncedlyrics": .lyrics,
+        "©lyr": .lyrics, "info-lyrics": .lyrics,
         // CAF / WAV / AIFF info chunk (AVFoundation exposes them as "info-<key>")
         "info-title": .title, "info-artist": .artist, "info-album": .album,
         "info-album artist": .albumArtist, "info-composer": .composer,
@@ -62,6 +66,7 @@ enum TagKeyMap {
         "title": .title, "artist": .artist, "album": .album, "composer": .composer,
         "year": .year, "recorded date": .year, "date": .year,
         "track number": .track, "track": .track,
+        "lyrics": .lyrics,   // CAF only; for the other containers it is the other backends that find lyrics
     ]
 
     /// Splits a raw key like "id3/TPE1" or "itsk/%A9ART" into ("id3", "tpe1") / ("itsk", "©art").
@@ -189,7 +194,7 @@ enum FlacArtwork {
     }
 
     /// Calls `visit(type, dataOffset, dataLength)` for every metadata block until it returns false or the blocks end.
-    private static func walkBlocks(_ fh: FileHandle, _ visit: (UInt8, UInt64, UInt64) throws -> Bool) throws {
+    fileprivate static func walkBlocks(_ fh: FileHandle, _ visit: (UInt8, UInt64, UInt64) throws -> Bool) throws {
         var offset: UInt64 = 0
         guard var head = try fh.read(upToCount: 10), head.count >= 4 else { return }
         if head.starts(with: [0x49, 0x44, 0x33]), head.count == 10 {          // leading ID3v2 tag: skip it
@@ -213,6 +218,53 @@ enum FlacArtwork {
             if isLast { return }
             offset += 4 + length
         }
+    }
+}
+
+/// The Vorbis comment block of a FLAC file. AudioToolbox doesn't list its lyrics (AVFoundation does, but is much
+/// slower), so they are read by hand, from the one block that holds them.
+enum FlacComments {
+    private static let vorbisCommentType: UInt8 = 4
+    /// Comment blocks bigger than this are not worth the memory.
+    private static let maxBlock: UInt64 = 16 << 20
+
+    static func lyrics(url: URL) throws -> String? {
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+        var lyrics: String?
+        try FlacArtwork.walkBlocks(fh) { type, offset, length in
+            guard type == vorbisCommentType else { return true }
+            if length <= maxBlock {
+                try fh.seek(toOffset: offset)
+                if let block = try fh.read(upToCount: Int(length)) { lyrics = Self.lyrics(inComments: block) }
+            }
+            return false                                                        // there is one such block
+        }
+        return lyrics
+    }
+
+    /// The `LYRICS` (or `UNSYNCEDLYRICS`) comment of a Vorbis comment block: vendor string, then a count and the
+    /// `NAME=value` entries, each with its length (all lengths u32 little-endian).
+    static func lyrics(inComments block: Data) -> String? {
+        let b = [UInt8](block)
+        var i = 0
+        func u32() -> Int? {
+            guard i + 4 <= b.count else { return nil }
+            defer { i += 4 }
+            return Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 | Int(b[i + 3]) << 24
+        }
+        guard let vendorLength = u32(), i + vendorLength <= b.count else { return nil }
+        i += vendorLength
+        guard let count = u32() else { return nil }
+        for _ in 0..<min(count, 4096) {
+            guard let length = u32(), i + length <= b.count else { return nil }
+            let entry = String(decoding: b[i..<(i + length)], as: UTF8.self)
+            i += length
+            guard let equals = entry.firstIndex(of: "=") else { continue }
+            let name = entry[..<equals].lowercased()
+            if name == "lyrics" || name == "unsyncedlyrics" { return String(entry[entry.index(after: equals)...]) }
+        }
+        return nil
     }
 }
 
@@ -287,6 +339,24 @@ enum AVFoundationBackend {
             throw TagReadError.unreadable("AVFoundation: \(error.localizedDescription)")
         }
         return raw
+    }
+
+    /// The lyrics of the file (nil = none, or unreadable), for the files whose lyrics the other backends don't see.
+    static func lyrics(url: URL) async -> String? {
+        let asset = AVURLAsset(url: url)
+        guard let formats = try? await asset.load(.availableMetadataFormats) else { return nil }
+        for format in formats {
+            guard let items = try? await asset.loadMetadata(for: format) else { continue }
+            for item in items {
+                guard let id = item.identifier?.rawValue ?? (item.key as? String),
+                      TagKeyMap.table[TagKeyMap.parse(identifier: id).key] == .lyrics,
+                      let text = try? await item.load(.stringValue) else { continue }
+                var raw = RawTags()
+                raw.set(.lyrics, text)
+                if let lyrics = raw.fields[.lyrics] { return lyrics }
+            }
+        }
+        return nil
     }
 
     /// Artwork-only check (used when the tag read didn't go through AVFoundation). Reads item *keys* only,

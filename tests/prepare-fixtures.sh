@@ -83,6 +83,44 @@ ff $sine -c:a libmp3lame -id3v2_version 3 -metadata title=OnlyTitle "$f/t_onlyti
 ff $sine -c:a libmp3lame -id3v2_version 3 -metadata comment=whatever "$f/t_notags.mp3"
 ff $sine -metadata comment=whatever "$f/t_notags.flac"
 
+# ---------------------------------------------------------------- lyrics
+# Every lyrics fixture carries these values (see Fixtures.lyrics) next to the usual tags: four lines, one of them
+# empty, one non-ASCII.
+LYRICS="Line one
+Line two
+
+Line four ünï ☃"
+ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.flac"
+ff $sine -ac 2 -c:a vorbis -strict -2 $T -metadata "lyrics=$LYRICS" "$f/l.ogg"
+ff $sine -c:a aac $T -metadata "lyrics=$LYRICS" "$f/l_aac.m4a"
+ff $sine -c:a alac $T -metadata "lyrics=$LYRICS" "$f/l_alac.m4a"
+ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.caf"
+# FLAC's other comment name for it
+ff $sine $T -metadata "UNSYNCEDLYRICS=$LYRICS" "$f/l_unsynced.flac"
+# lyrics, but no artist: nothing to file them under
+ff $sine -metadata title=TTitle -metadata album=TAlbum -metadata "lyrics=$LYRICS" "$f/l_noartist.flac"
+
+# ffmpeg writes no USLT frame for MP3, so it is made by hand: an ID3v2.4 tag (frame sizes are sync-safe) with
+# UTF-8 text frames and a USLT frame (encoding 3, language, empty descriptor, text), then the audio of plain.mp3.
+ss32() { printf "\\$(printf %03o $(( ($1 >> 21) & 127 )))\\$(printf %03o $(( ($1 >> 14) & 127 )))\\$(printf %03o $(( ($1 >> 7) & 127 )))\\$(printf %03o $(( $1 & 127 )))"; }
+v24_text() { printf '%s' "$1"; ss32 $(( ${#2} + 1 )); printf '\000\000\003%s' "$2"; }
+v24_uslt() {
+    printf 'USLT'; ss32 $(( $(printf '%s' "$1" | wc -c | tr -d ' ') + 5 )); printf '\000\000\003eng\000%s' "$1"
+}
+{
+    v24_text TIT2 TTitle
+    v24_text TPE1 TArtist
+    v24_text TALB TAlbum
+    v24_uslt "$LYRICS"
+} > "$tmp/v24.frames"
+size=$(wc -c < "$tmp/v24.frames" | tr -d ' ')
+{
+    printf 'ID3\004\000\000'; ss32 "$size"
+    cat "$tmp/v24.frames"
+    cat "$f/plain.mp3"
+} > "$f/l_v24.mp3"
+rm "$tmp/v24.frames"
+
 # ---------------------------------------------------------------- images
 a="$tmp/art"
 ff -f lavfi -i testsrc=s=300x200 -frames:v 1 "$a/cover.jpg"          # landscape

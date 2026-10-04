@@ -4,6 +4,8 @@ import Foundation
 enum TagField: String, CaseIterable, Sendable {
     case title, artist, albumArtist, performer, band, discogsArtist, composer
     case album, year, track
+    /// Unsynchronised or LRC lyrics (ID3 `USLT`, Vorbis `LYRICS`, MP4 `©lyr`, ...). Can be long.
+    case lyrics
 }
 
 /// Values shown when a tag is missing / unreadable.
@@ -11,6 +13,11 @@ enum TagFallback {
     static let artist = "Unknown Artist"
     static let title = "Unknown Track"
     static let album = "Unknown Album"
+
+    /// A track that has a real artist and title, i.e. one that something outside (Last.fm, LRCLIB) can be asked about.
+    static func isIdentified(artist: String, title: String) -> Bool {
+        artist != Self.artist && title != Self.title
+    }
 }
 
 /// Final, display-ready tags. `title`/`artist`/`album` are never empty (fallbacks applied).
@@ -22,6 +29,8 @@ struct TrackTags: Sendable, Equatable {
     var trackNumber: Int?
     /// Seconds. From AudioFile ("approximate duration") or AVFoundation, whichever backend ran.
     var duration: TimeInterval?
+    /// The lyrics embedded in the file (line breaks as `\n`), nil if it has none.
+    var lyrics: String?
 
     init() {}
 }

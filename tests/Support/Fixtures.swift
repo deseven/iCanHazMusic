@@ -33,6 +33,8 @@ enum Fixtures {
     static let trackNumber = 3
     /// Length of every generated audio file, in seconds.
     static let duration = 2.0
+    /// What the lyrics fixtures (`formats/l*`) carry.
+    static let lyrics = "Line one\nLine two\n\nLine four ünï ☃"
 }
 
 /// A scratch directory under one per-run root. Directories are not removed individually (a test may well

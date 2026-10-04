@@ -2,7 +2,7 @@ import Foundation
 @testable import iCanHazMusic
 
 /// Stands in for Last.fm: `handler` answers every request (it also decides for how long, and whether, to fail).
-final class StubTransport: LastFMTransport, @unchecked Sendable {
+final class StubTransport: HTTPTransport, @unchecked Sendable {
     typealias Answer = (status: Int, body: Data)
     typealias Handler = @Sendable (URLRequest, _ index: Int) async throws -> Answer
 
@@ -27,12 +27,13 @@ final class StubTransport: LastFMTransport, @unchecked Sendable {
     /// The methods called so far, in order.
     var methods: [String] { params.compactMap { $0["method"] } }
 
-    func perform(_ request: URLRequest) async throws -> Answer {
+    func perform(_ request: URLRequest) async throws -> HTTPAnswer {
         let index = lock.withLock { () -> Int in
             recorded.append(request)
             return recorded.count - 1
         }
-        return try await handler(request, index)
+        let answer = try await handler(request, index)
+        return HTTPAnswer(status: answer.status, body: answer.body)
     }
 
     static func params(of request: URLRequest) -> [String: String] {

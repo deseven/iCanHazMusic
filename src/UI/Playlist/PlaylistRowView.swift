@@ -11,7 +11,7 @@ struct PlaylistRowView: View {
     var body: some View {
         let row = playlist.rows[index]
         if let track = playlist.track(for: row) {
-            TrackRowContent(track: track,
+            TrackRowContent(track: track, album: playlist.albums[row.albumIndex].title,
                             showArtist: playlist.isFlat || playlist.albums[row.albumIndex].hasMultipleArtists,
                             showNumber: !playlist.isFlat, isPlaying: isPlaying)
                 .frame(height: Layout.trackRowHeight)
@@ -58,6 +58,8 @@ private struct AlbumHeaderContent: View {
 
 private struct TrackRowContent: View {
     let track: Track
+    /// Album title as the lyrics are keyed by it.
+    let album: String
     /// Compilation albums and flat playlists: "artist – title" instead of just the title.
     let showArtist: Bool
     /// The track number column (flat playlists have none).
@@ -84,6 +86,23 @@ private struct TrackRowContent: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 12)
+            // The placeholder keeps the column's width in every row.
+            Color.clear
+                .frame(width: Layout.trackLyricsColumnWidth)
+                .overlay {
+                    if LyricsService.shared.hasLyrics(artist: track.artist, title: track.title, album: album) {
+                        Button {
+                            LyricsSheet.present(.track(artist: track.artist, title: track.title, album: album))
+                        } label: {
+                            Image(systemName: "text.page")
+                                .font(.system(size: 11))
+                                .frame(width: Layout.trackLyricsColumnWidth, height: Layout.trackRowHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show lyrics")
+                    }
+                }
             Text(track.durationText)
                 .monospacedDigit()
                 .frame(width: 60, alignment: .trailing)
