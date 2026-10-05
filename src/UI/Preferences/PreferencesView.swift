@@ -148,13 +148,24 @@ private struct GeneralTab: View {
     @Bindable private var lyrics = LyricsService.shared
     @Bindable private var updates = UpdateService.shared
     @Bindable private var queue = PlaybackState.shared.queue
+    @Bindable private var windowSettings = WindowSettings.shared
 
     var body: some View {
         TabPage {
             PrefRow(
+                title: "Close Quits",
+                description: "Quit \(AppConstants.appName) when its window is closed. When off, closing the window "
+                    + "keeps the music playing in the background; click the Dock icon to bring the window back."
+            ) {
+                Toggle("", isOn: $windowSettings.closeQuits)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
                 title: "Playback Notifications",
                 description: "Show a system notification when a track starts and when the playlist ends, for when "
-                    + "\(AppConstants.appName) isn't in front. Turning this off sends no notifications at all."
+                    + "\(AppConstants.appName) isn't in front."
             ) {
                 Toggle("", isOn: $notifications.isEnabled)
                     .labelsHidden()
@@ -164,8 +175,7 @@ private struct GeneralTab: View {
             PrefRow(
                 title: "Lyrics Support",
                 description: "Show the lyrics of tracks: a button in the playlist and in the playback block. Turning this "
-                    + "off also turns off the LRCLIB lookup. Lyrics in the tags of files are still read when files "
-                    + "are added, so they are there when you turn this back on."
+                    + "off also turns off the LRCLIB lookup."
             ) {
                 Toggle("", isOn: $lyrics.isEnabled)
                     .labelsHidden()
@@ -174,11 +184,8 @@ private struct GeneralTab: View {
 
             PrefRow(
                 title: "Enable Queue",
-                description: "Queue tracks and albums to play next: press Space on them in a playlist (or choose Enqueue), "
-                    + "or use the search window. Queued tracks play one after another, then playback goes on in the "
-                    + "playlist. Turning this off empties the queue and removes everything about it: its item in the "
-                    + "playlist list, the menu items, the Space key and the markers in playlists, and the adding to the "
-                    + "queue from the search window."
+                description: "Queue tracks and albums to play next: press Space on them in a playlist, "
+                    + "or use the search window."
             ) {
                 Toggle("", isOn: $queue.isEnabled)
                     .labelsHidden()
@@ -187,8 +194,7 @@ private struct GeneralTab: View {
 
             PrefRow(
                 title: "Check for Updates",
-                description: "Look for a new version of \(AppConstants.appName) on GitHub once a day while it "
-                    + "runs, and offer to install it. Nothing is installed without your confirmation. You can always "
+                description: "Look for a new version of \(AppConstants.appName) on GitHub once a day, and offer to install it. Nothing is installed without your confirmation. You can always "
                     + "check by hand in the About window."
             ) {
                 Toggle("", isOn: $updates.isEnabled)
@@ -236,7 +242,7 @@ private struct IntegrationsTab: View {
             + "are used. Lyrics that are found are saved locally and never replace the ones from the "
             + "tags. This sends the artist and title of the played tracks to lrclib.net.")
         guard !lyrics.isEnabled else { return text }
-        return text + Text("\nNot working: Lyrics Support is turned off (General). Nothing is looked up until it is on.")
+        return text + Text("\nNot working: Lyrics Support is turned off (General).")
             .foregroundStyle(.red)
     }
 

@@ -159,13 +159,13 @@ private struct TrackRowContent: View {
                 }
             Text(track.durationText)
                 .monospacedDigit()
-                .frame(width: 60, alignment: .trailing)
+                .frame(width: Layout.trackDurationColumnWidth, alignment: .trailing)
             Text(track.codec)
                 .opacity(0.65)
                 .frame(width: 110, alignment: .leading)
                 .padding(.leading, 12)
         }
-        .font(.system(size: 12))
+        .font(.system(size: Layout.trackRowFontSize))
     }
 }
 
@@ -204,7 +204,8 @@ private struct QueueRowContent: View {
                 .padding(.leading, 12)
             Text(track.durationText)
                 .monospacedDigit()
-                .frame(width: 60, alignment: .trailing)
+                .frame(width: Layout.trackDurationColumnWidth, alignment: .trailing)
+                .padding(.leading, 12)
             if let playlist = row.playlist {
                 WidthCap(maxWidth: 160) {
                     Tag(text: playlist, tint: .playlistLabel, isSelected: isSelected)

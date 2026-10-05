@@ -22,6 +22,9 @@ enum LRCLIBOutcome: Equatable, Sendable {
 ///
 /// Only the lookup being tried and the newest one are of interest: what waits behind the former is replaced when
 /// another is added (the user is skipping through tracks, and what played a minute ago needs no lyrics now).
+/// Exception: a *retry* (`enqueue(_:isRetry:)`, a second look for lyrics LRCLIB didn't have yet) is never replaced and
+/// never replaces anything, but it goes after every regular lookup. It still shares the queue, so LRCLIB gets one
+/// request at a time with `spacing` between them whatever the reason for the request.
 ///
 /// Nothing is kept on disk: what is still pending when the app quits is lost. `onResult` hears about every lookup that was
 /// added, once (except after `cancelAll`).
@@ -34,6 +37,7 @@ final class LRCLIBQueue {
     private struct Job {
         let id: Int
         let query: LRCLIBQuery
+        let isRetry: Bool
     }
 
     private let client: LRCLIBClient
@@ -60,15 +64,17 @@ final class LRCLIBQueue {
         self.onResult = onResult
     }
 
-    func enqueue(_ query: LRCLIBQuery) {
-        let outdated = jobs.filter { $0.id != inFlight }
-        if !outdated.isEmpty {
-            jobs.removeAll { $0.id != inFlight }
-            Log.info("lrclib: dropped \(outdated.count) outdated lookup(s)")
-            for job in outdated { onResult(job.query, .failed) }
+    func enqueue(_ query: LRCLIBQuery, isRetry: Bool = false) {
+        if !isRetry {
+            let outdated = jobs.filter { $0.id != inFlight && !$0.isRetry }
+            if !outdated.isEmpty {
+                jobs.removeAll { $0.id != inFlight && !$0.isRetry }
+                Log.info("lrclib: dropped \(outdated.count) outdated lookup(s)")
+                for job in outdated { onResult(job.query, .failed) }
+            }
         }
         nextJobID += 1
-        jobs.append(Job(id: nextJobID, query: query))
+        jobs.append(Job(id: nextJobID, query: query, isRetry: isRetry))
         if worker == nil {
             worker = Task { [weak self] in await self?.work() }
         }
@@ -85,7 +91,7 @@ final class LRCLIBQueue {
     // MARK: - Internals
 
     private func work() async {
-        while !Task.isCancelled, let job = jobs.first {
+        while !Task.isCancelled, let job = jobs.first(where: { !$0.isRetry }) ?? jobs.first {
             inFlight = job.id
             guard await deliver(job) else { break }
             inFlight = nil

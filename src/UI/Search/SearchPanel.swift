@@ -97,7 +97,7 @@ final class SearchPanel {
     }
 
     /// Opens the result's playlist with the result selected, and brings the main window forward (also from the
-    /// background or the Dock).
+    /// background or the Dock, and when it was closed).
     private func goTo(_ result: SearchResult) {
         close()
         switch result.kind {
@@ -107,11 +107,7 @@ final class SearchPanel {
         case .playlist:
             PlaylistStore.shared.setActive(result.playlist)
         }
-        NSApp.activate()
-        if let window = Dialogs.hostWindow {
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            window.makeKeyAndOrderFront(nil)
-        }
+        Task { await MainWindowOpener.shared.show() }
     }
 
     private func play(_ result: SearchResult) {

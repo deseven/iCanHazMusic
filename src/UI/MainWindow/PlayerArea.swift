@@ -12,6 +12,9 @@ struct PlayerArea: View {
     @State private var selection: Set<Int> = []
     /// A row the playlist view is asked to scroll to; it resets this once it has.
     @State private var revealRow: Int?
+    /// The playlist whose opening is complete: its content is in and scrolled to its row. Until it is the active one
+    /// the playlist is hidden behind a spinner, so the user doesn't see it being filled and scrolled.
+    @State private var openedName: String?
 
     /// Width the user asked for by dragging the divider. The effective width is this value
     /// clamped to what the current window size allows (so it "comes back" when the window grows).
@@ -35,6 +38,9 @@ struct PlayerArea: View {
                         QueueView()
                     } else {
                         PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow, revealRow: $revealRow)
+                            .overlay {
+                                if openedName != store.activeName { OpeningCover() }
+                            }
                     }
                 }
                 .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
@@ -61,6 +67,14 @@ struct PlayerArea: View {
             playback.placeCursor(at: nil)
         }
         .onChange(of: store.openCount) { _, _ in playlistOpened() }
+        .onChange(of: revealRow) { _, row in
+            if row == nil { finishOpening() }   // the view has scrolled to the row
+        }
+        .task(id: store.activeName) {
+            // Safety net: the view must never stay hidden if it didn't report back.
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { finishOpening(after: .zero) }
+        }
         .onChange(of: playback.queue.isEnabled) { _, enabled in
             if !enabled { store.hideQueue() }   // the queue view has nothing to show any more
         }
@@ -81,6 +95,17 @@ struct PlayerArea: View {
         selection = row.map { [$0] } ?? []
         playback.placeCursor(at: row)
         revealRow = row
+        if row == nil { finishOpening() }
+    }
+
+    /// Shows the playlist (it is the active one, in place and scrolled), a moment later so SwiftUI has drawn the rows
+    /// at the new scroll position first. Does nothing while the playlist is still being read.
+    private func finishOpening(after delay: Duration = .milliseconds(60)) {
+        guard openedName != store.activeName, !store.isLoading else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            if !store.isLoading { openedName = store.activeName }
+        }
     }
 
     /// Starts the queue if it has tracks, else at the first selected row (an album header starts its first track).

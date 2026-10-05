@@ -158,10 +158,11 @@ extension AllTests {
 
         // MARK: - Clean up
 
-        @Test("clean up keeps only config.json, .cache and playlists")
+        @Test("clean up keeps only config.json, app.log, .cache and playlists")
         func cleanUp() throws {
             let dir = try TempDir()
             try dir.write("config.json")
+            try dir.write("app.log")
             try dir.write("playlists/main.json")
             try dir.write(".cache/covers.sqlite")
             try dir.write("settings.json")
@@ -174,7 +175,7 @@ extension AllTests {
             LegacyMigration.cleanUp(paths: AppPaths(workDir: dir.url))
 
             let left = try FileManager.default.contentsOfDirectory(atPath: dir.url.path).sorted()
-            #expect(left == [".cache", "config.json", "playlists"])
+            #expect(left == [".cache", "app.log", "config.json", "playlists"])
             #expect(FileManager.default.fileExists(atPath: dir.path("playlists/main.json").path))
             #expect(FileManager.default.fileExists(atPath: dir.path(".cache/covers.sqlite").path))
         }

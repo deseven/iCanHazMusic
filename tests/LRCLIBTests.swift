@@ -338,6 +338,28 @@ extension AllTests {
             if case .found = results.outcome(of: "3") {} else { Issue.record("3 should be found") }
         }
 
+        @Test("retries are never replaced and never replace anything, but regular lookups go before them")
+        func retriesWaitTheirTurn() async {
+            let gate = GatedSleep()
+            let results = Results()
+            let transport = HTTPStub { request, index in index == 0 ? LRCLIBAnswer.serverError : LRCLIBAnswer.found(for: request) }
+            let queue = LRCLIBQueue(client: LRCLIBClient(transport: transport), spacing: .zero, sleep: gate.sleep) {
+                results.record($0, $1)
+            }
+            queue.enqueue(LRCLIBTestData.query(title: "1"))
+            #expect(await waitUntil { gate.waiting })
+            queue.enqueue(LRCLIBTestData.query(title: "r"), isRetry: true)
+            queue.enqueue(LRCLIBTestData.query(title: "2"))
+            queue.enqueue(LRCLIBTestData.query(title: "3"))
+            #expect(queue.pendingCount == 3)                                    // "1" in progress, "r" and "3"
+            #expect(results.outcome(of: "2") == .failed)
+            #expect(results.outcome(of: "r") == nil)
+
+            gate.release()
+            #expect(await waitUntil { results.all.count == 4 })
+            #expect(transport.titles == ["1", "1", "3", "r"])
+        }
+
         @Test("a pause is kept after every lookup")
         func spacing() async {
             let sleeps = SleepRecorder()

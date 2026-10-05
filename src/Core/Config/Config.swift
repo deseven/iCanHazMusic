@@ -81,6 +81,8 @@ struct AppConfig: Codable, Equatable {
         /// The playback queue exists: its sidebar item, the menu items, the Space key and the markers in the playlist.
         /// Off: none of that, and nothing can be queued (also not from the search window).
         var queueEnabled = true
+        /// Closing the main window quits the app. Off: only the window closes, playback and everything else go on.
+        var closeQuits = false
 
         enum CodingKeys: String, CodingKey {
             case playbackNotifications = "playback_notifications"
@@ -88,6 +90,7 @@ struct AppConfig: Codable, Equatable {
             case checkForUpdates = "check_for_updates"
             case skippedUpdate = "skipped_update"
             case queueEnabled = "queue_enabled"
+            case closeQuits = "close_quits"
         }
 
         init() {}
@@ -100,6 +103,7 @@ struct AppConfig: Codable, Equatable {
             checkForUpdates = c.value(.checkForUpdates, default: d.checkForUpdates)
             skippedUpdate = c.value(.skippedUpdate, default: d.skippedUpdate)
             queueEnabled = c.value(.queueEnabled, default: d.queueEnabled)
+            closeQuits = c.value(.closeQuits, default: d.closeQuits)
         }
     }
 

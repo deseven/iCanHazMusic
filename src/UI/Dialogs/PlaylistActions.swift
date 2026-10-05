@@ -13,7 +13,7 @@ enum PlaylistActions {
     /// by typing the extension).
     static func exportActive() async {
         let playlist = store.activePlaylist
-        guard playlist.trackCount > 0, let window = Dialogs.hostWindow, window.isVisible else { return }
+        guard playlist.trackCount > 0, let window = await MainWindowOpener.shared.show() else { return }
 
         let panel = NSSavePanel()
         panel.message = "Export the playlist to a file"

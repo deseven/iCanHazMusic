@@ -29,6 +29,13 @@ enum Layout {
     static let trackNumberSlack: CGFloat = 44 - trackNumberColumnWidth
     /// Column of a track row (right of the title) that holds the lyrics symbol.
     static let trackLyricsColumnWidth: CGFloat = 24
+    /// Font size of the track rows.
+    static let trackRowFontSize: CGFloat = 12
+    /// Column of a track row that holds the duration: as wide as the longest text it may show (`x:xx:xx`).
+    static let trackDurationColumnWidth: CGFloat = {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: trackRowFontSize, weight: .regular)
+        return ceil(("0:00:00" as NSString).size(withAttributes: [.font: font]).width) + 2
+    }()
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
     static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
     /// Extra points of rows rendered above/below the visible area of the playlist.

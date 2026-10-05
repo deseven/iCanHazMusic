@@ -293,14 +293,15 @@ extension AllTests {
 
         private static let synced = "[00:01.00]one\n[00:02.00]two"
 
-        private func makeEnv(enabled: Bool = true, transport: HTTPStub? = nil) throws -> Env {
+        private func makeEnv(enabled: Bool = true, transport: HTTPStub? = nil, retryDelays: [Duration] = []) throws -> Env {
             let dir = try TempDir()
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
             if enabled { config.update { $0.integrations.lrclib.enabled = true } }
             let store = LyricsStore(url: dir.path("lyrics.sqlite"))
             let transport = transport ?? HTTPStub(always: LRCLIBAnswer.records([LRCLIBAnswer.record(plain: "online", synced: Self.synced)]))
             let sleeps = SleepRecorder()
-            let service = LyricsService(configStore: config, store: store, transport: transport, spacing: .zero, sleep: sleeps.sleep)
+            let service = LyricsService(configStore: config, store: store, transport: transport, spacing: .zero,
+                                         retryDelays: retryDelays, sleep: sleeps.sleep)
             return Env(config: config, store: store, transport: transport, sleeps: sleeps, service: service)
         }
 
@@ -466,6 +467,58 @@ extension AllTests {
             #expect(await waitUntil { env.service.current?.plain == "now it works" })
         }
 
+        @Test("a no is asked again after 1 and after 3 minutes, through the same queue; a found answer ends it")
+        func retries() async throws {
+            let env = try makeEnv(transport: HTTPStub { request, index in
+                index < 2 ? LRCLIBAnswer.none : LRCLIBAnswer.found(for: request, plain: "finally")
+            }, retryDelays: LyricsService.defaultRetryDelays)
+            #expect(LyricsService.defaultRetryDelays == [.seconds(60), .seconds(180)])
+
+            env.service.trackDidStart(track)
+            #expect(await waitUntil { env.service.current?.plain == "finally" })
+            #expect(env.transport.requests.count == 3)
+            #expect(env.sleeps.seconds == [60, 180])
+            #expect(env.store.lyrics(for: key)?.plain == "finally")
+
+            // Nothing more is asked afterwards.
+            try? await Task.sleep(for: .milliseconds(30))
+            #expect(env.transport.requests.count == 3)
+        }
+
+        @Test("after the last retry the no stands")
+        func retriesEnd() async throws {
+            let env = try makeEnv(transport: HTTPStub(always: LRCLIBAnswer.none), retryDelays: LyricsService.defaultRetryDelays)
+            env.service.trackDidStart(track)
+            #expect(await waitUntil { env.transport.requests.count == 3 })
+            try? await Task.sleep(for: .milliseconds(50))
+            #expect(env.transport.requests.count == 3)
+            #expect(env.sleeps.seconds == [60, 180])
+
+            env.service.trackDidEnd(track, playedSeconds: 10)
+            env.service.trackDidStart(track)
+            try? await Task.sleep(for: .milliseconds(50))
+            #expect(env.transport.requests.count == 3)
+        }
+
+        @Test("turning LRCLIB off cancels a retry that is waiting")
+        func retryCancelled() async throws {
+            let gate = GatedSleep()
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            config.update { $0.integrations.lrclib.enabled = true }
+            let transport = HTTPStub(always: LRCLIBAnswer.none)
+            let service = LyricsService(configStore: config, store: LyricsStore(url: dir.path("lyrics.sqlite")),
+                                        transport: transport, spacing: .zero, retryDelays: [.seconds(60)], sleep: gate.sleep)
+            service.trackDidStart(track)
+            #expect(await waitUntil { gate.waiting })        // the retry timer
+            #expect(transport.requests.count == 1)
+
+            service.isLRCLIBEnabled = false
+            gate.release()
+            try? await Task.sleep(for: .milliseconds(50))
+            #expect(transport.requests.count == 1)
+        }
+
         @Test("only exact matches are taken")
         func exactOnly() async throws {
             let env = try makeEnv(transport: HTTPStub(always: LRCLIBAnswer.records([
@@ -491,7 +544,7 @@ extension AllTests {
             }
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
             config.update { $0.integrations.lrclib.enabled = true }
-            let service = LyricsService(configStore: config, store: store, transport: transport, spacing: .zero)
+            let service = LyricsService(configStore: config, store: store, transport: transport, spacing: .zero, retryDelays: [])
 
             service.trackDidStart(track)
             #expect(await waitUntil { service.current != nil })

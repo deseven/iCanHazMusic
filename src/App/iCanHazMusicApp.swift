@@ -8,6 +8,7 @@ struct iCanHazMusicApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        Log.startFileLogging(at: AppPaths.current.logURL)
         // Before anything reads the working directory (the config and playlist stores are created lazily).
         MigrationActions.askAtLaunch()
     }

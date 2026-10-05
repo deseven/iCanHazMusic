@@ -13,6 +13,10 @@ import Observation
 ///   `LRCLIBQueue` (in the background, with retries); lyrics it has for exactly this artist and title are stored,
 ///   and shown as soon as they are there. A "no" is remembered until the app quits, so replaying a track doesn't ask
 ///   again; a lookup that failed is tried again the next time the track starts.
+/// - LRCLIB's "no" isn't final (it fetches missing lyrics in the background, see `dev-docs/lyrics.md`), so after it the
+///   lookup is repeated once more after each of `retryDelays` (1 and 3 minutes). The wait is a timer here, not in the
+///   queue; when it is over the lookup is added to the same `LRCLIBQueue` as every other one (as a retry, which
+///   regular lookups overtake), so LRCLIB still sees one request at a time.
 /// - Tracks without tags (`PlayedTrack.hasTags`) are never looked up.
 /// - `isEnabled` ("Lyrics Support", config `general.lyrics_support`, on by default) turns showing lyrics off: there
 ///   are no lyrics for the playing track (`current`), none for any track (`lyrics`, `hasLyrics`) and LRCLIB isn't asked.
@@ -22,6 +26,9 @@ import Observation
 @Observable
 final class LyricsService: PlaybackListener {
     static let shared = LyricsService(configStore: .shared, store: .shared)
+
+    /// Waits before the asks that follow a "no" from LRCLIB (each counted from the previous "no").
+    nonisolated static let defaultRetryDelays: [Duration] = [.seconds(60), .seconds(180)]
 
     /// Lyrics are shown at all. Persisted in the config.
     var isEnabled: Bool {
@@ -80,15 +87,23 @@ final class LyricsService: PlaybackListener {
     @ObservationIgnored private var pending = Set<String>()
     /// Keys LRCLIB has no lyrics for.
     @ObservationIgnored private var unavailable = Set<String>()
+    /// How long to wait after each "no" before asking again; once all are used the "no" stands until the app quits.
+    @ObservationIgnored private let retryDelays: [Duration]
+    /// Per key that got a "no": how many retries were scheduled so far.
+    @ObservationIgnored private var retryStage: [String: Int] = [:]
+    /// Retries that are waiting for their time.
+    @ObservationIgnored private var retryTimers: [String: Task<Void, Never>] = [:]
 
     init(configStore: ConfigStore, store: LyricsStore,
          transport: any HTTPTransport = URLSessionTransport(timeout: LRCLIBAPI.requestTimeout),
          spacing: Duration = .milliseconds(300),
+         retryDelays: [Duration] = LyricsService.defaultRetryDelays,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.configStore = configStore
         self.store = store
         self.transport = transport
         self.spacing = spacing
+        self.retryDelays = retryDelays
         self.sleep = sleep
         isEnabled = configStore.config.general.lyricsSupport
         isLRCLIBEnabled = configStore.config.integrations.lrclib.enabled
@@ -118,6 +133,11 @@ final class LyricsService: PlaybackListener {
     private func stopLookups() {
         queue?.cancelAll()
         pending.removeAll()
+        // Keys waiting for a retry (timer or queued) start from scratch at their next play.
+        for timer in retryTimers.values { timer.cancel() }
+        retryTimers.removeAll()
+        unavailable.subtract(retryStage.keys)
+        retryStage.removeAll()
     }
 
     // MARK: - Playback
@@ -151,6 +171,32 @@ final class LyricsService: PlaybackListener {
         queue.enqueue(LRCLIBQuery(artist: track.artist, title: track.title, album: track.album, duration: track.duration))
     }
 
+    /// After a "no": waits for the next of `retryDelays`, then adds the lookup to the queue again.
+    private func scheduleRetry(_ query: LRCLIBQuery, key: String) {
+        let stage = retryStage[key, default: 0]
+        guard stage < retryDelays.count else { return }
+        retryStage[key] = stage + 1
+        let delay = retryDelays[stage]
+        Log.info("lrclib: \(query.artist) - \(query.title): no lyrics yet, asking again in \(delay.components.seconds) s")
+        retryTimers[key] = Task { [weak self, sleep] in
+            do { try await sleep(delay) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.retry(query, key: key)
+        }
+    }
+
+    private func retry(_ query: LRCLIBQuery, key: String) {
+        retryTimers[key] = nil
+        guard isLRCLIBActive, !store.contains(key), pending.insert(key).inserted else {
+            // Nothing to ask for any more (lyrics came from the file, or LRCLIB was turned off).
+            unavailable.remove(key)
+            retryStage[key] = nil
+            return
+        }
+        let queue = self.queue ?? makeQueue()
+        queue.enqueue(query, isRetry: true)
+    }
+
     private func makeQueue() -> LRCLIBQueue {
         let queue = LRCLIBQueue(client: LRCLIBClient(transport: transport), spacing: spacing, sleep: sleep) { [weak self] query, outcome in
             self?.didFinish(query, outcome)
@@ -167,10 +213,17 @@ final class LyricsService: PlaybackListener {
             // The file's own lyrics may have turned up while the request was on its way: they win.
             if store.store(lyrics, for: key, replacing: false) { revision += 1 }
             if key == currentKey, isEnabled { current = store.lyrics(for: key) ?? lyrics }
+            unavailable.remove(key)
+            retryStage[key] = nil
         case .notFound:
             unavailable.insert(key)
+            scheduleRetry(query, key: key)
         case .failed:
-            break
+            // A retry that failed (or was cancelled) ends the series: the track is asked about at its next play.
+            if retryStage[key] != nil {
+                unavailable.remove(key)
+                retryStage[key] = nil
+            }
         }
     }
 }

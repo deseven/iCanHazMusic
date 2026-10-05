@@ -38,7 +38,7 @@ import SwiftUI
 /// scrolled into view.
 ///
 /// `revealRow` is a request from the parent to scroll to a row (the selection is set by the parent, which owns it);
-/// the view resets it to `nil` once it has taken it up.
+/// the view resets it to `nil` once it has scrolled there.
 struct VirtualPlaylistView: View {
     let playlist: Playlist
     @Binding var selection: Set<Int>
@@ -206,15 +206,22 @@ struct VirtualPlaylistView: View {
     /// this tries a few more times.
     private func showRevealedRow() {
         guard let row = revealRow else { return }
-        revealRow = nil
-        guard playlist.rows.indices.contains(row) else { return }
+        guard playlist.rows.indices.contains(row) else {
+            revealRow = nil
+            return
+        }
         anchor = row
         scrollToCenter(row, attempts: 5)
     }
 
+    /// `revealRow` is reset when the scroll is done (or given up), which the parent takes as "the view is ready".
     private func scrollToCenter(_ row: Int, attempts: Int) {
         DispatchQueue.main.async {
-            if !scrollToReveal(row, centered: true), attempts > 1 { scrollToCenter(row, attempts: attempts - 1) }
+            if !scrollToReveal(row, centered: true), attempts > 1 {
+                scrollToCenter(row, attempts: attempts - 1)
+            } else if revealRow == row {
+                revealRow = nil
+            }
         }
     }
 

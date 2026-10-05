@@ -33,8 +33,17 @@ enum UpdateActions {
 
     private static func present(_ update: UpdateInfo, on preferred: NSWindow?) async {
         guard !isPresenting else { return }
-        let candidates = [preferred, Dialogs.hostWindow, NSApp.keyWindow].compactMap { $0 }
-        guard let window = candidates.first(where: { $0.isVisible && $0.attachedSheet == nil }) else {
+        func freeWindow() -> NSWindow? {
+            [preferred, Dialogs.hostWindow, NSApp.keyWindow].compactMap { $0 }
+                .first { $0.isVisible && $0.attachedSheet == nil }
+        }
+        var found = freeWindow()
+        if found == nil, MainWindowOpener.shared.isClosed {
+            // The app runs without its window ("Close Quits" is off): bring it back to have somewhere to show this.
+            await MainWindowOpener.shared.show()
+            found = freeWindow()
+        }
+        guard let window = found else {
             Log.info("updates: no window to show v\(update.version) on, it will be offered again later")
             return
         }

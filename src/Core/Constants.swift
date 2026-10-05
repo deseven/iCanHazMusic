@@ -41,6 +41,7 @@ enum AppConstants {
 /// ```
 /// ~/Library/Application Support/iCanHazMusic/     (or whatever `--workdir` says)
 ///   config.json
+///   app.log                  the log of the current run (stdout is duplicated into it), rewritten on every start
 ///   playlists/{name}.json
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
@@ -57,6 +58,7 @@ struct AppPaths {
 
     let workDir: URL
     let configURL: URL
+    let logURL: URL
     let playlistsDir: URL
     /// Everything in here can be rebuilt, so it is always safe to delete.
     let cacheDir: URL
@@ -66,6 +68,7 @@ struct AppPaths {
     init(workDir: URL) {
         self.workDir = workDir
         configURL = workDir.appendingPathComponent("config.json")
+        logURL = workDir.appendingPathComponent("app.log")
         playlistsDir = workDir.appendingPathComponent("playlists", isDirectory: true)
         cacheDir = workDir.appendingPathComponent(".cache", isDirectory: true)
         coverCacheURL = cacheDir.appendingPathComponent("covers.sqlite")

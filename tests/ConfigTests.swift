@@ -98,8 +98,24 @@ extension AllTests {
             let garbage = try decode(#"{"general": {"queue_enabled": 1}, "playback": {"stop_at_queue_end": "yes"}}"#)
             #expect(garbage.general.queueEnabled && !garbage.playback.stopAtQueueEnd)
 
+            #expect(!defaults.closeQuits)
+            #expect(try decode(#"{"general": {"close_quits": true}}"#).general.closeQuits)
+            #expect(!(try decode(#"{"general": {"close_quits": "yes"}}"#).general.closeQuits))
+
             let data = try JSONEncoder().encode(off)
             #expect(try JSONDecoder().decode(AppConfig.self, from: data) == off)
+        }
+
+        @Test("close quits is read from the config and kept in it")
+        func closeQuitsSetting() throws {
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = WindowSettings(configStore: config)
+            #expect(!settings.closeQuits)
+            settings.closeQuits = true
+            #expect(config.config.general.closeQuits)
+            #expect(WindowSettings(configStore: config).closeQuits)
+            #expect(!WindowSettings().closeQuits)
         }
 
         @Test("resample quality is high by default, read by name and reset when unknown")

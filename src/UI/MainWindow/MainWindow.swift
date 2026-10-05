@@ -8,11 +8,18 @@ struct MainWindow: View {
     @State private var columnVisibility: NavigationSplitViewVisibility
     /// Sidebar width at launch. Kept constant: it's only the *ideal* width the column starts with.
     @State private var initialSidebarWidth: CGFloat
+    private let store = PlaylistStore.shared
+    @Environment(\.openWindow) private var openWindow
 
     init() {
         let selector = ConfigStore.shared.config.ui.playlistSelector
         _columnVisibility = State(initialValue: selector.shown ? .all : .detailOnly)
         _initialSidebarWidth = State(initialValue: CGFloat(selector.width))
+    }
+
+    /// The app name, followed by the active playlist's name if there are several playlists to tell apart.
+    private var windowTitle: String {
+        store.names.count > 1 ? "\(AppConstants.appName) • \(store.activeName)" : AppConstants.appName
     }
 
     var body: some View {
@@ -34,7 +41,10 @@ struct MainWindow: View {
         .dropDestination(for: URL.self) { urls, _ in
             ImportCoordinator.shared.handleDrop(urls)
         }
-        .navigationTitle(AppConstants.appName)
+        .navigationTitle(windowTitle)
+        .onAppear {
+            MainWindowOpener.shared.register { openWindow(id: AppConstants.mainWindowID) }
+        }
         .onChange(of: columnVisibility) { _, visibility in
             ConfigStore.shared.update { $0.ui.playlistSelector.shown = (visibility != .detailOnly) }
         }

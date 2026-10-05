@@ -127,7 +127,8 @@ final class ImportCoordinator {
     // MARK: - Internals
 
     private func runPanel(_ panel: NSOpenPanel, playlists: Bool = false) async {
-        guard !isBusy, let window = Dialogs.hostWindow, window.isVisible else { return }
+        guard !isBusy, let window = await MainWindowOpener.shared.show() else { return }
+        guard !isBusy else { return }
         guard await panel.beginSheetModal(for: window) == .OK else { return }
         await start(panel.urls, playlists: playlists)
     }

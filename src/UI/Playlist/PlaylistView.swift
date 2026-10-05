@@ -25,23 +25,65 @@ struct PlaylistView: View {
     }
 }
 
-/// Shown in the middle of a playlist without tracks (a new one, or one that was emptied). It doesn't take clicks or
-/// drops, so the window's drag and drop works as usual.
-private struct EmptyPlaylistPlaceholder: View {
+/// Covers a playlist while it is being read and scrolled to its row. The spinner only appears if that takes a
+/// moment, so a playlist that is ready at once is swapped in without a flash.
+struct OpeningCover: View {
+    @State private var showsSpinner = false
+
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 40, weight: .light))
-            Text("This playlist is empty")
-                .font(.title3.weight(.semibold))
-            Text("Drop audio files or folders onto this window, add them from the File menu, or import an existing playlist from the Playlist menu.")
+        ZStack {
+            Color(nsColor: .textBackgroundColor)
+            if showsSpinner {
+                ProgressView().controlSize(.regular)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(200))
+            showsSpinner = true
+        }
+    }
+}
+
+/// Shown in the middle of a playlist without tracks (a new one, or one that was emptied). Only the buttons take
+/// clicks; the rest doesn't, and nothing takes drops, so the window's drag and drop works as usual.
+private struct EmptyPlaylistPlaceholder: View {
+    private let importer = ImportCoordinator.shared
+
+    var body: some View {
+        VStack(spacing: 14) {
+            VStack(spacing: 10) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 40, weight: .light))
+                Text("This playlist is empty")
+                    .font(.title3.weight(.semibold))
+                Text("Time to add some music!")
+                    .font(.callout)
+            }
+            .allowsHitTesting(false)
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await importer.addDirectory() }
+                } label: {
+                    Label("Add Directory...", systemImage: "folder.badge.plus")
+                }
+                Button {
+                    Task { await importer.addFiles() }
+                } label: {
+                    Label("Add File(s)...", systemImage: "plus")
+                }
+            }
+            .controlSize(.large)
+            .disabled(importer.isBusy)
+
+            Text("Or just drop audio files or folders anywhere on this window.")
                 .font(.callout)
                 .multilineTextAlignment(.center)
+                .allowsHitTesting(false)
         }
         .foregroundStyle(.secondary)
-        .frame(maxWidth: 360)
+        .frame(maxWidth: 380)
         .padding()
-        .allowsHitTesting(false)
     }
 }
 
