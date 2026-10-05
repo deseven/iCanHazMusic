@@ -42,6 +42,17 @@ struct MainWindow: View {
             ImportCoordinator.shared.handleDrop(urls)
         }
         .navigationTitle(windowTitle)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    openWindow(id: AppConstants.preferencesWindowID)
+                } label: {
+                    Label("Preferences", systemImage: "gearshape")
+                }
+                .help("Preferences (⌘,)")
+            }
+        }
+
         .onAppear {
             MainWindowOpener.shared.register { openWindow(id: AppConstants.mainWindowID) }
         }
