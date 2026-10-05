@@ -63,6 +63,9 @@ enum UpdateActions {
             do {
                 try await service.install(update)
                 sheet.model.progress = "Restarting..."
+                // `NSApp.terminate` is silently ignored (the delegate isn't even asked) while a sheet is attached to a
+                // window, so close it first. The installer script is already waiting for us to quit.
+                await sheet.dismiss()
                 NSApp.terminate(nil)
             } catch {
                 Log.error("updates: installing v\(update.version) failed: \(error.localizedDescription)")
