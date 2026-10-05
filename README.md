@@ -5,25 +5,33 @@ Main app:
 ![iCHM screenshot](https://d7.wtf/s/ichm-swift.png)
 
 ## Features
-- Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies
-- Very low resource usage
+### Playback
 - Playback of everything macOS can decode natively:
   - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, WAV, AIFF/AIFC, CAF
   - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
 - Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
+- Playback modes & queue
+
+### Playlists
+- Very large playlists (tens of thousands of entries at the very least)
 - Drag and drop of files, directories and playlists, recursive directory import
 - Tags reading, fast!
 - Album art support (embedded or external images)
-- Very large playlists (tens of thousands of entries at the very least)
-- Playlists import/export (M3U8, M3U, PLS)
-- Playlist search, Spotlight-style
 - Grouping by albums or a flat list if you prefer (can be switched per playlist)
 - Playlist entries drag'n'drop reordering (in a nice non-confusing way)
-- Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
-- Last.fm scrobbling and now playing updates
-- System notifications about the playback
-- Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album and volume
+- Playlists import/export (M3U8, M3U, PLS)
+- Playlist search, Spotlight-style
+
+### Integrations
+- Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album, volume and search
 - Dock menu with the current track and playback controls
+- System notifications about the playback
+- Last.fm scrobbling and now playing updates
+- Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
+
+### Under the hood
+- Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies
+- Very low resource usage
 - Updates from GitHub releases (automatic check can be turned off, manual check in the About window)
 
 ## Why
