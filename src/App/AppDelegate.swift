@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LastFMService.shared.onConnectionLost = { LastFMActions.connectionLost($0) }
         UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
         UpdateService.shared.start()
+        HotkeyService.shared.onSearch = { SearchPanel.shared.toggle() }
         HotkeyService.shared.start()
         SystemMediaControls.shared.start()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")

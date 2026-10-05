@@ -157,7 +157,8 @@ struct AppConfig: Codable, Equatable {
         /// The play/pause, next and previous keys of the keyboard (and headsets) control the player.
         var mediaKeys = true
         /// Hotkey of each action in its text form (see `Hotkey`); an action without one is not in here.
-        private var bindings: [HotkeyAction: String] = [:]
+        /// An action that has a default one and is missing in the file keeps it; an empty value in the file is none.
+        private var bindings: [HotkeyAction: String] = [.search: "⇧⌘W"]
 
         /// The hotkey of an action in its text form, empty = none.
         subscript(action: HotkeyAction) -> String {
@@ -184,6 +185,14 @@ struct AppConfig: Codable, Equatable {
                 if let value = try? c.decodeIfPresent(String.self, forKey: Key(action.rawValue)) {
                     self[action] = value
                 }
+            }
+            // A default that was never written to this file doesn't take a combination away from an action
+            // the user has given it to.
+            for (action, defaultValue) in Hotkeys().bindings where (try? c.decodeIfPresent(String.self, forKey: Key(action.rawValue))) == nil {
+                let taken = HotkeyAction.allCases.contains { other in
+                    other != action && Hotkey(string: self[other]) != nil && Hotkey(string: self[other]) == Hotkey(string: defaultValue)
+                }
+                if taken { self[action] = "" }
             }
         }
 

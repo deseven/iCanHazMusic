@@ -29,9 +29,10 @@ extension AllTests {
             return env
         }
 
+        /// Waits until the active playlist and, after it, all the others are in memory.
         private func settle(_ store: PlaylistStore) async {
-            let done = await waitUntil { !store.isLoading }
-            #expect(done, "playlist did not finish loading")
+            let done = await waitUntil { !store.isLoading && !store.isPreloading }
+            #expect(done, "playlists did not finish loading")
         }
 
         private func playlistJSON(_ entries: [TrackEntry], lastPlayed: TrackID? = nil) throws -> String {
@@ -214,24 +215,81 @@ extension AllTests {
 
         // MARK: Active playlist
 
-        @Test("switching playlists loads the other one's content")
+        @Test("all playlists are read at launch: the active one first, then the others, which stay in memory")
+        func preload() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 4))
+            let env = try await makeEnv(playlists: ["a": json, "b": json, "c": Self.emptyJSON], active: "b", wait: false)
+            #expect(env.store.isLoading)
+            #expect(env.store.playlist(named: "a") == nil)
+            await settle(env.store)
+
+            #expect(env.store.activePlaylist.trackCount == 4)
+            #expect(env.store.loadedPlaylists.map(\.name) == ["a", "b", "c"])
+            #expect(env.store.playlist(named: "A")?.trackCount == 4)
+            #expect(env.store.playlist(named: "c")?.trackCount == 0)
+            #expect(env.store.playlist(named: "b") === env.store.activePlaylist)
+        }
+
+        @Test("switching to a playlist that is in memory shows it at once, and nothing is dropped")
         func switching() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 4))
             let env = try await makeEnv(playlists: ["full": json, "empty": Self.emptyJSON], active: "empty")
             #expect(env.store.activePlaylist.trackCount == 0)
+            let opened = env.store.openCount
 
+            env.store.setActive("full")
+            #expect(env.store.activeName == "full")
+            #expect(!env.store.isLoading)
+            #expect(env.store.activePlaylist.trackCount == 4)
+            #expect(env.store.openCount == opened + 1)
+            #expect(env.config.config.activePlaylist == "full")
+            let full = env.store.activePlaylist
+
+            env.store.setActive("EMPTY")
+            #expect(env.store.activeName == "empty")
+            #expect(env.store.activePlaylist.trackCount == 0)
+            #expect(env.store.playlist(named: "full") === full)   // still in memory, not shown
+
+            env.store.setActive("full")
+            #expect(env.store.activePlaylist === full)           // taken as it is, not read again
+        }
+
+        @Test("a playlist that is selected before its turn is read at once")
+        func switchingBeforeLoaded() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 4))
+            let env = try await makeEnv(playlists: ["full": json, "empty": Self.emptyJSON], active: "empty", wait: false)
             env.store.setActive("full")
             #expect(env.store.activeName == "full")
             #expect(env.store.isLoading)
             #expect(env.store.activePlaylist.trackCount == 0)
             await settle(env.store)
             #expect(env.store.activePlaylist.trackCount == 4)
-            #expect(env.config.config.activePlaylist == "full")
+            #expect(env.store.loadedPlaylists.map(\.name) == ["empty", "full"])   // the one left behind follows
+        }
 
-            env.store.setActive("EMPTY")
-            #expect(env.store.activeName == "empty")
-            await settle(env.store)
+        @Test("changes to a playlist that isn't shown are kept in memory and written")
+        func changesWhileHidden() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
+            env.store.playbackStarted()
+            env.store.setActive("b")
+            env.store.updateTrack(id: 1, duration: 77, codec: "X")
+            #expect(env.store.playlist(named: "a")?.track(id: 1)?.duration == 77)
             #expect(env.store.activePlaylist.trackCount == 0)
+            env.store.setActive("a")
+            #expect(env.store.activePlaylist.track(id: 1)?.duration == 77)
+        }
+
+        @Test("a deleted or renamed playlist doesn't stay in memory under its old name")
+        func deleteAndRenameInMemory() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
+            let env = try await makeEnv(playlists: ["a": json, "b": json, "c": Self.emptyJSON], active: "a")
+            try await env.store.rename("b", to: "bee")
+            #expect(env.store.playlist(named: "b") == nil)
+            #expect(env.store.playlist(named: "bee")?.trackCount == 2)
+            try await env.store.delete("c")
+            #expect(env.store.playlist(named: "c") == nil)
+            #expect(env.store.loadedPlaylists.map(\.name) == ["a", "bee"])
         }
 
         @Test("unknown playlists are ignored")
@@ -305,14 +363,17 @@ extension AllTests {
             await env.store.append(albums, to: "unknown")
             await env.store.append([], to: "a")
             #expect(env.store.activePlaylist.trackCount == 0)
+            #expect(env.store.playlist(named: "b")?.trackCount == 0)
 
-            env.store.setActive("b")
-            #expect(env.store.isLoading)
-            await env.store.append(albums, to: "b")
-            await settle(env.store)
-            #expect(env.store.activePlaylist.trackCount == 0)
-            await env.store.flushWrites()
-            #expect(try String(contentsOf: env.file("b"), encoding: .utf8) == Self.emptyJSON)
+            // Not in memory yet: the playlist is still being read.
+            let loading = try await makeEnv(playlists: ["a": Self.emptyJSON, "b": Self.emptyJSON], active: "a", wait: false)
+            loading.store.setActive("b")
+            #expect(loading.store.isLoading)
+            await loading.store.append(albums, to: "b")
+            await settle(loading.store)
+            #expect(loading.store.activePlaylist.trackCount == 0)
+            await loading.store.flushWrites()
+            #expect(try String(contentsOf: loading.file("b"), encoding: .utf8) == Self.emptyJSON)
         }
 
         @Test("appended tracks of an existing album join it")
@@ -589,7 +650,7 @@ extension AllTests {
             #expect(onDisk(env)?.trackCount == 10)
         }
 
-        @Test("openCount goes up when a playlist has been loaded or taken back from the background")
+        @Test("openCount goes up when a playlist has been loaded or switched to; reading the others in the background isn't an opening")
         func openCount() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a", wait: false)
@@ -598,16 +659,18 @@ extension AllTests {
             await settle(store)
             #expect(store.openCount == 1)
 
-            store.playbackStarted()
-            store.setActive("b")
-            #expect(store.openCount == 1)                   // still loading
-            await settle(store)
+            store.setActive("b")                            // in memory already
             #expect(store.openCount == 2)
-
-            store.setActive("a")                            // back at once
+            store.setActive("a")
             #expect(store.openCount == 3)
             store.setActive("a")                            // already shown
             #expect(store.openCount == 3)
+
+            let loading = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a", wait: false)
+            loading.store.setActive("b")
+            #expect(loading.store.openCount == 0)           // still loading
+            await settle(loading.store)
+            #expect(loading.store.openCount == 1)
         }
 
         // MARK: Rename
@@ -723,7 +786,7 @@ extension AllTests {
 
         // MARK: Playback hold
 
-        @Test("the playing playlist stays in memory while another one is browsed")
+        @Test("the playing playlist is still the playing one while another one is browsed")
         func playbackHold() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
@@ -736,9 +799,8 @@ extension AllTests {
             #expect(store.playingPlaylist === playlistA)
 
             store.setActive("b")
-            await settle(store)
             #expect(store.activePlaylist.trackCount == 0)
-            #expect(store.playingPlaylist === playlistA)         // held in the background
+            #expect(store.playingPlaylist === playlistA)         // not shown, but still the one playing
 
             store.setActive("a")
             #expect(!store.isLoading)                              // taken back as is, no reload
@@ -746,20 +808,21 @@ extension AllTests {
             #expect(store.playingPlaylist === playlistA)
         }
 
-        @Test("when playback ends the background playlist is released")
+        @Test("when playback ends nothing is playing, but the playlist stays in memory")
         func playbackEnded() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
             let store = env.store
+            let playlistA = store.activePlaylist
             store.playbackStarted()
             store.setActive("b")
-            await settle(store)
             store.playbackEnded()
             #expect(store.playingName == nil)
             #expect(store.playingPlaylist == nil)
 
             store.setActive("a")
-            #expect(store.isLoading)                               // loaded from disk again
+            #expect(!store.isLoading)                              // not read from disk again
+            #expect(store.activePlaylist === playlistA)
         }
 
         @Test("playback can't start while the playlist is loading")

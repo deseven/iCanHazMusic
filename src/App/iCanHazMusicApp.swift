@@ -63,6 +63,12 @@ private struct AppCommands: Commands {
             .disabled(importer.isBusy)
         }
         CommandMenu("Playlist") {
+            Button("Search") { SearchPanel.shared.toggle() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(importer.isBusy)
+
+            Divider()
+
             Toggle("Don't group by albums", isOn: Binding(
                 get: { store.activePlaylist.isFlat },
                 set: { flat in Task { await store.setFlat(flat) } }

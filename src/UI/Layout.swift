@@ -52,6 +52,21 @@ enum Layout {
     static let lyricsSheetWidth: CGFloat = 460
     static let lyricsSheetHeight: CGFloat = 580
 
+    // Search window
+    static let searchWidth: CGFloat = 640
+    static let searchFieldHeight: CGFloat = 54
+    static let searchRowHeight: CGFloat = 32
+    /// Space above and below the result rows.
+    static let searchListPadding: CGFloat = 6
+    /// Where the window's top edge is, as the share of the screen's height above it.
+    static let searchTopOffset: CGFloat = 0.2
+
+    /// Height of the search window with this many rows (a message counts as one).
+    static func searchHeight(rows: Int) -> CGFloat {
+        guard rows > 0 else { return searchFieldHeight }
+        return searchFieldHeight + 1 + 2 * searchListPadding + CGFloat(rows) * searchRowHeight
+    }
+
     // Divider between playlist and playback block
     static let dividerLineWidth: CGFloat = 1
     static let dividerHitWidth: CGFloat = 12

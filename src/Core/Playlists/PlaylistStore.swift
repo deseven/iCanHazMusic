@@ -34,10 +34,11 @@ enum PlaylistError: LocalizedError {
 
 /// The set of playlists living in `playlists/*.json` and the currently active one.
 ///
-/// Only the active playlist is kept in memory (`activePlaylist`): it's loaded from its file when it becomes
-/// active and dropped when another one is selected or it is deleted. The one exception is the playlist that
-/// playback runs from (`playingName`): while something is playing or paused, it stays in memory even when
-/// the user browses another playlist, and is taken back as is (no reload) when selected again.
+/// Every playlist is kept in memory (search needs them all), but only the active one is shown: `activePlaylist`
+/// is what the UI gets, the others are not pushed anywhere. At launch the active playlist is read first, then the
+/// others one after the other in the background (`isPreloading`); a playlist that is selected before its turn is
+/// read at once. A playlist leaves memory only when it is deleted. `playingName` is the playlist playback runs from,
+/// which is not necessarily the active one.
 /// The file format is `PlaylistFile`.
 /// Loading is asynchronous (`isLoading`); content changes are written back in the background.
 @MainActor
@@ -53,8 +54,10 @@ final class PlaylistStore {
     private(set) var activePlaylist: Playlist = .empty
     /// The active playlist is being read from disk. It can't be modified until that's done.
     private(set) var isLoading = false
+    /// The other playlists are being read from disk (after the active one, in the background).
+    private(set) var isPreloading = false
     /// Counts how often a playlist has been opened: became the active one with its content in place (loaded from
-    /// disk, or taken over from the background). The view reacts to this by showing `lastPlayedRow`.
+    /// disk, or already in memory). The view reacts to this by showing `lastPlayedRow`.
     private(set) var openCount = 0
 
     /// Album blocks of grouped playlists show the album art (it is cached either way). Persisted in the config.
@@ -82,8 +85,8 @@ final class PlaylistStore {
 
     /// The playlist playback runs from, if any (set through `playbackStarted`/`playbackEnded`).
     private(set) var playingName: String?
-    /// The playing playlist while it isn't the active one.
-    @ObservationIgnored private var background: (name: String, playlist: Playlist)?
+    /// Every playlist that has been read (key: `key(name)`), the active one included once it is loaded.
+    @ObservationIgnored private var loaded: [String: Playlist] = [:]
     /// The playback running from this store's playlists (set by `PlaybackState` itself): told when the playing
     /// playlist grows or is deleted.
     @ObservationIgnored weak var playback: PlaybackState?
@@ -92,6 +95,7 @@ final class PlaylistStore {
     @ObservationIgnored private let paths: AppPaths
     @ObservationIgnored private let configStore: ConfigStore
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var preloadTask: Task<Void, Never>?
     /// Writes are chained so they hit the disk in the order they were requested.
     @ObservationIgnored private var writeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingWrites = 0
@@ -147,12 +151,27 @@ final class PlaylistStore {
     /// Whether a playlist write is still queued or running (the app must not quit yet).
     var hasPendingWrites: Bool { pendingWrites > 0 }
 
-    /// Content of the playlist playback runs from, whether it's the active one or kept in the background.
+    /// Content of the playlist playback runs from, whether it's the active one or not.
     var playingPlaylist: Playlist? {
         guard let playing = playingName else { return nil }
-        if Self.key(playing) == Self.key(activeName) { return isLoading ? nil : activePlaylist }
-        if let background, Self.key(background.name) == Self.key(playing) { return background.playlist }
-        return nil
+        return loaded[Self.key(playing)]
+    }
+
+    /// The content of a playlist that is in memory (the active one while it is still being read isn't).
+    func playlist(named name: String) -> Playlist? {
+        loaded[Self.key(name)]
+    }
+
+    /// The playlists that are in memory, in the order of `names`.
+    var loadedPlaylists: [(name: String, playlist: Playlist)] {
+        names.compactMap { name in loaded[Self.key(name)].map { (name, $0) } }
+    }
+
+    /// The ID of the track that was started last in this playlist (it is in memory and has that track), if any.
+    func lastPlayed(in name: String) -> TrackID? {
+        let key = Self.key(name)
+        guard loaded[key] != nil else { return nil }
+        return lastPlayedByKey[key]
     }
 
     /// The row of the active playlist's last played track (see `setLastPlayed`), if it is loaded and has it.
@@ -167,16 +186,14 @@ final class PlaylistStore {
         return Self.key(playing) == Self.key(activeName)
     }
 
-    /// Playback has started from the active playlist: keep it in memory until `playbackEnded`.
+    /// Playback has started from the active playlist.
     func playbackStarted() {
         guard !isLoading, !activeName.isEmpty else { return }
         playingName = activeName
-        if let background, Self.key(background.name) != Self.key(activeName) { self.background = nil }
     }
 
     func playbackEnded() {
         playingName = nil
-        background = nil
     }
 
     // MARK: - Mutations
@@ -192,7 +209,7 @@ final class PlaylistStore {
         // Something else replaced the content in the meantime (can't happen behind the modal import sheet).
         guard activePlaylist === current else { return }
 
-        activePlaylist = updated
+        commit(updated, as: match)
         save(updated, as: match)
         if let playing = playingName, Self.key(playing) == Self.key(match) {
             playback?.playlistDidChange()
@@ -221,17 +238,10 @@ final class PlaylistStore {
     /// Records what playback found out about the file it plays: the real duration and format. Applied to the
     /// playlist playback runs from (shown or not), if it still has that track.
     func updateTrack(id: TrackID, duration: TimeInterval, codec: String) {
-        guard let playing = playingName else { return }
-        if Self.key(playing) == Self.key(activeName) {
-            guard !isLoading,
-                  let updated = activePlaylist.replacingTrack(id: id, duration: duration, codec: codec) else { return }
-            activePlaylist = updated
-            save(updated, as: activeName)
-        } else if let held = background, Self.key(held.name) == Self.key(playing),
-                  let updated = held.playlist.replacingTrack(id: id, duration: duration, codec: codec) {
-            background = (held.name, updated)
-            save(updated, as: held.name)
-        }
+        guard let playing = playingName, let current = playingPlaylist,
+              let updated = current.replacingTrack(id: id, duration: duration, codec: codec) else { return }
+        commit(updated, as: playing)
+        save(updated, as: playing)
     }
 
     /// Playback has started this track of the playlist it runs from: it is that playlist's last played one, which
@@ -252,19 +262,16 @@ final class PlaylistStore {
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
         let changed = Self.key(match) != Self.key(activeName)
-        if changed, let playing = playingName, Self.key(playing) == Self.key(activeName), !isLoading {
-            background = (activeName, activePlaylist)   // keep it for the playback
-        }
         activeName = match
         syncActiveToConfig()
         guard changed else { return }
 
-        if let held = background, Self.key(held.name) == Self.key(match) {
+        if let ready = loaded[Self.key(match)] {
             loadTask?.cancel()
-            activePlaylist = held.playlist
+            activePlaylist = ready
             isLoading = false
-            background = nil
             openCount += 1
+            startPreload()   // a load that was cancelled just now would have started it
         } else {
             startLoad()
         }
@@ -315,9 +322,8 @@ final class PlaylistStore {
         let finalName = existingName(matching: newName) ?? newName
         if let last = lastPlayedByKey.removeValue(forKey: Self.key(current)) { lastPlayedByKey[Self.key(finalName)] = last }
         if let playing = playingName, Self.key(playing) == Self.key(current) { playingName = finalName }
-        if let held = background, Self.key(held.name) == Self.key(current) {
-            background = (finalName, held.playlist)
-        }
+        if let content = loaded.removeValue(forKey: Self.key(current)) { loaded[Self.key(finalName)] = content }
+        startPreload()   // a read of the old file may have come back empty-handed
         if wasActive {
             // Same playlist under a new name: keep the loaded content.
             activeName = finalName
@@ -346,9 +352,10 @@ final class PlaylistStore {
         }
 
         lastPlayedByKey[Self.key(current)] = nil
+        loaded[Self.key(current)] = nil
         let wasActive = Self.key(activeName) == Self.key(current)
         reload()
-        if wasActive, let first = names.first { setActive(first) }   // unloads the deleted one
+        if wasActive, let first = names.first { setActive(first) }
     }
 
     /// Replaces the content of the active playlist with `transform` of it (run off the main thread), stores it
@@ -361,7 +368,7 @@ final class PlaylistStore {
         let updated = await Task.detached(priority: .userInitiated) { transform(current) }.value
         guard activePlaylist === current else { return }   // something else replaced the content in the meantime
 
-        activePlaylist = updated
+        commit(updated, as: match)
         let key = Self.key(match)
         if let last = lastPlayedByKey[key], updated.position(of: last) == nil { lastPlayedByKey[key] = nil }
         save(updated, as: match)
@@ -407,8 +414,43 @@ final class PlaylistStore {
 
     // MARK: Loading and saving
 
-    /// Drops the current content and reads the active playlist's file. A load that is still running
-    /// for a previously active playlist is cancelled and its result discarded.
+    /// Puts new content of a playlist that is in memory in place, and shows it if it is the active one.
+    private func commit(_ playlist: Playlist, as name: String) {
+        loaded[Self.key(name)] = playlist
+        if Self.key(name) == Self.key(activeName) { activePlaylist = playlist }
+    }
+
+    /// Takes what was read from a playlist's file into memory and returns the content. If the playlist has been
+    /// put in memory in the meantime (the same file is read by the active load and the preload, one of them is
+    /// first), that content stays: it may have been changed already.
+    private func adopt(_ result: PlaylistFile.LoadResult, name: String, started: Date) -> Playlist {
+        let key = Self.key(name)
+        if let existing = loaded[key] { return existing }
+
+        let playlist: Playlist
+        switch result {
+        case .loaded(let content, let lastPlayed):
+            playlist = content
+            lastPlayedByKey[key] = lastPlayed
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            Log.info("loaded '\(name)': \(content.trackCount) tracks in \(content.albums.count) albums, \(ms) ms")
+        case .missing:
+            playlist = .empty
+            lastPlayedByKey[key] = nil
+            Log.error("playlist file of '\(name)' is gone, starting empty")
+        case .invalid(let reason):
+            playlist = .empty
+            lastPlayedByKey[key] = nil
+            Log.error("can't load '\(name)': \(reason)")
+            quarantine(name)
+        }
+        loaded[key] = playlist
+        return playlist
+    }
+
+    /// Drops the current content and reads the active playlist's file (the other playlists follow, see
+    /// `startPreload`). A load that is still running for a previously active playlist is cancelled and its
+    /// result discarded.
     private func startLoad() {
         loadTask?.cancel()
         let name = activeName
@@ -425,23 +467,42 @@ final class PlaylistStore {
             let result = await Task.detached(priority: .userInitiated) { PlaylistFile.load(from: url) }.value
             guard !Task.isCancelled else { return }
 
-            let key = Self.key(name)
-            switch result {
-            case .loaded(let playlist, let lastPlayed):
-                activePlaylist = playlist
-                lastPlayedByKey[key] = lastPlayed
-                let ms = Int(Date().timeIntervalSince(started) * 1000)
-                Log.info("loaded '\(name)': \(playlist.trackCount) tracks in \(playlist.albums.count) albums, \(ms) ms")
-            case .missing:
-                lastPlayedByKey[key] = nil
-                Log.error("playlist file of '\(name)' is gone, starting empty")
-            case .invalid(let reason):
-                lastPlayedByKey[key] = nil
-                Log.error("can't load '\(name)': \(reason)")
-                quarantine(name)
-            }
+            activePlaylist = adopt(result, name: name, started: started)
             isLoading = false
             openCount += 1
+            startPreload()
+        }
+    }
+
+    /// The next playlist that isn't in memory yet (the active one is being read by `startLoad`).
+    private func nextUnloadedName() -> String? {
+        names.first { name in
+            let key = Self.key(name)
+            return loaded[key] == nil && !(isLoading && key == Self.key(activeName))
+        }
+    }
+
+    /// Reads the playlists that aren't in memory yet, one after the other, in the background. Does nothing while one
+    /// such run is going on; it picks the playlists by their current names, so one that is renamed or deleted
+    /// meanwhile is handled.
+    private func startPreload() {
+        guard preloadTask == nil, nextUnloadedName() != nil else { return }
+        isPreloading = true
+        let started = Date()
+        preloadTask = Task {
+            while let name = nextUnloadedName() {
+                await flushWrites()
+                let url = fileURL(name)
+                let begun = Date()
+                let result = await Task.detached(priority: .utility) { PlaylistFile.load(from: url) }.value
+                // Gone or taken over by the active load meanwhile: nothing to do (the loop moves on).
+                guard names.contains(name), loaded[Self.key(name)] == nil else { continue }
+                _ = adopt(result, name: name, started: begun)
+            }
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            Log.info("all \(loaded.count) playlists are in memory, \(ms) ms")
+            isPreloading = false
+            preloadTask = nil
         }
     }
 

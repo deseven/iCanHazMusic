@@ -9,8 +9,8 @@ import Observation
 /// transition between them is gapless. The next one is handed over as soon as a track starts. Whenever the user
 /// changes what's playing (a new track, next/previous, ...) the engine's queue is replaced.
 ///
-/// Playback runs from a playlist held by `PlaylistStore` (`playingPlaylist`), which stays in memory while
-/// something is playing or paused, even if another playlist is being browsed. The state is purely transitional:
+/// Playback runs from a playlist of `PlaylistStore` (`playingPlaylist`), which need not be the one being browsed.
+/// The state is purely transitional:
 /// it knows the position `(album, track)` in that playlist and a copy of what to display, nothing is persisted.
 @MainActor
 @Observable
@@ -242,6 +242,22 @@ final class PlaybackState {
         let rows = store.activePlaylist.rows
         guard rows.indices.contains(id) else { return }
         play(albumIndex: rows[id].albumIndex, trackIndex: rows[id].trackIndex ?? 0)
+    }
+
+    /// Starts a track of any playlist that is in memory: that playlist is opened first. With `wholeAlbum` it is the
+    /// first track of the album the track is in. Does nothing if the playlist or the track isn't there (any more).
+    func play(trackID: TrackID, inPlaylist name: String, wholeAlbum: Bool = false) {
+        guard let playlist = store.playlist(named: name), let pos = playlist.position(of: trackID) else { return }
+        store.setActive(name)
+        play(albumIndex: pos.album, trackIndex: wholeAlbum ? 0 : pos.track)
+    }
+
+    /// Opens a playlist and starts it from its first track (an empty one is only opened).
+    func play(playlist name: String) {
+        guard store.exists(name) else { return }
+        store.setActive(name)
+        guard !store.isLoading, store.activePlaylist.trackCount > 0 else { return }
+        play(albumIndex: 0, trackIndex: 0)
     }
 
     func togglePause() {

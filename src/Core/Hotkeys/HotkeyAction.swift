@@ -2,6 +2,7 @@ import Foundation
 
 /// What a custom hotkey can do. The raw value is the key of the hotkey in `config.json` (`hotkeys.<rawValue>`).
 enum HotkeyAction: String, CaseIterable, Identifiable {
+    case search
     case playPause = "play_pause"
     case nextTrack = "next_track"
     case previousTrack = "previous_track"
@@ -16,6 +17,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .search: "Search"
         case .playPause: "Play/Pause"
         case .nextTrack: "Next Track"
         case .previousTrack: "Previous Track"

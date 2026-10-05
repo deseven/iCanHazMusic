@@ -139,12 +139,25 @@ extension AllTests {
             }
         }
 
-        @Test("the media keys are on and no custom hotkey is set by default")
+        @Test("the media keys are on and no custom hotkey but search (⇧⌘W) is set by default")
         func hotkeyDefaults() throws {
             let defaults = AppConfig().hotkeys
             #expect(defaults.mediaKeys)
-            #expect(HotkeyAction.allCases.allSatisfy { defaults[$0].isEmpty })
+            #expect(defaults[.search] == "⇧⌘W")
+            #expect(HotkeyAction.allCases.filter { $0 != .search }.allSatisfy { defaults[$0].isEmpty })
             #expect(try decode("{}").hotkeys == defaults)
+            #expect(AppConfig().validated() == AppConfig())
+        }
+
+        @Test("the default hotkey stays unless the file says otherwise")
+        func searchHotkeyInFile() throws {
+            #expect(try decode(#"{"hotkeys": {"play_pause": "⌃⌥P"}}"#).hotkeys[.search] == "⇧⌘W")
+            #expect(try decode(#"{"hotkeys": {"search": ""}}"#).hotkeys[.search].isEmpty)     // turned off
+            #expect(try decode(#"{"hotkeys": {"search": "⌃⌥F"}}"#).hotkeys[.search] == "⌃⌥F")
+            // A file from before search existed that gave ⇧⌘W to another action keeps that.
+            let old = try decode(#"{"hotkeys": {"play_pause": "⇧⌘W"}}"#).hotkeys
+            #expect(old[.playPause] == "⇧⌘W")
+            #expect(old[.search].isEmpty)
         }
 
         @Test("hotkeys are read by the names of the actions")
@@ -186,6 +199,7 @@ extension AllTests {
             #expect(hotkeys["media_keys"] as? Bool == true)
             #expect(hotkeys["play_pause"] as? String == "⌃⌥P")
             #expect(hotkeys["volume_down"] as? String == "")
+            #expect(hotkeys["search"] as? String == "⇧⌘W")
             #expect(hotkeys.count == 1 + HotkeyAction.allCases.count)
             #expect(try decode(String(decoding: data, as: UTF8.self)) == config)
         }

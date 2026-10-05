@@ -82,8 +82,8 @@ enum LegacyMigration {
 /// Ignored on purpose: the column widths and `last_played_track_id` (IDs differ now), `fullscreen`, `volume` and the
 /// web server.
 ///
-/// TODO later (no counterpart yet, so they're dropped for now): `shortcuts.find_shortcut` (find in playlist),
-/// `playback.stop_at_queue_end`, `playback.playback_order`.
+/// TODO later (no counterpart yet, so they're dropped for now): `playback.stop_at_queue_end`,
+/// `playback.playback_order`.
 struct LegacySettings: Equatable {
     var lastFMSession: String?
     var lastFMUser: String?
@@ -96,7 +96,8 @@ struct LegacySettings: Equatable {
     var playbackFollowsCursor: Bool?
     /// `playlist.dont_group_by_albums`; applies to the `main` playlist, not to the config.
     var dontGroupByAlbums: Bool?
-    /// Hotkey strings (`toggle_shortcut` = play/pause, ...), already in the form `Hotkey(string:)` reads.
+    /// Hotkey strings (`toggle_shortcut` = play/pause, `find_shortcut` = search, ...), already in the form
+    /// `Hotkey(string:)` reads. An empty one means the shortcut was turned off.
     var hotkeys: [HotkeyAction: String] = [:]
     var window: Window?
 
@@ -133,10 +134,11 @@ struct LegacySettings: Equatable {
 
         let shortcuts = section("shortcuts", in: root)
         let names: [(String, HotkeyAction)] = [
-            ("toggle_shortcut", .playPause), ("next_shortcut", .nextTrack), ("previous_shortcut", .previousTrack),
+            ("find_shortcut", .search), ("toggle_shortcut", .playPause), ("next_shortcut", .nextTrack),
+            ("previous_shortcut", .previousTrack),
         ]
         for (key, action) in names {
-            if let value = shortcuts[key] as? String, !value.isEmpty { hotkeys[action] = value }
+            if let value = shortcuts[key] as? String { hotkeys[action] = value }
         }
 
         let w = section("window", in: root)
@@ -158,10 +160,20 @@ struct LegacySettings: Equatable {
         if let cursorFollowsPlayback { config.playback.cursorFollowsPlayback = cursorFollowsPlayback }
         if let playbackFollowsCursor { config.playback.playbackFollowsCursor = playbackFollowsCursor }
 
-        // A hotkey that is not valid, or that an earlier action has already, is skipped.
+        // A hotkey that is not valid, or that an earlier action has already, is skipped. A shortcut that was turned
+        // off stays off, also if the action has a default one now. What an action had by default is taken away if
+        // a migrated hotkey of another action is the same.
         var taken = Set<Hotkey>()
         for action in HotkeyAction.allCases {
-            guard let text = hotkeys[action], let hotkey = Hotkey(string: text), taken.insert(hotkey).inserted else { continue }
+            guard let text = hotkeys[action] else { continue }
+            if text.isEmpty {
+                config.hotkeys[action] = ""
+                continue
+            }
+            guard let hotkey = Hotkey(string: text), taken.insert(hotkey).inserted else { continue }
+            for other in HotkeyAction.allCases where other != action && Hotkey(string: config.hotkeys[other]) == hotkey {
+                config.hotkeys[other] = ""
+            }
             config.hotkeys[action] = hotkey.string
         }
 

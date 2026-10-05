@@ -12,10 +12,11 @@ Main app:
   - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
 - Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
 - Tags reading (ID3v1/v2, Vorbis comments, MP4, with recovery of truncated ID3v1 values), fast!
-- Album art (embedded or external images in the album directory)
+- Album art support (embedded or external images)
 - Albums grouping with album art, or a flat list if you prefer (can be switched per playlist)
 - Very large playlists (tens of thousands of entries at the very least)
 - Playlists import/export (M3U8, M3U, PLS)
+- Playlist search, Spotlight-style
 - Drag and drop of files, directories and playlists, recursive directory import
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 - Last.fm scrobbling and now playing updates
@@ -38,7 +39,6 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 ## Roadmap
 - playback queue
 - simple web interface and API
-- playlist search
 - playlist entries rearrangement
 - better Last.fm integration (like tracks, track info, number of plays, etc)
 

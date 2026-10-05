@@ -34,6 +34,9 @@ final class HotkeyService {
     /// Hotkeys are off because one is being recorded.
     private(set) var isRecording = false
 
+    /// What the search hotkey does; the search window is UI, which sets this.
+    @ObservationIgnored var onSearch: () -> Void = {}
+
     @ObservationIgnored private let configStore: ConfigStore
     @ObservationIgnored private let backend: HotkeyBackend
     @ObservationIgnored private let playback: PlaybackState
@@ -92,6 +95,7 @@ final class HotkeyService {
     /// Does what the action says.
     func perform(_ action: HotkeyAction) {
         switch action {
+        case .search: onSearch()
         case .playPause: playback.playPause()
         case .nextTrack: playback.nextTrack()
         case .previousTrack: playback.previousTrack()

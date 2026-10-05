@@ -55,6 +55,7 @@ extension AllTests {
             #expect(!config.general.playbackNotifications)   // use_terminal_notifier
             #expect(config.playback.cursorFollowsPlayback == false)
             #expect(config.playback.playbackFollowsCursor == true)
+            #expect(config.hotkeys[.search] == "⇧⌘W")      // find_shortcut
             #expect(config.hotkeys[.playPause] == "F17")
             #expect(config.hotkeys[.nextTrack] == "F18")
             #expect(config.hotkeys[.previousTrack] == "F16")
@@ -87,6 +88,23 @@ extension AllTests {
             #expect(config.hotkeys[.playPause].isEmpty)
             #expect(config.hotkeys[.nextTrack] == "F18")
             #expect(config.hotkeys[.previousTrack].isEmpty)
+        }
+
+        @Test("find_shortcut becomes the search hotkey; off stays off; a migrated one takes the default's place")
+        func searchHotkey() throws {
+            var config = AppConfig()
+            try parse(#"{"shortcuts": {"find_shortcut": "⌃⌥F"}}"#).apply(to: &config, screenHeight: nil)
+            #expect(config.hotkeys[.search] == "⌃⌥F")
+
+            config = AppConfig()
+            try parse(#"{"shortcuts": {"find_shortcut": ""}}"#).apply(to: &config, screenHeight: nil)
+            #expect(config.hotkeys[.search].isEmpty)
+
+            config = AppConfig()
+            try parse(#"{"shortcuts": {"toggle_shortcut": "⇧⌘W"}}"#).apply(to: &config, screenHeight: nil)
+            #expect(config.hotkeys[.playPause] == "⇧⌘W")
+            #expect(config.hotkeys[.search].isEmpty)
+            #expect(config.validated() == config)
         }
 
         @Test("a half Last.fm login and missing values change nothing")

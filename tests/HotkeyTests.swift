@@ -146,11 +146,14 @@ extension AllTests {
             let service: HotkeyService
         }
 
+        /// `keepSearchDefault`: the search hotkey has its default one; else it is cleared, so the tests of the other
+        /// hotkeys needn't list it.
         private func makeEnv(config configure: (inout AppConfig) -> Void = { _ in }, taken: [String] = [],
-                             started: Bool = true) async throws -> Env {
+                             started: Bool = true, keepSearchDefault: Bool = false) async throws -> Env {
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.path("work"))
             let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            if !keepSearchDefault { config.update { $0.hotkeys[.search] = "" } }
             config.update(configure)
             let store = PlaylistStore(paths: paths, configStore: config)
             #expect(await waitUntil { !store.isLoading })
@@ -185,6 +188,21 @@ extension AllTests {
             env.service.start()
             #expect(env.backend.registered == [try key("⌃⌥P"), try key("⌃⌥↑")])
             #expect(env.service.hotkeyString(for: .playPause) == "⌃⌥P")
+        }
+
+        @Test("search has ⇧⌘W by default, which opens the search")
+        func searchDefault() async throws {
+            let env = try await makeEnv(started: false, keepSearchDefault: true)
+            #expect(env.service.hotkeyString(for: .search) == "⇧⌘W")
+            #expect(HotkeyAction.allCases.first == .search)
+            #expect(HotkeyAction.allCases.filter { $0 != .search }.allSatisfy { env.service.hotkeyString(for: $0).isEmpty })
+
+            var opened = 0
+            env.service.onSearch = { opened += 1 }
+            env.service.start()
+            #expect(env.backend.registered == [try key("⇧⌘W")])
+            env.backend.press(try key("⇧⌘W"))
+            #expect(opened == 1)
         }
 
         @Test("pressing a hotkey does what its action says")

@@ -109,6 +109,51 @@ extension AllTests {
             #expect(env.state.info?.title == before)
         }
 
+        @Test("a track, an album or a playlist can be started by ID and name, from a playlist that isn't shown")
+        func startFromSearch() async throws {
+            let env = try await standard()
+            try env.store.create(named: "other")
+            #expect(await waitUntil { !env.store.isLoading })
+            await env.store.append(Make.albums([try entry(.c, title: "C1", album: "Z", track: 1)]), to: "other")
+            env.store.setActive("main")
+            let main = try #require(env.store.playlist(named: "main"))
+            let b2 = try #require(main.albums[1].tracks.last).id
+            let a2 = main.albums[0].tracks[1].id
+
+            env.state.play(trackID: b2, inPlaylist: "MAIN")
+            #expect(env.state.info?.title == "B2")
+
+            env.state.play(trackID: a2, inPlaylist: "main", wholeAlbum: true)   // the album's first track
+            #expect(env.state.info?.title == "A1")
+
+            env.state.play(playlist: "other")                                    // opened and started
+            #expect(env.store.activeName == "other")
+            #expect(env.store.playingName == "other")
+            #expect(env.state.info?.title == "C1")
+            #expect(env.state.playingRow == 1)
+
+            env.state.play(trackID: a2, inPlaylist: "main")                      // back to a playlist that isn't shown
+            #expect(env.store.activeName == "main")
+            #expect(env.state.info?.title == "A2")
+
+            let before = env.state.info?.title
+            env.state.play(trackID: 9999, inPlaylist: "main")
+            env.state.play(trackID: a2, inPlaylist: "nope")
+            env.state.play(playlist: "nope")
+            #expect(env.state.info?.title == before)
+            #expect(env.store.activeName == "main")
+        }
+
+        @Test("an empty playlist is only opened")
+        func startEmptyPlaylist() async throws {
+            let env = try await standard()
+            try env.store.create(named: "empty")
+            env.store.setActive("main")
+            env.state.play(playlist: "empty")
+            #expect(env.store.activeName == "empty")
+            #expect(env.state.status == .stopped)
+        }
+
         @Test("starting another track while one plays replaces it")
         func replace() async throws {
             let env = try await standard()
