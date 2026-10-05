@@ -144,6 +144,7 @@ private struct GeneralTab: View {
     @Bindable private var notifications = NotificationService.shared
     @Bindable private var lyrics = LyricsService.shared
     @Bindable private var updates = UpdateService.shared
+    @Bindable private var queue = PlaybackState.shared.queue
 
     var body: some View {
         TabPage {
@@ -164,6 +165,19 @@ private struct GeneralTab: View {
                     + "are added, so they are there when you turn this back on."
             ) {
                 Toggle("", isOn: $lyrics.isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Enable Queue",
+                description: "Queue tracks and albums to play next: press Space on them in a playlist (or choose Enqueue), "
+                    + "or use the search window. Queued tracks play one after another, then playback goes on in the "
+                    + "playlist. Turning this off empties the queue and removes everything about it: its item in the "
+                    + "playlist list, the menu items, the Space key and the markers in playlists, and the adding to the "
+                    + "queue from the search window."
+            ) {
+                Toggle("", isOn: $queue.isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
@@ -327,6 +341,7 @@ private struct PlaybackTab: View {
 
 private struct SearchTab: View {
     @Bindable private var settings = SearchSettings.shared
+    private let queue = PlaybackState.shared.queue
 
     var body: some View {
         TabPage {
@@ -363,14 +378,23 @@ private struct SearchTab: View {
 
             PrefRow(
                 title: "Prefer Adding to Queue",
-                description: "When enabled, ⏎ adds the result to the queue and ⇧⏎ plays it, "
-                    + "instead of the other way round."
+                description: preferQueueDescription
             ) {
-                Toggle("", isOn: $settings.preferAddingToQueue)
+                // Shows Off while the queue is turned off; the choice itself is kept for when it is turned on again.
+                Toggle("", isOn: Binding(get: { queue.isEnabled && settings.preferAddingToQueue },
+                                         set: { settings.preferAddingToQueue = $0 }))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .disabled(!queue.isEnabled)
             }
         }
+    }
+
+    private var preferQueueDescription: Text {
+        let text = Text("When enabled, ⏎ adds the result to the queue and ⇧⏎ plays it, instead of the other way round.")
+        guard !queue.isEnabled else { return text }
+        return text + Text("\nNot working: Enable Queue is turned off (General). Return plays, and ⇧⏎ does nothing.")
+            .foregroundStyle(.red)
     }
 }
 

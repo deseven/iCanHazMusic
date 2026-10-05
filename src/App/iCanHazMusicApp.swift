@@ -50,17 +50,19 @@ private struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            // Files are added to the active playlist, which isn't what the queue view shows.
+            let showsQueue = store.isQueueShown && playback.queue.isEnabled
             Button("Add Directory...") {
                 Task { await importer.addDirectory() }
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(importer.isBusy)
+            .disabled(importer.isBusy || showsQueue)
 
             Button("Add File(s)...") {
                 Task { await importer.addFiles() }
             }
             .keyboardShortcut("o", modifiers: .command)
-            .disabled(importer.isBusy)
+            .disabled(importer.isBusy || showsQueue)
         }
         CommandMenu("Playlist") {
             Button("Search") { SearchPanel.shared.toggle() }
@@ -69,23 +71,24 @@ private struct AppCommands: Commands {
 
             Divider()
 
+            let showsQueue = store.isQueueShown && playback.queue.isEnabled
             Toggle("Don't group by albums", isOn: Binding(
                 get: { store.activePlaylist.isFlat },
                 set: { flat in Task { await store.setFlat(flat) } }
             ))
-            .disabled(importer.isBusy)
+            .disabled(importer.isBusy || showsQueue)
 
             Divider()
 
             Button("Import playlist...") {
                 Task { await importer.importPlaylists() }
             }
-            .disabled(importer.isBusy)
+            .disabled(importer.isBusy || showsQueue)
 
             Button("Export playlist...") {
                 Task { await PlaylistActions.exportActive() }
             }
-            .disabled(importer.isBusy || store.activePlaylist.trackCount == 0)
+            .disabled(importer.isBusy || showsQueue || store.activePlaylist.trackCount == 0)
         }
         CommandMenu("Playback") {
             // The same commands as the buttons of the playback block, in the same order.
@@ -95,7 +98,7 @@ private struct AppCommands: Commands {
             Button("Previous Track") { playback.previousTrack() }
                 .disabled(stopped)
             Button(playback.status == .playing ? "Pause" : "Play") { playback.playPause() }
-                .disabled(stopped && (playback.cursorRow == nil || store.isLoading))
+                .disabled(!playback.canPlay)
             Button("Next Track") { playback.nextTrack() }
                 .disabled(stopped)
             Button("Next Album") { playback.nextAlbum() }
@@ -124,6 +127,14 @@ private struct AppCommands: Commands {
 
             Toggle("Cursor follows playback", isOn: Bindable(playback).cursorFollowsPlayback)
             Toggle("Playback follows cursor", isOn: Bindable(playback).playbackFollowsCursor)
+
+            if playback.queue.isEnabled {
+                Divider()
+
+                Toggle("Stop at queue end", isOn: Bindable(playback.queue).stopAtEnd)
+                Button("Clear Queue") { playback.clearQueue() }
+                    .disabled(playback.queue.isEmpty)
+            }
         }
         CommandGroup(replacing: .appInfo) {
             Button("About \(AppConstants.appName)") {

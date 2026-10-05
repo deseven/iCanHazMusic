@@ -59,7 +59,9 @@ final class ImportCoordinator {
     @discardableResult
     func handleDrop(_ urls: [URL]) -> Bool {
         let urls = urls.filter(\.isFileURL)
-        guard !isBusy, !urls.isEmpty else { return false }
+        // Files go into the active playlist, which isn't what the queue view shows.
+        let showsQueue = PlaylistStore.shared.isQueueShown && PlaybackState.shared.queue.isEnabled
+        guard !isBusy, !showsQueue, !urls.isEmpty else { return false }
         let playlistsOnly = urls.allSatisfy(PlaylistExchange.isPlaylistFile)
         Task { await start(urls, playlists: playlistsOnly) }
         return true

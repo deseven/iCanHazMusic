@@ -27,7 +27,7 @@ struct SearchView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(model.results.enumerated()), id: \.element.id) { index, result in
                         SearchRow(result: result, showsKind: model.showsKinds, showsPlaylist: model.showsPlaylists,
-                                  isSelected: index == model.selected)
+                                  queueMark: model.queueMark(for: result), isSelected: index == model.selected)
                             .onTapGesture { model.choose(index) }
                     }
                 }
@@ -54,15 +54,17 @@ struct SearchView: View {
 
 /// The keys of the window and what they do.
 private struct SearchLegend: View {
-    /// What Return does, and what \u{21E7}Return does.
+    /// What Return does, and what \u{21E7}Return does (`nil`: nothing, so it isn't listed).
     let primary: SearchAction
-    let secondary: SearchAction
+    let secondary: SearchAction?
 
     var body: some View {
         HStack(spacing: 18) {
             hint(["\u{238B}"], "cancel")
             hint(["\u{2325}", "\u{21A9}"], "go to item")
-            hint(["\u{21E7}", "\u{21A9}"], meaning(of: secondary))
+            if let secondary {
+                hint(["\u{21E7}", "\u{21A9}"], meaning(of: secondary))
+            }
             hint(["\u{21A9}"], meaning(of: primary))
         }
         .frame(maxWidth: .infinity)
@@ -107,6 +109,8 @@ private struct SearchRow: View {
     /// The tag with the kind of the result (not when everything is a track anyway).
     let showsKind: Bool
     let showsPlaylist: Bool
+    /// Where the result is in the queue (see `SearchModel.queueMark`).
+    let queueMark: String?
     let isSelected: Bool
 
     var body: some View {
@@ -119,9 +123,12 @@ private struct SearchRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
+            if let queueMark {
+                Tag(text: queueMark, tint: Color.accentColor, isSelected: isSelected)
+            }
             if showsPlaylist, result.kind != .playlist {
                 WidthCap(maxWidth: 160) {
-                    Tag(text: result.playlist, tint: SearchRow.playlistColor, isSelected: isSelected)
+                    Tag(text: result.playlist, tint: .playlistLabel, isSelected: isSelected)
                 }
             }
         }
@@ -133,12 +140,9 @@ private struct SearchRow: View {
         .contentShape(Rectangle())
     }
 
-    /// The playlist's colour is also the one of the playlist name tag.
-    private static let playlistColor = Color(nsColor: .systemPurple)
-
     private var kindColor: Color {
         switch result.kind {
-        case .playlist: SearchRow.playlistColor
+        case .playlist: .playlistLabel
         case .album: Color(nsColor: .systemOrange)
         case .track: Color(nsColor: .systemTeal)
         }
@@ -153,9 +157,14 @@ private struct SearchRow: View {
     }
 }
 
+extension Color {
+    /// The colour of a playlist's name wherever it is shown as a label (search results, the queue).
+    static let playlistLabel = Color(nsColor: .systemPurple)
+}
+
 /// Gives its one child at most `maxWidth` and is exactly as wide as the child turns out to be. (`.frame(maxWidth:)`
 /// would always take that much room, even for a short label, and the title next to it would be cut for nothing.)
-private struct WidthCap: SwiftUI.Layout {
+struct WidthCap: SwiftUI.Layout {
     let maxWidth: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -169,7 +178,7 @@ private struct WidthCap: SwiftUI.Layout {
 }
 
 /// A small rounded label, like the ones of the album blocks.
-private struct Tag: View {
+struct Tag: View {
     let text: String
     let tint: Color
     let isSelected: Bool

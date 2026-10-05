@@ -6,11 +6,11 @@ import SwiftUI
 struct SearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    /// What Return does, and what ⇧Return does.
+    /// What Return does, and what ⇧Return does (`nil`: nothing).
     let primary: SearchAction
-    let secondary: SearchAction
+    let secondary: SearchAction?
     let onMove: (Int) -> Void
-    let onSubmit: (SearchAction) -> Void
+    let onSubmit: (SearchAction?) -> Void
     let onCancel: () -> Void
 
     func makeNSView(context: Context) -> FocusingTextField {

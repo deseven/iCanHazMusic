@@ -75,12 +75,16 @@ struct AppConfig: Codable, Equatable {
         var checkForUpdates = true
         /// Version the user chose "Skip this version" for; empty = none. Only automatic checks respect it.
         var skippedUpdate = ""
+        /// The playback queue exists: its sidebar item, the menu items, the Space key and the markers in the playlist.
+        /// Off: none of that, and nothing can be queued (also not from the search window).
+        var queueEnabled = true
 
         enum CodingKeys: String, CodingKey {
             case playbackNotifications = "playback_notifications"
             case lyricsSupport = "lyrics_support"
             case checkForUpdates = "check_for_updates"
             case skippedUpdate = "skipped_update"
+            case queueEnabled = "queue_enabled"
         }
 
         init() {}
@@ -92,6 +96,7 @@ struct AppConfig: Codable, Equatable {
             lyricsSupport = c.value(.lyricsSupport, default: d.lyricsSupport)
             checkForUpdates = c.value(.checkForUpdates, default: d.checkForUpdates)
             skippedUpdate = c.value(.skippedUpdate, default: d.skippedUpdate)
+            queueEnabled = c.value(.queueEnabled, default: d.queueEnabled)
         }
     }
 
@@ -108,6 +113,8 @@ struct AppConfig: Codable, Equatable {
         var order = PlaybackOrder.default
         /// What happens after the last track of the playlist.
         var atPlaylistEnd = PlaylistEnd.default
+        /// Playback stops when the queue has been played through, instead of going on in the playlist.
+        var stopAtQueueEnd = false
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
@@ -116,6 +123,7 @@ struct AppConfig: Codable, Equatable {
             case volume
             case order
             case atPlaylistEnd = "at_playlist_end"
+            case stopAtQueueEnd = "stop_at_queue_end"
         }
 
         init() {}
@@ -129,6 +137,7 @@ struct AppConfig: Codable, Equatable {
             volume = c.value(.volume, default: d.volume)
             order = c.value(.order, default: d.order)
             atPlaylistEnd = c.value(.atPlaylistEnd, default: d.atPlaylistEnd)
+            stopAtQueueEnd = c.value(.stopAtQueueEnd, default: d.stopAtQueueEnd)
         }
     }
 

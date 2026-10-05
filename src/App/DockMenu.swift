@@ -22,9 +22,8 @@ extension AppDelegate {
             menu.addItem(.separator())
         }
 
-        // While stopped, "Play" starts the track under the playlist cursor, like the play button does.
-        let canPlay = !stopped || (playback.cursorRow != nil && !PlaylistStore.shared.isLoading)
-        addItem(to: menu, playback.status == .playing ? "Pause" : "Play", #selector(dockPlayPause), enabled: canPlay)
+        // While stopped, "Play" starts the queue or the track under the playlist cursor, like the play button does.
+        addItem(to: menu, playback.status == .playing ? "Pause" : "Play", #selector(dockPlayPause), enabled: playback.canPlay)
 
         if !stopped {
             addItem(to: menu, "Next Track", #selector(dockNextTrack))

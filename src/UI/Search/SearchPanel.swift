@@ -73,8 +73,24 @@ final class SearchPanel {
         switch action {
         case .play: play(result)
         case .goTo: goTo(result)
-        case .enqueue: break   // TODO: the queue doesn't exist yet; the window stays as it is
+        case .enqueue: enqueue(result)
         }
+    }
+
+    /// Adds a track, or all tracks of an album, to the queue. The window stays open (the result line shows where the
+    /// track is in the queue now), so more can be added; a playlist can't be queued.
+    private func enqueue(_ result: SearchResult) {
+        let playback = PlaybackState.shared
+        guard playback.queue.isEnabled, let id = result.trackID,
+              let playlist = PlaylistStore.shared.playlist(named: result.playlist),
+              let pos = playlist.position(of: id) else { return }
+        let tracks: [Track]
+        switch result.kind {
+        case .track: tracks = [playlist.albums[pos.album].tracks[pos.track]]
+        case .album: tracks = playlist.albums[pos.album].tracks
+        case .playlist: return
+        }
+        playback.enqueue(tracks.map { QueueEntry(playlist: result.playlist, id: $0.id) })
     }
 
     /// Opens the result's playlist with the result selected, and brings the main window forward (also from the

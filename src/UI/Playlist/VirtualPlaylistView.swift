@@ -13,9 +13,15 @@ import SwiftUI
 /// Selection (all custom): click = select, ⌘-click = toggle, ⇧-click = range,
 /// ↑/↓ = move (with ⇧ to extend), double click = `onActivate` with the row id.
 ///
-/// Every row has a context menu (Play, Reveal in Finder, Reload Tag(s), Remove
-/// from Playlist, see `PlaylistItemActions`); the keys are Return, ⌘R and Backspace. A right click on a row outside the selection
-/// selects that row first. The actions apply to the selection.
+/// Every row has a context menu (Play, Enqueue / Remove from queue, Reveal in Finder, Reload Tag(s), Remove
+/// from Playlist, see `PlaylistItemActions`); the keys are Return, Space (the queue), ⌘R and Backspace, and ↑/↓ move
+/// (all of them work whatever has the key focus in the main window, see `installEventMonitor`). A right click on
+/// a row outside the selection selects that row first. The actions apply to the selection.
+///
+/// With `queue` it shows the play queue instead of a playlist: `playlist` is then a flat one with a track per queue entry
+/// (row = place in the queue). Nothing can be played from there, the only changes are removing entries (Backspace) and
+/// going to a track in its playlist. Otherwise (`playlistName`) tracks that are queued show their place in the
+/// queue where the play symbol goes.
 ///
 /// `cursor` is the row the selection last moved to (the moving end of a range). `playingRow` gets the play
 /// symbol; when it changes and `cursorFollowsPlayback` is on, the selection and cursor move to it and it is
@@ -32,7 +38,14 @@ struct VirtualPlaylistView: View {
     let cursorFollowsPlayback: Bool
     let showAlbumArt: Bool
     let onActivate: (Int) -> Void
+    /// The name of the playlist shown (queue entries refer to tracks by it).
+    let playlistName: String
+    /// Shows the queue: its entries, in the order of the rows of `playlist`.
+    let queue: [QueueEntry]?
+    /// Queue rows name the playlist of their track (when there are several).
+    let showsQueuePlaylists: Bool
 
+    private let playback = PlaybackState.shared
     private let layout: PlaylistLayout
 
     @State private var window: Range<Int>
@@ -42,10 +55,14 @@ struct VirtualPlaylistView: View {
     @State private var anchor: Int?   // fixed end of a shift-range
     @State private var pointer = PointerBox()
     @State private var eventMonitor: Any?
-    @FocusState private var focused: Bool
+    @State private var keys = KeyHandlerBox()
 
     init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
-         playingRow: Int?, cursorFollowsPlayback: Bool, showAlbumArt: Bool, onActivate: @escaping (Int) -> Void) {
+         playingRow: Int?, cursorFollowsPlayback: Bool, showAlbumArt: Bool, playlistName: String = "",
+         queue: [QueueEntry]? = nil, showsQueuePlaylists: Bool = false, onActivate: @escaping (Int) -> Void) {
+        self.playlistName = playlistName
+        self.queue = queue
+        self.showsQueuePlaylists = showsQueuePlaylists
         self.playlist = playlist
         self._selection = selection
         self._cursor = cursor
@@ -63,12 +80,16 @@ struct VirtualPlaylistView: View {
     var body: some View {
         // The window can be stale for a moment after the playlist shrank (its update comes with the change handler).
         let shown = min(window.lowerBound, layout.rowCount)..<min(window.upperBound, layout.rowCount)
+        // The event monitor outlives this struct value, so it calls whatever handler the latest body left here (a
+        // plain reference, not observed: no re-render).
+        let _ = keys.handler = { event in handleKey(event) }
         ScrollView {
             VStack(spacing: 0) {
                 Color.clear.frame(height: layout.rowOffsets[shown.lowerBound])
                 ForEach(shown, id: \.self) { i in
                     PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i),
-                                    isPlaying: i == playingRow, showAlbumArt: showAlbumArt)
+                                    isPlaying: i == playingRow, showAlbumArt: showAlbumArt,
+                                    queuePosition: queuePosition(at: i), queued: queuedRow(at: i))
                         .contentShape(Rectangle())
                         .onTapGesture {
                             click(i)
@@ -120,21 +141,7 @@ struct VirtualPlaylistView: View {
             reveal(row, deferred: true)
         }
         .onChange(of: revealRow) { _, _ in showRevealedRow() }
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-            move(press.key == .downArrow ? 1 : -1, extend: press.modifiers.contains(.shift))
-            return .handled
-        }
-        .background {
-            // ⌘R: a shortcut of its own, as no menu has the item.
-            Button("Reload Tag(s)") { reloadSelected() }
-                .keyboardShortcut("r", modifiers: .command)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-        }
+
         .onAppear {
             installEventMonitor()
             showRevealedRow()
@@ -164,11 +171,26 @@ struct VirtualPlaylistView: View {
 
     // MARK: Context menu
 
+    @ViewBuilder
     private func contextMenu(for row: Int) -> some View {
-        Group {
+        if queue != nil {
+            Button("Remove from Queue") { removeFromQueueSelected() }
+                .keyboardShortcut(.delete, modifiers: [])
+            Divider()
+            Button("Show in Playlist") { showInPlaylist() }
+            Button("Reveal in Finder") { PlaylistItemActions.reveal(selection, in: playlist) }
+        } else {
             Button("Play") { playSelected() }
                 .keyboardShortcut(.return, modifiers: [])
+            if playback.queue.isEnabled {
+                // The title is about what the menu will act on: the selection, or the row if that is outside it.
+                let toggle = PlaylistItemActions.queueToggle(for: selection.contains(row) ? selection : [row])
+                Button(toggle.title) { toggleQueued() }
+                    .keyboardShortcut(.space, modifiers: [])
+                    .disabled(toggle.isUnavailable)
+            }
 
+            Divider()
             Button("Reveal in Finder") { PlaylistItemActions.reveal(selection) }
             Button("Reload Tag(s)") { reloadSelected() }
                 .keyboardShortcut("r", modifiers: .command)
@@ -178,10 +200,23 @@ struct VirtualPlaylistView: View {
         }
     }
 
+    /// The place of the track of a row in the queue (nothing for headers, or while the queue is what is shown).
+    private func queuePosition(at row: Int) -> Int? {
+        guard queue == nil, !playback.queue.isEmpty, let track = playlist.track(for: playlist.rows[row]) else { return nil }
+        return playback.queue.position(of: QueueEntry(playlist: playlistName, id: track.id))
+    }
+
+    private func queuedRow(at row: Int) -> QueuedRow? {
+        guard let queue, queue.indices.contains(row) else { return nil }
+        return QueuedRow(number: row + 1, playlist: showsQueuePlaylists ? queue[row].playlist : nil)
+    }
+
     /// - A right click (or ⌃-click) outside the selection selects the row under the pointer before the menu opens.
     ///   The menu items read the selection when they are chosen, so they act on what is selected by then.
-    /// - Return plays and Backspace removes the selection. This is a monitor and not `onKeyPress`, which
-    ///   left Backspace unhandled (the system beeped); the key codes are the same on every layout.
+    /// - The playlist is the keyboard target of the whole main window, whatever has the key focus (the sidebar
+    ///   after choosing a playlist, a button...): ↑/↓, Return, Space and Backspace are handled here, `handleKey`.
+    ///   This is a monitor and not `onKeyPress`, which depends on focus and left Backspace unhandled (the system
+    ///   beeped); the key codes are the same on every layout. Text being edited keeps its keys.
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
         let pointer = pointer
@@ -189,27 +224,16 @@ struct VirtualPlaylistView: View {
             guard event.window === Dialogs.hostWindow else { return event }
 
             if event.type == .keyDown {
-                let plain = event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift])
-                guard plain, !event.isARepeat else { return event }
-                let handled = MainActor.assumeIsolated { () -> Bool in
-                    guard focused, !selection.isEmpty else { return false }
-                    switch event.keyCode {
-                    case 36, 76:        // Return, keypad Enter
-                        playSelected()
-                    case 51, 117:       // Backspace, forward delete
-                        removeSelected()
-                    default:
-                        return false
-                    }
-                    return true
-                }
+                guard !(event.window?.firstResponder is NSText) else { return event }
+                let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+                guard [[], .shift, .command].contains(modifiers) else { return event }
+                let handled = MainActor.assumeIsolated { keys.handler?(event) ?? false }
                 return handled ? nil : event
             }
 
             let opensMenu = event.type == .rightMouseDown || event.modifierFlags.contains(.control)
             guard opensMenu, let row = pointer.row else { return event }
             MainActor.assumeIsolated {
-                focused = true
                 if !selection.contains(row) {
                     selection = [row]
                     anchor = row
@@ -222,14 +246,62 @@ struct VirtualPlaylistView: View {
 
     // MARK: Actions
 
+    /// A key of the main window (⇧ or ⌘ at most). ↑/↓ move the selection (⇧ extends it, holding repeats); Return,
+    /// Space, Backspace and ⌘R act on the selection, once per press, like the context menu's items. Returns whether
+    /// the key was used.
+    private func handleKey(_ event: NSEvent) -> Bool {
+        let code = event.keyCode
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers.isDisjoint(with: .command), code == 125 || code == 126 {   // Down, up
+            move(code == 125 ? 1 : -1, extend: modifiers == .shift)
+            return true
+        }
+        guard !event.isARepeat, !selection.isEmpty else { return false }
+        if modifiers == .command {
+            guard event.charactersIgnoringModifiers?.lowercased() == "r" else { return false }
+            reloadSelected()    // Reload Tag(s)
+            return true
+        }
+        guard modifiers.isEmpty else { return false }
+        let showsQueue = queue != nil
+        switch code {
+        case 36, 76:        // Return, keypad Enter
+            if !showsQueue { playSelected() }
+        case 51, 117:       // Backspace, forward delete
+            if showsQueue { removeFromQueueSelected() } else { removeSelected() }
+        case 49:            // Space
+            guard !showsQueue, playback.queue.isEnabled else { return false }
+            toggleQueued()
+        default:
+            return false
+        }
+        return true
+    }
+
     private func playSelected() {
         guard let row = selection.min() else { return }
         onActivate(row)
     }
 
+    /// Adds the selection to the queue, or takes it out if it is all in there.
+    private func toggleQueued() {
+        PlaylistItemActions.toggleQueue(selection)
+    }
+
+    private func removeFromQueueSelected() {
+        guard let queue else { return }
+        playback.dequeue(Set(selection.filter { queue.indices.contains($0) }.map { queue[$0] }))
+    }
+
+    /// Opens the playlist of the first selected queue entry, with its track selected.
+    private func showInPlaylist() {
+        guard let queue, let row = selection.min(), queue.indices.contains(row) else { return }
+        PlaylistStore.shared.reveal(trackID: queue[row].id, inPlaylist: queue[row].playlist)
+    }
+
     private func reloadSelected() {
         let rows = selection
-        guard !rows.isEmpty, !ImportCoordinator.shared.isBusy else { return }
+        guard queue == nil, !rows.isEmpty, !ImportCoordinator.shared.isBusy else { return }
         Task {
             await PlaylistItemActions.reloadTags(rows)
             clearSelection()
@@ -238,7 +310,7 @@ struct VirtualPlaylistView: View {
 
     private func removeSelected() {
         let rows = selection
-        guard !rows.isEmpty, !ImportCoordinator.shared.isBusy else { return }
+        guard queue == nil, !rows.isEmpty, !ImportCoordinator.shared.isBusy else { return }
         Task {
             await PlaylistItemActions.remove(rows)
             clearSelection()
@@ -254,7 +326,6 @@ struct VirtualPlaylistView: View {
     // MARK: Selection handling
 
     private func click(_ i: Int) {
-        focused = true
         let mods = NSEvent.modifierFlags
         if mods.contains(.shift), let a = anchor {
             selection = Set(min(a, i)...max(a, i))
@@ -340,6 +411,11 @@ struct VirtualPlaylistView: View {
         scrollView.reflectScrolledClipView(clip)
         return true
     }
+}
+
+/// Where the key monitor finds the current key handler (see `VirtualPlaylistView.body`).
+private final class KeyHandlerBox {
+    var handler: ((NSEvent) -> Bool)?
 }
 
 private final class ViewportBox {

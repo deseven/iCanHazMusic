@@ -89,6 +89,12 @@ extension AllTests {
             #expect(!partial.general.playbackNotifications && partial.general.lyricsSupport)
             #expect(try decode(#"{"general": 5}"#).general == defaults)
 
+            #expect(defaults.queueEnabled && !AppConfig().playback.stopAtQueueEnd)
+            let queue = try decode(#"{"general": {"queue_enabled": false}, "playback": {"stop_at_queue_end": true}}"#)
+            #expect(!queue.general.queueEnabled && queue.playback.stopAtQueueEnd)
+            let garbage = try decode(#"{"general": {"queue_enabled": 1}, "playback": {"stop_at_queue_end": "yes"}}"#)
+            #expect(garbage.general.queueEnabled && !garbage.playback.stopAtQueueEnd)
+
             let data = try JSONEncoder().encode(off)
             #expect(try JSONDecoder().decode(AppConfig.self, from: data) == off)
         }

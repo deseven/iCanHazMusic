@@ -83,6 +83,10 @@ final class PlaylistStore {
             ? TagReader.defaultConcurrency : tagParsingConcurrency
     }
 
+    /// The queue is shown in place of the active playlist (which stays the active one: it is where files are added
+    /// and what the cursor is in). Cleared by opening any playlist.
+    private(set) var isQueueShown = false
+
     /// The playlist playback runs from, if any (set through `playbackStarted`/`playbackEnded`).
     private(set) var playingName: String?
     /// Every playlist that has been read (key: `key(name)`), the active one included once it is loaded.
@@ -194,8 +198,22 @@ final class PlaylistStore {
         playingName = activeName
     }
 
+    /// Playback has started from another playlist than the active one (a queued track): it is in memory.
+    func playbackStarted(in name: String) {
+        guard let match = existingName(matching: name), loaded[Self.key(match)] != nil else { return }
+        playingName = match
+    }
+
     func playbackEnded() {
         playingName = nil
+    }
+
+    func showQueue() {
+        isQueueShown = true
+    }
+
+    func hideQueue() {
+        isQueueShown = false
     }
 
     // MARK: - Mutations
@@ -222,7 +240,8 @@ final class PlaylistStore {
     /// among them.
     func remove(ids removed: Set<TrackID>, from name: String) async {
         guard !removed.isEmpty else { return }
-        await replaceActive(name) { $0.removing(ids: removed) }
+        guard await replaceActive(name, { $0.removing(ids: removed) }), let match = existingName(matching: name) else { return }
+        playback?.queue.remove(ids: removed, fromPlaylist: match)
     }
 
     /// Takes over freshly read tags into the active playlist and regroups it (see `Playlist.updatingTags`).
@@ -283,6 +302,11 @@ final class PlaylistStore {
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
         let changed = Self.key(match) != Self.key(activeName)
+        if isQueueShown {
+            // Back from the queue: the view is rebuilt, so it has to be pointed at the track again.
+            isQueueShown = false
+            if !changed { openCount += 1 }
+        }
         activeName = match
         syncActiveToConfig()
         guard changed else { return }
@@ -344,6 +368,7 @@ final class PlaylistStore {
         let finalName = existingName(matching: newName) ?? newName
         if let last = lastPlayedByKey.removeValue(forKey: Self.key(current)) { lastPlayedByKey[Self.key(finalName)] = last }
         if let playing = playingName, Self.key(playing) == Self.key(current) { playingName = finalName }
+        playback?.queue.renamePlaylist(from: current, to: finalName)
         if let content = loaded.removeValue(forKey: Self.key(current)) { loaded[Self.key(finalName)] = content }
         startPreload()   // a read of the old file may have come back empty-handed
         if wasActive {
@@ -370,9 +395,10 @@ final class PlaylistStore {
         }
 
         if let playing = playingName, Self.key(playing) == Self.key(current) {
-            playback?.stop()   // also releases the playlist held for the playback
+            playback?.halt()   // also releases the playlist held for the playback; the queue is kept (minus this playlist's tracks)
         }
 
+        playback?.queue.removeAll(inPlaylist: current)
         lastPlayedByKey[Self.key(current)] = nil
         loaded[Self.key(current)] = nil
         let wasActive = Self.key(activeName) == Self.key(current)
@@ -383,12 +409,14 @@ final class PlaylistStore {
     /// Replaces the content of the active playlist with `transform` of it (run off the main thread), stores it
     /// and tells playback, which has to find its track again by its ID. A last played track that is gone is forgotten.
     /// Ignored for any other playlist and while the active one is still loading.
-    private func replaceActive(_ name: String, _ transform: @escaping (Playlist) -> Playlist) async {
-        guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName) else { return }
+    /// Returns whether the content was replaced.
+    @discardableResult
+    private func replaceActive(_ name: String, _ transform: @escaping (Playlist) -> Playlist) async -> Bool {
+        guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName) else { return false }
 
         let current = activePlaylist
         let updated = await Task.detached(priority: .userInitiated) { transform(current) }.value
-        guard activePlaylist === current else { return }   // something else replaced the content in the meantime
+        guard activePlaylist === current else { return false }   // something else replaced the content in the meantime
 
         commit(updated, as: match)
         let key = Self.key(match)
@@ -396,7 +424,10 @@ final class PlaylistStore {
         save(updated, as: match)
         if let playing = playingName, Self.key(playing) == key {
             playback?.playlistWasReplaced(from: current, to: updated)
+        } else {
+            playback?.playlistDidChange()   // a queued track may be in it, at another place now
         }
+        return true
     }
 
     // MARK: - Validation

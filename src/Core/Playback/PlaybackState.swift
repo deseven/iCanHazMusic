@@ -10,6 +10,11 @@ import Observation
 /// changes what's playing (a new track, next/previous, ...) the engine's queue is replaced.
 ///
 /// Playback runs from a playlist of `PlaylistStore` (`playingPlaylist`), which need not be the one being browsed.
+///
+/// The `queue` goes before everything else: while it has tracks, the track after the current one is its first, whatever
+/// playlist that is in (playback moves over to it when it starts). When it runs out, playback goes on by the playback
+/// order in the playlist of the last queued track, or stops (`PlaybackQueue.stopAtEnd`). Whatever the user does that
+/// starts something else (a track by hand, previous/next album, a random track or album, stop) drops the queue.
 /// The state is purely transitional:
 /// it knows the position `(album, track)` in that playlist and a copy of what to display, nothing is persisted.
 @MainActor
@@ -35,12 +40,16 @@ final class PlaybackState {
         weak var value: PlaybackListener?
     }
 
-    /// A track to play: in the playing playlist, or (`foreign`) in the active one when that is another playlist
-    /// (the user moved the cursor there, see `playbackFollowsCursor`). Playback only switches to that playlist when
-    /// the track starts.
+    /// A track to play: in the playing playlist, or in `playlist` when that is another one (the user moved the cursor
+    /// to the active playlist, see `playbackFollowsCursor`, or the queue has a track of another playlist next).
+    /// Playback only switches to that playlist when the track starts. `queued`: the track comes from the queue
+    /// (`pos` is then where it was found, and is looked up again when it starts).
     private struct Target: Equatable {
         var pos: Position
-        var foreign = false
+        var playlist: String?
+        var queued: QueueEntry?
+
+        var foreign: Bool { playlist != nil }
     }
 
     private(set) var status: Status = .stopped
@@ -53,6 +62,9 @@ final class PlaybackState {
     private(set) var artwork: CGImage?
     /// The art of the playing album is being looked up (`artwork` is nil meanwhile).
     private(set) var isLoadingArtwork = false
+
+    /// The tracks that play next, see above.
+    let queue: PlaybackQueue
 
     /// Linear gain, 0...1. Persisted in the config.
     var volume = AppConfig.Playback().volume {
@@ -147,6 +159,22 @@ final class PlaybackState {
 
     var isStopped: Bool { status == .stopped }
 
+    /// The current track as a queue entry (the playing playlist's name and the track's ID), if one plays. It is never
+    /// in the queue.
+    var playingEntry: QueueEntry? {
+        guard status != .stopped, let pos = currentPos, let name = store.playingName,
+              let id = track(at: pos, in: store.playingPlaylist)?.id else { return nil }
+        return QueueEntry(playlist: name, id: id)
+    }
+
+    /// The queue has a track that can be played (so the play button has something to start while stopped).
+    var hasQueuedTracks: Bool { queueTarget() != nil }
+
+    /// Play has something to do: it resumes, or starts the first queued track or the one under the cursor.
+    var canPlay: Bool {
+        status != .stopped || hasQueuedTracks || (cursorRow != nil && !store.isLoading)
+    }
+
     /// The exact position in the current track, read from the engine on every call (not observed: `position` only
     /// moves in whole seconds). For views that follow the music closely, such as synchronised lyrics.
     var livePosition: Double {
@@ -172,6 +200,9 @@ final class PlaybackState {
     /// forever with a playlist of files that are all gone, as it doesn't end by itself with a shuffle order or
     /// "start over".
     @ObservationIgnored private var failures = 0
+    /// The current track was taken from the queue: when nothing is left in it, "Stop at queue end" applies. A track
+    /// started in any other way (and dropping the queue) ends that.
+    @ObservationIgnored private var playingFromQueue = false
     /// How much of the current track has been listened to (reported to the listener when the track is left).
     @ObservationIgnored private var progress: PlayProgress?
 
@@ -199,10 +230,13 @@ final class PlaybackState {
     /// `atPlaylistEnd` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
     /// `listeners`: told about every track that starts and ends (held weakly).
+    /// `queue`: the playback queue; by default a new one that keeps its settings in `configStore`.
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
-         positionStep: Double = 1, configStore: ConfigStore? = nil, listeners: [PlaybackListener] = []) {
+         positionStep: Double = 1, configStore: ConfigStore? = nil, listeners: [PlaybackListener] = [],
+         queue: PlaybackQueue? = nil) {
         self.store = store
         self.engine = engine
+        self.queue = queue ?? PlaybackQueue(configStore: configStore)
         self.tickInterval = tickInterval
         self.positionStep = positionStep
         self.configStore = configStore
@@ -218,6 +252,7 @@ final class PlaybackState {
         engine.volume = Float(volume)
         engine.resampleQuality = resampleQuality
         engine.onEvent = { [weak self] event in self?.handle(event) }
+        self.queue.onChange = { [weak self] in self?.playlistDidChange() }
         store.playback = self
     }
 
@@ -233,6 +268,7 @@ final class PlaybackState {
         store.playbackStarted()
         cursorRequested = false   // an explicit choice of a track overrides what was selected before
         failures = 0
+        dropQueue("a track was started")
         begin(at: Position(album: albumIndex, track: trackIndex))
     }
 
@@ -275,18 +311,30 @@ final class PlaybackState {
         }
     }
 
-    /// What the play button does: pauses or resumes, and while stopped starts the track under the cursor.
+    /// What the play button does: pauses or resumes, and while stopped starts the queue, or without one the track
+    /// under the cursor.
     func playPause() {
-        if status == .stopped { playFromCursor() } else { togglePause() }
+        if status == .stopped { startFromStopped() } else { togglePause() }
     }
 
-    /// Resumes if paused; while stopped starts the track under the cursor. Does nothing while playing.
+    /// Resumes if paused; while stopped starts the queue, or without one the track under the cursor. Does nothing
+    /// while playing.
     func resume() {
         switch status {
         case .playing: break
         case .paused: togglePause()
-        case .stopped: playFromCursor()
+        case .stopped: startFromStopped()
         }
+    }
+
+    private func startFromStopped() {
+        guard let target = queueTarget() else {
+            playFromCursor()
+            return
+        }
+        cursorRequested = false
+        failures = 0
+        begin(target)
     }
 
     /// Pauses if playing.
@@ -311,7 +359,16 @@ final class PlaybackState {
         volume = min(max(stepped, ConfigLimits.volumeMin), ConfigLimits.volumeMax)
     }
 
+    /// Stops, and drops the queue: the user wants it quiet.
     func stop() {
+        dropQueue("stopped")
+        halt()
+    }
+
+    /// Stops without touching the queue, for when playback ends for another reason than the user's wish (a track that
+    /// is gone, the playlist playing was deleted, the output failed).
+    func halt() {
+        playingFromQueue = false
         endProgress()
         if status != .stopped { Log.info("playback: stopped") }
         status = .stopped
@@ -344,14 +401,20 @@ final class PlaybackState {
     /// cursor asked for). Does nothing on the last track of the playlist, unless it starts over.
     func nextTrack() {
         syncWithEngine()
-        guard let pos = currentPos, let next = nextTarget(after: pos) else { return }
-        begin(at: next.pos, foreign: next.foreign)
+        guard let pos = currentPos else { return }
+        if let next = nextTarget(after: pos) {
+            begin(next)
+        } else if queueEnded {
+            Log.info("playback: reached the end of the queue")
+            halt()
+        }
     }
 
     /// The previous track, or the beginning of the current one if it is the first.
     func previousTrack() {
         syncWithEngine()
         guard let pos = currentPos else { return }
+        dropQueue("previous track")
         begin(at: preceding(pos) ?? pos)
     }
 
@@ -360,6 +423,7 @@ final class PlaybackState {
     func nextAlbum() {
         syncWithEngine()
         guard let pos = currentPos, let playlist = store.playingPlaylist else { return }
+        dropQueue("next album")
         let next: Position?
         if order.isShuffle {
             next = randomPosition(in: playlist, wholeAlbum: true, excluding: pos, allowCurrent: false)
@@ -377,6 +441,7 @@ final class PlaybackState {
     func previousAlbum() {
         syncWithEngine()
         guard let pos = currentPos else { return }
+        dropQueue("previous album")
         begin(at: Position(album: max(pos.album - 1, 0), track: 0))
     }
 
@@ -401,6 +466,7 @@ final class PlaybackState {
             return
         }
 
+        dropQueue("random \(wholeAlbum ? "album" : "track")")
         if wasStopped {
             play(albumIndex: pos.album, trackIndex: pos.track)
         } else {
@@ -466,7 +532,7 @@ final class PlaybackState {
         guard status != .stopped else { return }
         cursorRequested = false   // the rows it pointed at are different now
         guard let pos = currentPos, let id = track(at: pos, in: old)?.id, let moved = new.position(of: id) else {
-            stop()
+            halt()
             return
         }
 
@@ -477,23 +543,81 @@ final class PlaybackState {
         prepareNext(after: moved)
     }
 
-    // MARK: - Queue management
+    // MARK: - The play queue
 
-    /// Replaces the engine's queue with `pos` and the track after it, and plays. `foreign`: `pos` is in the active
-    /// playlist, which is not the playing one; playback moves over to it.
-    private func begin(at pos: Position, foreign: Bool = false) {
-        if foreign {
-            guard !store.isLoading, track(at: pos, in: store.activePlaylist) != nil else {
-                stop()
+    /// Adds tracks at the end of the queue (the playing one and the ones that are queued already are left out).
+    /// Returns how many were added.
+    @discardableResult
+    func enqueue(_ entries: [QueueEntry]) -> Int {
+        let playing = playingEntry
+        return queue.append(entries.filter { $0 != playing })
+    }
+
+    /// Takes tracks out of the queue.
+    func dequeue(_ entries: Set<QueueEntry>) {
+        queue.remove(entries)
+    }
+
+    /// Empties the queue: playback goes on in the playlist, as if there had been none (and "Stop at queue end" doesn't
+    /// apply to the track that plays).
+    func clearQueue() {
+        playingFromQueue = false
+        queue.clear()
+        playlistDidChange()
+    }
+
+    /// What the user did started something else than the queue, or wants it gone.
+    private func dropQueue(_ reason: String) {
+        playingFromQueue = false
+        queue.clear(because: reason, notify: false)
+    }
+
+    /// The first queued track that still exists, as what plays next. `nil` if the queue is off or empty.
+    private func queueTarget() -> Target? {
+        guard queue.isEnabled else { return nil }
+        for entry in queue.entries {
+            guard let list = store.playlist(named: entry.playlist), let pos = list.position(of: entry.id) else { continue }
+            return Target(pos: pos, playlist: entry.playlist == store.playingName ? nil : entry.playlist, queued: entry)
+        }
+        return nil
+    }
+
+    /// The queue has been played through and "Stop at queue end" is on: nothing follows the track that plays.
+    private var queueEnded: Bool {
+        queue.isEnabled && queue.stopAtEnd && playingFromQueue
+    }
+
+    // MARK: - Engine queue
+
+    private func begin(at pos: Position) {
+        begin(Target(pos: pos))
+    }
+
+    /// Replaces the engine's queue with the target and the track after it, and plays. A target in another playlist
+    /// than the playing one (`playlist`) moves playback over to that playlist. A queued track leaves the queue.
+    private func begin(_ target: Target) {
+        var target = target
+        if let entry = target.queued, let pos = store.playlist(named: entry.playlist)?.position(of: entry.id) {
+            target.pos = pos   // the playlist may have changed since the target was made
+            target.playlist = entry.playlist == store.playingName ? nil : entry.playlist
+        }
+        if let name = target.playlist {
+            guard let list = store.playlist(named: name), track(at: target.pos, in: list) != nil else {
+                halt()
                 return
             }
-            store.playbackStarted()
+            store.playbackStarted(in: name)
         }
-        guard let playlist = store.playingPlaylist, let track = track(at: pos, in: playlist) else {
-            stop()
+        guard let playlist = store.playingPlaylist, let track = track(at: target.pos, in: playlist) else {
+            halt()
             return
         }
 
+        let pos = target.pos
+        playingFromQueue = false
+        if let name = store.playingName, queue.started(QueueEntry(playlist: name, id: track.id)) {
+            playingFromQueue = true
+        }
         currentPos = pos
         shuffleNext = nil
         nextPos = nextTarget(after: pos)
@@ -528,28 +652,34 @@ final class PlaybackState {
         case .advanced:
             advanceToNext()
         case .finished:
-            // The queue ran out: the end of the playlist, or (very short tracks) it was refilled too late.
-            if let queued = nextPos, queued.foreign {
-                begin(at: queued.pos, foreign: true)
+            // The engine's queue ran out: the end of the playlist, or (very short tracks) it was refilled too late.
+            if let queued = nextPos, queued.foreign || queued.queued != nil {
+                begin(queued)
             } else if let last = nextPos?.pos ?? currentPos, let next = nextTarget(after: last) {
-                begin(at: next.pos, foreign: next.foreign)
+                begin(next)
+            } else if queueEnded {
+                Log.info("playback: reached the end of the queue")
+                halt()
             } else {
                 let playlist = store.playingName
                 Log.info("playback: reached the end of playlist \"\(playlist ?? "")\"")
-                stop()
+                halt()
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
         case .failed(let url, let wasCurrent, _):
             failures += 1
             if failures > 4 * max(store.playingPlaylist?.trackCount ?? 0, 1) {
                 Log.error("playback: stopped, the tracks keep failing to open")
-                stop()
+                halt()
                 return
             }
             if wasCurrent, let pos = currentPos {
-                if let next = nextTarget(after: pos) { begin(at: next.pos, foreign: next.foreign) } else { stop() }
+                if let next = nextTarget(after: pos) { begin(next) } else { halt() }
             } else if let failed = nextPos, track(at: failed.pos, in: playlist(of: failed))?.url == url {
-                if failed.foreign {
+                if let entry = failed.queued {
+                    queue.started(entry)   // the file can't be played: it is not queued any more
+                    if let pos = currentPos { prepareNext(after: pos) }
+                } else if failed.foreign {
                     cursorRequested = false   // the track asked for can't be played: back to the playing playlist
                     if let pos = currentPos { prepareNext(after: pos) }
                 } else {
@@ -558,21 +688,29 @@ final class PlaybackState {
             }
         case .deviceError(let message):
             Log.error("playback: stopped, audio output failed: \(message)")
-            stop()
+            halt()
         }
     }
 
     /// The engine moved on by itself at the end of a track, which is the gapless transition.
     private func advanceToNext() {
-        guard let next = nextPos else { return }
-        if next.foreign {
-            // The track the cursor asked for in another playlist starts: playback moves over to that playlist.
-            // (If the shown playlist changed since, what plays isn't what it was meant to be: stop.)
-            guard !store.isLoading, track(at: next.pos, in: store.activePlaylist)?.url == nextURL else {
-                stop()
+        guard var next = nextPos else { return }
+        if let entry = next.queued, let pos = store.playlist(named: entry.playlist)?.position(of: entry.id) {
+            next.pos = pos   // the playlist may have changed since the engine was given this track
+        }
+        if let name = next.playlist {
+            // The track the cursor asked for or the queue has next is in another playlist: playback moves over to it.
+            // (If that changed since, what plays isn't what it was meant to be: stop.)
+            guard track(at: next.pos, in: store.playlist(named: name))?.url == nextURL else {
+                halt()
                 return
             }
-            store.playbackStarted()
+            store.playbackStarted(in: name)
+        }
+        playingFromQueue = false
+        if let entry = next.queued {
+            queue.started(entry)
+            playingFromQueue = true
         }
         currentPos = next.pos
         nextPos = nil
@@ -721,9 +859,12 @@ final class PlaybackState {
         return playlist.albums[pos.album].tracks[pos.track]
     }
 
-    /// The track that plays after `pos`: the one the user moved the cursor to if `playbackFollowsCursor` is on
+    /// The track that plays after `pos`: the first queued one; with the queue played through, none if
+    /// "Stop at queue end" is on; else the one the user moved the cursor to if `playbackFollowsCursor` is on
     /// (an album header stands for its first track), otherwise `orderedNext(after:)`.
     private func nextTarget(after pos: Position) -> Target? {
+        if let queued = queueTarget() { return queued }
+        if queueEnded { return nil }
         if playbackFollowsCursor, cursorRequested, let target = cursorTarget(), target.foreign || target.pos != pos {
             return target
         }
@@ -766,7 +907,7 @@ final class PlaybackState {
 
     /// The playlist a target is in.
     private func playlist(of target: Target) -> Playlist? {
-        if target.foreign { return store.isLoading ? nil : store.activePlaylist }
+        if let name = target.playlist { return store.playlist(named: name) }
         return store.playingPlaylist
     }
 
@@ -776,7 +917,7 @@ final class PlaybackState {
         let rows = store.activePlaylist.rows
         guard rows.indices.contains(row) else { return nil }
         return Target(pos: Position(album: rows[row].albumIndex, track: rows[row].trackIndex ?? 0),
-                      foreign: !store.playingIsActive)
+                      playlist: store.playingIsActive ? nil : store.activeName)
     }
 
     /// The track that plays after `pos` in playlist order: the next one of the album, else the first of the

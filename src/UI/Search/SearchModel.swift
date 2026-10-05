@@ -34,20 +34,44 @@ final class SearchModel {
     @ObservationIgnored private let searcher: PlaylistSearcher
     @ObservationIgnored private let store: PlaylistStore
     @ObservationIgnored private let settings: SearchSettings
+    @ObservationIgnored private let queue: PlaybackQueue
     @ObservationIgnored private var running = false
     @ObservationIgnored private var queryChangedWhileRunning = false
     @ObservationIgnored private var chooseWhenCurrent: SearchAction?
 
-    init(searcher: PlaylistSearcher? = nil, store: PlaylistStore? = nil, settings: SearchSettings? = nil) {
+    init(searcher: PlaylistSearcher? = nil, store: PlaylistStore? = nil, settings: SearchSettings? = nil,
+         queue: PlaybackQueue? = nil) {
         self.searcher = searcher ?? .shared
         self.store = store ?? .shared
         self.settings = settings ?? .shared
+        self.queue = queue ?? PlaybackState.shared.queue
     }
 
     /// What Return and a click do (and ⇧Return the other way round: they swap places with "Prefer adding to queue").
-    var primaryAction: SearchAction { settings.preferAddingToQueue ? .enqueue : .play }
-    /// What ⇧Return does.
-    var secondaryAction: SearchAction { settings.preferAddingToQueue ? .play : .enqueue }
+    /// With the queue turned off, Return plays and that setting has no effect.
+    var primaryAction: SearchAction { queue.isEnabled && settings.preferAddingToQueue ? .enqueue : .play }
+    /// What ⇧Return does; nothing (`nil`) with the queue turned off.
+    var secondaryAction: SearchAction? {
+        guard queue.isEnabled else { return nil }
+        return settings.preferAddingToQueue ? .play : .enqueue
+    }
+
+    /// What the line of a result says about the queue: the place of a queued track (`#2`), "queued" for an album whose
+    /// tracks all are. `nil` for the rest.
+    func queueMark(for result: SearchResult) -> String? {
+        guard queue.isEnabled, !queue.isEmpty, let id = result.trackID,
+              let playlist = store.playlist(named: result.playlist) else { return nil }
+        switch result.kind {
+        case .track:
+            return queue.position(of: QueueEntry(playlist: result.playlist, id: id)).map { "#\($0)" }
+        case .album:
+            guard let pos = playlist.position(of: id) else { return nil }
+            let tracks = playlist.albums[pos.album].tracks
+            return tracks.allSatisfy { queue.contains(QueueEntry(playlist: result.playlist, id: $0.id)) } ? "queued" : nil
+        case .playlist:
+            return nil
+        }
+    }
 
     /// Results are of different kinds (tracks, albums, playlists), so each line says which. Not when tracks are
     /// the only kind there can be.
@@ -89,7 +113,8 @@ final class SearchModel {
 
     /// Chooses the selected result; if the results are about to change (the query was just typed), the one that
     /// will be selected then.
-    func choose(_ action: SearchAction) {
+    func choose(_ action: SearchAction?) {
+        guard let action else { return }
         guard isCurrent else {
             chooseWhenCurrent = action
             return

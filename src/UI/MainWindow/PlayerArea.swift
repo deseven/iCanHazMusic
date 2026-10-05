@@ -27,8 +27,14 @@ struct PlayerArea: View {
             let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
 
             HStack(spacing: 0) {
-                PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow, revealRow: $revealRow)
-                    .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if store.isQueueShown && playback.queue.isEnabled {
+                        QueueView()
+                    } else {
+                        PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow, revealRow: $revealRow)
+                    }
+                }
+                .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
                 SplitDivider(
                     width: Binding(get: { blockWidth }, set: { preferredBlockWidth = $0 }),
@@ -37,7 +43,7 @@ struct PlayerArea: View {
 
                 PlaybackBlock(state: playback,
                               playFromSelection: playFromSelection,
-                              hasSelection: !selection.isEmpty,
+                              hasSelection: !selection.isEmpty || playback.hasQueuedTracks,
                               controlsHeight: $controlsHeight)
                     .frame(width: blockWidth)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -52,6 +58,9 @@ struct PlayerArea: View {
             playback.placeCursor(at: nil)
         }
         .onChange(of: store.openCount) { _, _ in playlistOpened() }
+        .onChange(of: playback.queue.isEnabled) { _, enabled in
+            if !enabled { store.hideQueue() }   // the queue view has nothing to show any more
+        }
         .onAppear {
             if !store.isLoading { playlistOpened() }   // the playlist was ready before this view was
         }
@@ -71,8 +80,12 @@ struct PlayerArea: View {
         revealRow = row
     }
 
-    /// Starts at the first selected row (an album header starts its first track).
+    /// Starts the queue if it has tracks, else at the first selected row (an album header starts its first track).
     private func playFromSelection() {
+        if playback.hasQueuedTracks {
+            playback.playPause()
+            return
+        }
         guard let row = selection.min() else { return }
         playback.play(row: row)
     }
