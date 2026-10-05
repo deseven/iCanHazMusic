@@ -712,6 +712,205 @@ extension AllTests {
             #expect(env.state.info?.title == "B1")
         }
 
+        // MARK: Playback order and the end of the playlist
+
+        @Test("the order and the end of the playlist are read from the config and written back when changed")
+        func orderPersists() async throws {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            let store = PlaylistStore(paths: paths, configStore: config)
+            let plain = PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil)
+            #expect(plain.order == .standard && plain.atPlaylistEnd == .stop)
+
+            config.update { $0.playback.order = .albumShuffle; $0.playback.atPlaylistEnd = .startOver }
+            let state = PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil,
+                                      configStore: config)
+            #expect(state.order == .albumShuffle && state.atPlaylistEnd == .startOver)
+
+            state.order = .trackShuffle
+            state.atPlaylistEnd = .stop
+            #expect(config.config.playback.order == .trackShuffle)
+            #expect(config.config.playback.atPlaylistEnd == .stop)
+        }
+
+        @Test("track shuffle picks the next track once, queues it gaplessly, and next track goes there")
+        func trackShuffleNext() async throws {
+            let env = try await standard()
+            var counts: [Int] = []
+            env.state.randomIndex = { count in counts.append(count); return 2 }
+            env.state.order = .trackShuffle
+
+            env.state.play(albumIndex: 0, trackIndex: 0)         // of A2, A3, B1, B2 the third
+            #expect(counts == [4])
+            env.state.playlistDidChange()                        // the pick stands
+            #expect(counts == [4])
+
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "B1")
+            #expect(env.rig.deviation(of: .tiny, from: 0, at: RampFile.a.frames, count: 2000) == 0)
+            #expect(counts == [4, 4])                            // and the next one is picked as it starts
+
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            counts = []
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "B1")               // what was queued
+            #expect(counts == [4])                               // plus the pick after it
+        }
+
+        @Test("changing the order replaces the track that was queued")
+        func orderChangeRequeues() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)         // A2 is queued
+            env.state.randomIndex = { _ in 2 }
+            env.state.order = .trackShuffle
+            try await env.run(RampFile.a.frames + 2000)
+            #expect(env.state.info?.title == "B1")
+
+            env.state.order = .standard
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(RampFile.a.frames + 8 * Self.slice)
+            #expect(env.state.info?.title == "A2")
+        }
+
+        @Test("album shuffle plays an album through, then the first track of another random album")
+        func albumShuffle() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                entry(.a, title: "X1", album: "X", track: 1),
+                entry(.b, title: "X2", album: "X", track: 2),
+                entry(.c, title: "Y1", album: "Y", track: 1),
+                entry(.b, title: "Y2", album: "Y", track: 2),
+            ], listener: listener)
+            env.state.randomIndex = { count in
+                #expect(count == 1)                              // the other album
+                return 0
+            }
+            env.state.order = .albumShuffle
+            env.state.play(albumIndex: 0, trackIndex: 0)
+
+            try await env.run(RampFile.a.frames + RampFile.b.frames + RampFile.c.frames + RampFile.b.frames + 2000)
+            #expect(listener.started.map(\.title) == ["X1", "X2", "Y1", "Y2", "X1"])
+            #expect(env.state.status == .playing)
+        }
+
+        @Test("shuffling never plays the track or album that just played")
+        func shuffleNeverRepeats() async throws {
+            let env = try await standard()
+            env.state.order = .trackShuffle
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            var seen: Set<String> = []
+            var last = env.state.info?.title
+            for _ in 0..<200 {
+                env.state.nextTrack()
+                let title = try #require(env.state.info?.title)
+                #expect(title != last)
+                seen.insert(title)
+                last = title
+            }
+            #expect(seen.count == 5)                             // all of them come up
+
+            var album = env.state.info?.album
+            var albums: Set<String> = []
+            for _ in 0..<50 {
+                env.state.nextAlbum()
+                let new = try #require(env.state.info?.album)
+                #expect(new != album)
+                albums.insert(new)
+                album = new
+            }
+            #expect(albums == ["X", "Y"])
+        }
+
+        @Test("next album while shuffling is a random other album; with a single one there is none")
+        func shuffleNextAlbum() async throws {
+            let env = try await standard()
+            env.state.order = .trackShuffle
+            env.state.randomIndex = { _ in 0 }
+            env.state.play(albumIndex: 0, trackIndex: 1)
+            env.state.nextAlbum()
+            #expect(env.state.info?.title == "B1")
+            env.state.nextAlbum()
+            #expect(env.state.info?.title == "A1")
+
+            let single = try await makeEnv([entry(.a, title: "Only", album: "X", track: 1)])
+            single.state.order = .albumShuffle
+            single.state.play(albumIndex: 0, trackIndex: 0)
+            single.state.nextAlbum()
+            #expect(single.state.info?.title == "Only")
+            #expect(single.state.status == .playing)
+        }
+
+        @Test("shuffling a playlist with nothing else to pick ends it, or plays it again with start over")
+        func shuffleSingleTrack() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)], listener: listener)
+            env.state.order = .trackShuffle
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .stopped)
+            #expect(listener.playlistsEnded == ["main"])
+
+            env.state.atPlaylistEnd = .startOver
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+            #expect(env.state.status == .playing)
+            #expect(listener.started.count >= 3)
+        }
+
+        @Test("start over continues with the first track after the last one, gaplessly")
+        func startOver() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ], listener: listener)
+            env.state.atPlaylistEnd = .startOver
+            env.state.play(albumIndex: 0, trackIndex: 1)
+
+            try await env.run(RampFile.b.frames + RampFile.a.frames + 2000)
+            #expect(listener.started.map(\.title) == ["A2", "A1", "A2"])
+            #expect(env.state.status == .playing)
+            #expect(env.rig.deviation(of: .a, from: 0, at: RampFile.b.frames, count: RampFile.a.frames) == 0)
+            #expect(listener.playlistsEnded.isEmpty)
+        }
+
+        @Test("start over applies to next track and next album on the last track, and to a change made while it plays")
+        func startOverButtons() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "B2")                // stop: nothing after the last track
+            env.state.nextAlbum()
+            #expect(env.state.info?.title == "B2")
+
+            env.state.atPlaylistEnd = .startOver
+            env.state.nextTrack()
+            #expect(env.state.info?.title == "A1")
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            env.state.nextAlbum()
+            #expect(env.state.info?.title == "A1")
+
+            // Switched on while the last track plays: it is queued at once.
+            env.state.atPlaylistEnd = .stop
+            env.state.play(albumIndex: 1, trackIndex: 1)
+            env.state.atPlaylistEnd = .startOver
+            try await env.run(RampFile.tiny2.frames + 3 * Self.slice)
+            #expect(env.state.status == .playing)
+        }
+
+        @Test("a playlist of files that are all gone doesn't loop forever with start over")
+        func startOverMissingFiles() async throws {
+            let env = try await makeEnv([
+                Make.entry("/nonexistent/1.flac", artist: "A", album: "X", title: "1", track: 1),
+                Make.entry("/nonexistent/2.flac", artist: "A", album: "X", title: "2", track: 2),
+            ])
+            env.state.atPlaylistEnd = .startOver
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(8 * Self.slice)
+            #expect(env.state.status == .stopped)
+        }
+
         @Test("play/pause starts the track under the cursor while stopped, otherwise pauses and resumes")
         func playPause() async throws {
             let env = try await standard()

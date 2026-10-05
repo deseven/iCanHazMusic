@@ -104,6 +104,23 @@ extension AllTests {
             #expect(try decode(#"{"playback": {"resample_quality": 3}}"#).playback.resampleQuality == .high)
         }
 
+        @Test("the playback order is default, the end of the playlist stop; both read by name, reset when unknown")
+        func playbackOrder() throws {
+            #expect(AppConfig().playback.order == .standard)
+            #expect(AppConfig().playback.atPlaylistEnd == .stop)
+            for order in PlaybackOrder.allCases {
+                #expect(try decode(#"{"playback": {"order": "\#(order.rawValue)"}}"#).playback.order == order)
+            }
+            for end in PlaylistEnd.allCases {
+                #expect(try decode(#"{"playback": {"at_playlist_end": "\#(end.rawValue)"}}"#).playback.atPlaylistEnd == end)
+            }
+            #expect(try decode(#"{"playback": {"order": "random"}}"#).playback.order == .standard)
+            #expect(try decode(#"{"playback": {"at_playlist_end": 1}}"#).playback.atPlaylistEnd == .stop)
+            #expect(try decode(#"{"playback": {"order": "track_shuffle"}}"#).playback.order == .trackShuffle)
+            #expect(try decode(#"{"playback": {"order": "album_shuffle"}}"#).playback.order == .albumShuffle)
+            #expect(try decode(#"{"playback": {"at_playlist_end": "start_over"}}"#).playback.atPlaylistEnd == .startOver)
+        }
+
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")
         func volume() throws {
             #expect(AppConfig().playback.volume == 0.7)

@@ -37,7 +37,6 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 
 ## Roadmap
 - playback queue
-- queue, playback orders
 - simple web interface and API
 - playlist search
 - playlist entries rearrangement

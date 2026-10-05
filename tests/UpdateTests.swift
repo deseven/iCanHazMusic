@@ -118,12 +118,12 @@ extension AllTests {
         ])
 
         private func makeEnv(
-            current: String = "0.3.1", answer: HTTPAnswer = UpdateServiceTests.releases,
+            current: String = "0.3.1", answer: HTTPAnswer? = nil,
             initialDelay: Duration = .seconds(60), checkInterval: Duration = .seconds(60)
         ) throws -> Env {
             let dir = try TempDir()
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
-            let transport = HTTPStub(always: answer)
+            let transport = HTTPStub(always: answer ?? Self.releases)
             let service = UpdateService(configStore: config, transport: transport, currentVersion: current,
                                         initialDelay: initialDelay, checkInterval: checkInterval)
             return Env(config: config, transport: transport, service: service)

@@ -82,6 +82,40 @@ private struct AppCommands: Commands {
             .disabled(importer.isBusy || store.activePlaylist.trackCount == 0)
         }
         CommandMenu("Playback") {
+            // The same commands as the buttons of the playback block, in the same order.
+            let stopped = playback.isStopped
+            Button("Previous Album") { playback.previousAlbum() }
+                .disabled(stopped)
+            Button("Previous Track") { playback.previousTrack() }
+                .disabled(stopped)
+            Button(playback.status == .playing ? "Pause" : "Play") { playback.playPause() }
+                .disabled(stopped && (playback.cursorRow == nil || store.isLoading))
+            Button("Next Track") { playback.nextTrack() }
+                .disabled(stopped)
+            Button("Next Album") { playback.nextAlbum() }
+                .disabled(stopped)
+            Button("Stop") { playback.stop() }
+                .disabled(stopped)
+
+            Divider()
+
+            Menu("Playback order") {
+                Picker("Playback order", selection: Bindable(playback).order) {
+                    ForEach(PlaybackOrder.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            Menu("At playlist end") {
+                Picker("At playlist end", selection: Bindable(playback).atPlaylistEnd) {
+                    ForEach(PlaylistEnd.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            Divider()
+
             Toggle("Cursor follows playback", isOn: Bindable(playback).cursorFollowsPlayback)
             Toggle("Playback follows cursor", isOn: Bindable(playback).playbackFollowsCursor)
         }

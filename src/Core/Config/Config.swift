@@ -104,12 +104,18 @@ struct AppConfig: Codable, Equatable {
         var resampleQuality = ResampleQuality.default
         /// Linear gain, `ConfigLimits.volumeMin...volumeMax`.
         var volume = 0.7
+        /// Which track follows the current one.
+        var order = PlaybackOrder.default
+        /// What happens after the last track of the playlist.
+        var atPlaylistEnd = PlaylistEnd.default
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
             case playbackFollowsCursor = "playback_follows_cursor"
             case resampleQuality = "resample_quality"
             case volume
+            case order
+            case atPlaylistEnd = "at_playlist_end"
         }
 
         init() {}
@@ -121,6 +127,8 @@ struct AppConfig: Codable, Equatable {
             playbackFollowsCursor = c.value(.playbackFollowsCursor, default: d.playbackFollowsCursor)
             resampleQuality = c.value(.resampleQuality, default: d.resampleQuality)
             volume = c.value(.volume, default: d.volume)
+            order = c.value(.order, default: d.order)
+            atPlaylistEnd = c.value(.atPlaylistEnd, default: d.atPlaylistEnd)
         }
     }
 

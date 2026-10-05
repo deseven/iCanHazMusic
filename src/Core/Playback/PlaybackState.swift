@@ -85,6 +85,27 @@ final class PlaybackState {
         }
     }
 
+    /// Which track follows the current one. A change replaces the track queued next. Persisted in the config.
+    var order = PlaybackOrder.default {
+        didSet {
+            guard order != oldValue else { return }
+            configStore?.update { $0.playback.order = order }
+            Log.info("playback order: \(order.rawValue)")
+            shuffleNext = nil
+            playlistDidChange()
+        }
+    }
+
+    /// What happens when nothing follows the last track. Persisted in the config.
+    var atPlaylistEnd = PlaylistEnd.default {
+        didSet {
+            guard atPlaylistEnd != oldValue else { return }
+            configStore?.update { $0.playback.atPlaylistEnd = atPlaylistEnd }
+            Log.info("at playlist end: \(atPlaylistEnd.rawValue)")
+            playlistDidChange()
+        }
+    }
+
     /// Sample rate conversion quality; applies to the tracks that start from now on. Persisted in the config.
     var resampleQuality = ResampleQuality.default {
         didSet {
@@ -142,8 +163,15 @@ final class PlaybackState {
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
     @ObservationIgnored private var listeners: [WeakListener]
-    /// A random number in `0..<count` (replaced by tests).
+    /// A random number in `0..<count` (replaced by tests). The system generator, which is plenty for shuffling.
     @ObservationIgnored var randomIndex: (Int) -> Int = { Int.random(in: 0..<$0) }
+    /// The track a shuffle order picked to follow `from`. It is picked once and kept, so that the track queued in
+    /// the engine, "next" and whatever asks again in the meantime agree. Dropped whenever the current track changes.
+    @ObservationIgnored private var shuffleNext: (from: Position, pos: Position)?
+    /// Tracks that failed to open since one last played. Playing on to the next one after a failure could go on
+    /// forever with a playlist of files that are all gone, as it doesn't end by itself with a shuffle order or
+    /// "start over".
+    @ObservationIgnored private var failures = 0
     /// How much of the current track has been listened to (reported to the listener when the track is left).
     @ObservationIgnored private var progress: PlayProgress?
 
@@ -167,7 +195,8 @@ final class PlaybackState {
     /// `positionStep`: `position` is only published when it moves into another multiple of this many seconds
     /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
     /// 4 updates a second); 0 publishes every change.
-    /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality` and `volume` are read from and kept; `nil` uses
+    /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality`, `volume`, `order` and
+    /// `atPlaylistEnd` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
     /// `listeners`: told about every track that starts and ends (held weakly).
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
@@ -183,6 +212,8 @@ final class PlaybackState {
             playbackFollowsCursor = settings.playbackFollowsCursor
             resampleQuality = settings.resampleQuality
             volume = settings.volume
+            order = settings.order
+            atPlaylistEnd = settings.atPlaylistEnd
         }
         engine.volume = Float(volume)
         engine.resampleQuality = resampleQuality
@@ -201,6 +232,7 @@ final class PlaybackState {
 
         store.playbackStarted()
         cursorRequested = false   // an explicit choice of a track overrides what was selected before
+        failures = 0
         begin(at: Position(album: albumIndex, track: trackIndex))
     }
 
@@ -271,6 +303,7 @@ final class PlaybackState {
         stopTicking()
         currentPos = nil
         nextPos = nil
+        shuffleNext = nil
         cursorRequested = false
         artworkTask?.cancel()
         artworkTask = nil
@@ -291,7 +324,8 @@ final class PlaybackState {
         await engine.waitForFade()
     }
 
-    /// Does nothing on the last track of the playlist.
+    /// The track that plays after this one by the playback order (a random one while shuffling, or the one the
+    /// cursor asked for). Does nothing on the last track of the playlist, unless it starts over.
     func nextTrack() {
         syncWithEngine()
         guard let pos = currentPos, let next = nextTarget(after: pos) else { return }
@@ -305,15 +339,25 @@ final class PlaybackState {
         begin(at: preceding(pos) ?? pos)
     }
 
-    /// Does nothing in the last album of the playlist.
+    /// The first track of the next album, or of a random other one while shuffling. Does nothing in the last album
+    /// of the playlist, unless it starts over.
     func nextAlbum() {
         syncWithEngine()
-        guard let pos = currentPos, let playlist = store.playingPlaylist,
-              pos.album + 1 < playlist.albums.count else { return }
-        begin(at: Position(album: pos.album + 1, track: 0))
+        guard let pos = currentPos, let playlist = store.playingPlaylist else { return }
+        let next: Position?
+        if order.isShuffle {
+            next = randomPosition(in: playlist, wholeAlbum: true, excluding: pos, allowCurrent: false)
+        } else if pos.album + 1 < playlist.albums.count {
+            next = Position(album: pos.album + 1, track: 0)
+        } else {
+            next = atPlaylistEnd == .startOver ? firstPosition(in: playlist) : nil
+        }
+        guard let next else { return }
+        begin(at: next)
     }
 
-    /// The first track of the previous album (of the current one if it is the first).
+    /// The first track of the previous album (of the current one if it is the first). Going back is always in
+    /// playlist order: what played before a shuffled track is not kept.
     func previousAlbum() {
         syncWithEngine()
         guard let pos = currentPos else { return }
@@ -321,10 +365,11 @@ final class PlaybackState {
     }
 
     /// Plays a random track of the playing playlist (of the active one while stopped), other than the current one
-    /// unless it is the only one.
+    /// unless it is the only one. Whatever the playback order is.
     func randomTrack() { playRandom(wholeAlbum: false) }
 
-    /// Plays the first track of a random album, other than the current one unless it is the only one.
+    /// Plays the first track of a random album, other than the current one unless it is the only one. Whatever the
+    /// playback order is.
     func randomAlbum() { playRandom(wholeAlbum: true) }
 
     private func playRandom(wholeAlbum: Bool) {
@@ -336,10 +381,26 @@ final class PlaybackState {
         }
         guard let playlist = wasStopped ? store.activePlaylist : store.playingPlaylist else { return }
         let current = wasStopped ? nil : currentPos
+        guard let pos = randomPosition(in: playlist, wholeAlbum: wholeAlbum, excluding: current, allowCurrent: true) else {
+            return
+        }
+
+        if wasStopped {
+            play(albumIndex: pos.album, trackIndex: pos.track)
+        } else {
+            begin(at: pos)
+        }
+    }
+
+    /// A random track of `playlist` (`wholeAlbum`: the first track of a random album), never `current` (or its
+    /// album), which is the one that played last. If that leaves nothing, it is `current` again with `allowCurrent`,
+    /// else `nil`.
+    private func randomPosition(in playlist: Playlist, wholeAlbum: Bool, excluding current: Position?,
+                                allowCurrent: Bool) -> Position? {
+        let count = wholeAlbum ? playlist.albums.count : playlist.trackCount
+        guard count > 0 else { return nil }
 
         // Pick among the candidates without the current one by index, then step over where it would be.
-        let count = wholeAlbum ? playlist.albums.count : playlist.trackCount
-        guard count > 0 else { return }
         var currentIndex: Int?
         if let current, playlist.albums.indices.contains(current.album) {
             currentIndex = wholeAlbum
@@ -350,27 +411,19 @@ final class PlaybackState {
         if let currentIndex, count > 1 {
             index = min(max(randomIndex(count - 1), 0), count - 2)
             if index >= currentIndex { index += 1 }
+        } else if currentIndex != nil, !allowCurrent {
+            return nil
         } else {
             index = min(max(randomIndex(count), 0), count - 1)
         }
 
-        let pos: Position
-        if wholeAlbum {
-            pos = Position(album: index, track: 0)
-        } else {
-            var album = 0
-            while index >= playlist.albums[album].tracks.count {
-                index -= playlist.albums[album].tracks.count
-                album += 1
-            }
-            pos = Position(album: album, track: index)
+        if wholeAlbum { return Position(album: index, track: 0) }
+        var album = 0
+        while index >= playlist.albums[album].tracks.count {
+            index -= playlist.albums[album].tracks.count
+            album += 1
         }
-
-        if wasStopped {
-            play(albumIndex: pos.album, trackIndex: pos.track)
-        } else {
-            begin(at: pos)
-        }
+        return Position(album: album, track: index)
     }
 
     func seek(to seconds: Double) {
@@ -403,6 +456,7 @@ final class PlaybackState {
 
         currentPos = moved
         nextPos = nil
+        shuffleNext = nil   // its positions are the old playlist's
         refreshInfo()
         prepareNext(after: moved)
     }
@@ -425,6 +479,7 @@ final class PlaybackState {
         }
 
         currentPos = pos
+        shuffleNext = nil
         nextPos = nextTarget(after: pos)
         nextURL = nextPos.flatMap { self.track(at: $0.pos, in: self.playlist(of: $0)) }?.url
         engine.start(track.url, next: nextURL)
@@ -469,6 +524,12 @@ final class PlaybackState {
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
         case .failed(let url, let wasCurrent, _):
+            failures += 1
+            if failures > 4 * max(store.playingPlaylist?.trackCount ?? 0, 1) {
+                Log.error("playback: stopped, the tracks keep failing to open")
+                stop()
+                return
+            }
             if wasCurrent, let pos = currentPos {
                 if let next = nextTarget(after: pos) { begin(at: next.pos, foreign: next.foreign) } else { stop() }
             } else if let failed = nextPos, track(at: failed.pos, in: playlist(of: failed))?.url == url {
@@ -499,6 +560,7 @@ final class PlaybackState {
         }
         currentPos = next.pos
         nextPos = nil
+        shuffleNext = nil
         trackDidChange(how: "gapless transition")
         prepareNext(after: next.pos)
     }
@@ -519,6 +581,7 @@ final class PlaybackState {
         checkFileInfo()
         let time = engine.position
         guard time.isFinite, time >= 0 else { return }
+        if time > 0 { failures = 0 }
         progress?.observe(position: time)
         let moved = positionStep > 0
             ? (time / positionStep).rounded(.down) != (position / positionStep).rounded(.down)
@@ -643,12 +706,46 @@ final class PlaybackState {
     }
 
     /// The track that plays after `pos`: the one the user moved the cursor to if `playbackFollowsCursor` is on
-    /// (an album header stands for its first track), otherwise `following(pos)`.
+    /// (an album header stands for its first track), otherwise `orderedNext(after:)`.
     private func nextTarget(after pos: Position) -> Target? {
         if playbackFollowsCursor, cursorRequested, let target = cursorTarget(), target.foreign || target.pos != pos {
             return target
         }
-        return following(pos).map { Target(pos: $0) }
+        return orderedNext(after: pos).map { Target(pos: $0) }
+    }
+
+    /// The track that follows `pos` by the playback order, and at the end of the playlist by `atPlaylistEnd`.
+    private func orderedNext(after pos: Position) -> Position? {
+        guard let playlist = store.playingPlaylist, playlist.albums.indices.contains(pos.album) else { return nil }
+        switch order {
+        case .standard:
+            if let next = following(pos) { return next }
+            return atPlaylistEnd == .startOver ? firstPosition(in: playlist) : nil
+        case .trackShuffle:
+            return shuffled(after: pos, in: playlist, wholeAlbum: false)
+        case .albumShuffle:
+            if pos.track + 1 < playlist.albums[pos.album].tracks.count {
+                return Position(album: pos.album, track: pos.track + 1)
+            }
+            return shuffled(after: pos, in: playlist, wholeAlbum: true)
+        }
+    }
+
+    /// The random pick that follows `pos`, made once (see `shuffleNext`). With nothing else to pick from, it is
+    /// the end of the playlist: nothing, or with `startOver` the same one again.
+    private func shuffled(after pos: Position, in playlist: Playlist, wholeAlbum: Bool) -> Position? {
+        if let kept = shuffleNext, kept.from == pos, track(at: kept.pos, in: playlist) != nil { return kept.pos }
+        var picked = randomPosition(in: playlist, wholeAlbum: wholeAlbum, excluding: pos, allowCurrent: false)
+        if picked == nil, atPlaylistEnd == .startOver {
+            picked = randomPosition(in: playlist, wholeAlbum: wholeAlbum, excluding: pos, allowCurrent: true)
+        }
+        shuffleNext = picked.map { (from: pos, pos: $0) }
+        return picked
+    }
+
+    private func firstPosition(in playlist: Playlist) -> Position? {
+        guard let first = playlist.albums.first, !first.tracks.isEmpty else { return nil }
+        return Position(album: 0, track: 0)
     }
 
     /// The playlist a target is in.
