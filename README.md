@@ -59,7 +59,7 @@ iCHM is a Swift package (Swift tools 5.10, no third-party dependencies) for macO
 Other modes:
 - `./build.sh test` - generates test fixtures and runs the test suite, no artifacts.
 - `./build.sh dev-release` - universal (arm64 + x86_64) build, tests, `dist/ichm-dev.zip`, copies the app to `/Applications` (overwriting any existing copy), and uploads the zip with the `share` tool (specific to the author's setup, remove that step if you don't have it).
-- `./build.sh release` - universal build, tests, `dist/ichm.zip` and `dist/iCHM.dmg`.
+- `./build.sh release` - universal build, tests, `dist/ichm.zip` and `dist/ichm.dmg`.
 
 The plain compile check is `swift build -c debug --arch arm64`.
 

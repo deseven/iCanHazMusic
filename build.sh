@@ -4,7 +4,7 @@ set -euo pipefail
 
 name="iCanHazMusic"
 shortName="iCHM"
-zipName="ichm"
+distrName="ichm"
 ident="wtf.d7.icanhazmusic"
 loc="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logFile="$loc/build.log"
@@ -109,11 +109,12 @@ do_init_log() {
 
 do_clean_dist() {
     rm -rf "$loc/dist/$name.app"
-    rm -rf "$loc/dist/$zipName.zip"
-    rm -rf "$loc/dist/$zipName-dev.zip"
+    rm -rf "$loc/dist/$distrName.zip"
+    rm -rf "$loc/dist/$distrName-dev.zip"
     rm -rf "$loc/dist/$shortName.zip"
     rm -rf "$loc/dist/$shortName-dev.zip"
     rm -rf "$loc/dist/$shortName.dmg"
+    rm -rf "$loc/dist/$distrName.dmg"
     rm -rf "$loc/dist/$name"
     mkdir -p "$loc/dist"
 }
@@ -224,13 +225,13 @@ do_create_dmg() {
         --icon-size 128 \
         --icon "$name.app" 192 350 \
         --app-drop-link 448 350 \
-        "$loc/dist/$shortName.dmg" \
+        "$loc/dist/$distrName.dmg" \
         "$dmgStaging"
     rm -rf "$dmgStaging"
 }
 
 do_sign_dmg() {
-    codesign --force --sign "$ICHM_SIGNING_IDENTITY" --timestamp "$loc/dist/$shortName.dmg"
+    codesign --force --sign "$ICHM_SIGNING_IDENTITY" --timestamp "$loc/dist/$distrName.dmg"
 }
 
 do_notarize() {
@@ -251,7 +252,7 @@ do_staple_app() {
 }
 
 do_staple_dmg() {
-    xcrun stapler staple "$loc/dist/$shortName.dmg"
+    xcrun stapler staple "$loc/dist/$distrName.dmg"
 }
 
 do_verify() {
@@ -260,9 +261,9 @@ do_verify() {
         xcrun stapler validate "$loc/dist/$name.app"
     fi
     if [ "$mode" = "release" ]; then
-        spctl -a -vvv "$loc/dist/$shortName.dmg"
+        spctl -a -vvv "$loc/dist/$distrName.dmg"
         if [ "$can_notarize" = true ]; then
-            xcrun stapler validate "$loc/dist/$shortName.dmg"
+            xcrun stapler validate "$loc/dist/$distrName.dmg"
         fi
     fi
 }
@@ -333,13 +334,13 @@ if [ "$mode" != "dev" ]; then
     run_step "Preparing test fixtures..."      "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
     run_step "Running tests..."                "tests failed"                              do_run_tests
     if [ "$mode" = "release" ]; then
-        run_step "Creating distribution ZIP..."    "failed to pack $zipName.zip"              do_create_zip "$zipName.zip"
+        run_step "Creating distribution ZIP..."    "failed to pack $distrName.zip"            do_create_zip "$distrName.zip"
         run_step "Creating distribution DMG..."    "failed to create dmg"                     do_create_dmg
         if [ "$can_sign" = true ]; then
             run_step "Signing distribution DMG..." "failed to sign dmg"                       do_sign_dmg
         fi
         if [ "$can_notarize" = true ]; then
-            run_step "Notarizing release build..." "failed to notarize release build"         do_notarize "$loc/dist/$shortName.dmg"
+            run_step "Notarizing release build..." "failed to notarize release build"         do_notarize "$loc/dist/$distrName.dmg"
             run_step "Stapling APP bundle..."      "failed to staple app bundle"              do_staple_app
             run_step "Stapling release DMG..."     "failed to staple release DMG"             do_staple_dmg
         fi
@@ -347,16 +348,16 @@ if [ "$mode" != "dev" ]; then
             run_step "Verifying signatures..."     "failed to verify signatures"              do_verify
         fi
     else
-        run_step "Creating dev ZIP..."             "failed to pack $zipName-dev.zip"          do_create_zip "$zipName-dev.zip"
+        run_step "Creating dev ZIP..."             "failed to pack $distrName-dev.zip"        do_create_zip "$distrName-dev.zip"
         if [ "$can_notarize" = true ]; then
-            run_step "Notarizing dev build..."     "failed to notarize dev build"             do_notarize "$loc/dist/$zipName-dev.zip"
+            run_step "Notarizing dev build..."     "failed to notarize dev build"             do_notarize "$loc/dist/$distrName-dev.zip"
             run_step "Stapling APP bundle..."      "failed to staple app bundle"              do_staple_app
         fi
         if [ "$can_sign" = true ]; then
             run_step "Verifying signatures..."     "failed to verify signatures"              do_verify
         fi
         run_step "Installing to /Applications..."  "failed to copy app to /Applications"     do_install
-        run_step "Uploading dev build..."          "failed to upload dev build"               do_upload "$loc/dist/$zipName-dev.zip"
+        run_step "Uploading dev build..."          "failed to upload dev build"               do_upload "$loc/dist/$distrName-dev.zip"
     fi
 fi
 
@@ -383,14 +384,14 @@ case "$mode" in
         echo -e "  ${dimColor}mode: development release${noColor}"
         echo -e "  ${dimColor}signing: $(if [ "$can_sign" = true ]; then echo "${greenColor}Developer ID${noColor}"; else echo "${redColor}ad-hoc${noColor}"; fi)"
         echo -e "  ${dimColor}notarized: $(if [ "$can_notarize" = true ]; then echo "${greenColor}yes${noColor}"; else echo "${redColor}no${noColor}"; fi)"
-        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$zipName-dev.zip${noColor}"
+        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$distrName-dev.zip${noColor}"
                 echo -e "  ${dimColor}installed: /Applications/$name.app${noColor}"
         ;;
     release)
         echo -e "  ${dimColor}mode: release${noColor}"
         echo -e "  ${dimColor}signing: $(if [ "$can_sign" = true ]; then echo "${greenColor}Developer ID${noColor}"; else echo "${redColor}ad-hoc${noColor}"; fi)"
         echo -e "  ${dimColor}notarized: $(if [ "$can_notarize" = true ]; then echo "${greenColor}yes${noColor}"; else echo "${redColor}no${noColor}"; fi)"
-        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$zipName.zip  dist/$shortName.dmg${noColor}"
+        echo -e "  ${dimColor}artifacts: dist/$name.app  dist/$distrName.zip  dist/$distrName.dmg${noColor}"
         ;;
     test)
         echo -e "  ${dimColor}mode: test${noColor}"
