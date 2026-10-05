@@ -19,6 +19,11 @@ enum Layout {
     static let trackRowHeight: CGFloat = 20
     /// First column of a track row: holds the play symbol of the playing track.
     static let trackStatusColumnWidth: CGFloat = 22
+    /// The track number column (fits three digits), right-aligned text so the status symbol can sit right next to it.
+    static let trackNumberColumnWidth: CGFloat = 30
+    /// What the number column lost against its former width of 44; added to the status column in rows with a number,
+    /// so the title keeps its place.
+    static let trackNumberSlack: CGFloat = 44 - trackNumberColumnWidth
     /// Column of a track row (right of the title) that holds the lyrics symbol.
     static let trackLyricsColumnWidth: CGFloat = 24
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).

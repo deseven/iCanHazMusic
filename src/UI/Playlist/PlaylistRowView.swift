@@ -117,10 +117,12 @@ private struct TrackRowContent: View {
             // The placeholder keeps the column's width in every row; an empty `Group` would collapse.
             // The playing track is never queued, so the two never compete for the place.
             Color.clear
-                .frame(width: Layout.trackStatusColumnWidth)
-                .overlay {
+                .frame(width: showNumber ? Layout.trackStatusColumnWidth + Layout.trackNumberSlack
+                                         : Layout.trackStatusColumnWidth)
+                .overlay(alignment: .trailing) {
                     if isPlaying {
                         Image(systemName: "play.fill").font(.system(size: 9))
+                            .padding(.trailing, 4)
                     } else if let queuePosition {
                         QueueBadge(position: queuePosition, isSelected: isSelected)
                     }
@@ -129,7 +131,7 @@ private struct TrackRowContent: View {
                 Text(track.numberText)
                     .monospacedDigit()
                     .opacity(0.65)
-                    .frame(width: 44, alignment: .trailing)
+                    .frame(width: Layout.trackNumberColumnWidth, alignment: .trailing)
             }
             Text(showArtist ? "\(track.artist) – \(track.title)" : track.title)
                 .lineLimit(1)
