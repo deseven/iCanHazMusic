@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import Foundation
 
 /// Which track follows the current one (`playback.order` in the config; the raw value is what the file holds).

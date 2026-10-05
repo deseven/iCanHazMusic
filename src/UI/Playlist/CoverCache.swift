@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import AppKit
 
 /// Covers for the album headers: the cached thumbnail from `CoverStore` if the album has one, else a generated

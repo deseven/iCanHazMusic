@@ -7,8 +7,7 @@ Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 |---|---|
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
 | `tests/` | Swift Testing suite (`swift test`), see [Tests](#tests) below. |
-| `docs/` | Background notes: `tag-parsing.md` = what the macOS tag APIs do and why the reader is built the way it is; `playback.md` = why `AVAudioEngine` and not `AVPlayer` (AVFoundation's FLAC seeking/padding bugs), how the engine works, API quirks; `lyrics.md` = research for lyrics (where embedded lyrics live, LRCLIB API notes and a coverage test; not implemented yet). |
-| `old-src/` | Legacy PureBasic version. Reference only, don't touch. |
+| `dev-docs/` | Background notes: `tag-parsing.md` = what the macOS tag APIs do and why the reader is built the way it is; `playback.md` = why `AVAudioEngine` and not `AVPlayer` (AVFoundation's FLAC seeking/padding bugs), how the engine works, API quirks; `lyrics.md` = research for lyrics (where embedded lyrics live, LRCLIB API notes and a coverage test; not implemented yet). |
 | `build.sh` | Builds the `.app` bundle in `dist/` (see [Building and running](#building-and-running)). |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
 

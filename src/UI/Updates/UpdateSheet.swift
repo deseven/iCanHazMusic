@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import SwiftUI
 
 /// What the update sheet shows besides the release, and where its buttons report to.

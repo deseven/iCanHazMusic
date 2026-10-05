@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import Foundation
 
 /// What came back for a request: the status line and the body, plus the one header the callers care about.

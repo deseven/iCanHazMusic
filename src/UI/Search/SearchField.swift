@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import SwiftUI
 
 /// The text field of the search window. Takes the keyboard focus as soon as it is in a window, and turns the keys that

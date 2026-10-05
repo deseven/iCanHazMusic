@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import Foundation
 
 /// What makes two files one album: the same album tag (case-insensitive) in the same directory.

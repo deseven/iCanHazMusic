@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import SwiftUI
 
 /// Thin click/drag-to-seek progress bar. While dragging it only previews (`scrubbing`); the seek itself

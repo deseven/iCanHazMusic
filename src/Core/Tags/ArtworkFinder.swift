@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import Foundation
 
 /// Where a track's album art would come from. Detection only - no image is ever read or decoded.

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import SwiftUI
 
 /// A drag of one item (a track in its album, an album among albums, a track of a flat playlist) to another place.

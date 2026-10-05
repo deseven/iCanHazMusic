@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import SwiftUI
 
 /// The queue, shown in place of a playlist when its item is chosen in the sidebar: a flat list of the queued tracks,

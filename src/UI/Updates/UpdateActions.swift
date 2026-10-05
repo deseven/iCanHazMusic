@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import AppKit
 
 /// The UI side of the updates: the sheet that offers a release, the alerts, and quitting once the installer is

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import AppKit
 
 /// The menu shown when right-clicking the Dock icon (the one of the PureBasic version): what plays, and the

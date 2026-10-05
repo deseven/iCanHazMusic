@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import AppKit
 
 /// Thin async wrapper over `NSAlert`. Alerts are shown as sheets on the main window when possible.
