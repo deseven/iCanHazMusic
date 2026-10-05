@@ -105,6 +105,8 @@ final class PlaylistStore {
     /// The `last_played` of every playlist that has been loaded (key: `key(name)`); a playlist's file is only
     /// ever written while it is in memory, so what is stored here is what its file gets.
     @ObservationIgnored private var lastPlayedByKey: [String: TrackID] = [:]
+    /// The row of the active playlist that `reveal` wants shown when the view reacts to the opening.
+    @ObservationIgnored private var pendingReveal: Int?
 
     private static let maxNameBytes = 200
 
@@ -259,12 +261,32 @@ final class PlaylistStore {
         await writeTask?.value
     }
 
+    /// Opens a playlist that is in memory and has the view show one of its tracks (or the header of its album with
+    /// `wholeAlbum`) instead of the last played one: see `takeReveal`. Does nothing if the playlist or the track
+    /// isn't there.
+    func reveal(trackID: TrackID, inPlaylist name: String, wholeAlbum: Bool = false) {
+        guard let match = existingName(matching: name), let playlist = loaded[Self.key(match)],
+              let pos = playlist.position(of: trackID) else { return }
+        let row = wholeAlbum && !playlist.isFlat ? playlist.headerRow[pos.album] : playlist.row(of: trackID)
+        let changed = Self.key(match) != Self.key(activeName)
+        setActive(match)
+        pendingReveal = row
+        if !changed { openCount += 1 }   // the view has to be pointed at the row though nothing was opened
+    }
+
+    /// The row `reveal` asked for, once (read when the view reacts to `openCount`).
+    func takeReveal() -> Int? {
+        defer { pendingReveal = nil }
+        return pendingReveal
+    }
+
     func setActive(_ name: String) {
         guard let match = existingName(matching: name) else { return }
         let changed = Self.key(match) != Self.key(activeName)
         activeName = match
         syncActiveToConfig()
         guard changed else { return }
+        pendingReveal = nil
 
         if let ready = loaded[Self.key(match)] {
             loadTask?.cancel()

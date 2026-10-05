@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+/// What is done with the chosen result.
+enum SearchAction {
+    /// Start it. Return and click, or ⇧Return with "Prefer adding to queue".
+    case play
+    /// ⌥Return: open its playlist and show it in the main window.
+    case goTo
+    /// Add it to the queue (not there yet). ⇧Return, or Return and click with "Prefer adding to queue".
+    case enqueue
+}
+
 /// The state of the search window: the query, its results and which one is selected.
 @MainActor
 @Observable
@@ -18,18 +28,36 @@ final class SearchModel {
     /// The results shown belong to the current query (no search is running or waiting for it).
     private(set) var isCurrent = true
 
-    /// A result was chosen (Return, click).
-    @ObservationIgnored var onChoose: (SearchResult) -> Void = { _ in }
+    /// A result was chosen (Return with or without modifiers, click).
+    @ObservationIgnored var onChoose: (SearchResult, SearchAction) -> Void = { _, _ in }
 
     @ObservationIgnored private let searcher: PlaylistSearcher
     @ObservationIgnored private let store: PlaylistStore
+    @ObservationIgnored private let settings: SearchSettings
     @ObservationIgnored private var running = false
     @ObservationIgnored private var queryChangedWhileRunning = false
-    @ObservationIgnored private var chooseWhenCurrent = false
+    @ObservationIgnored private var chooseWhenCurrent: SearchAction?
 
-    init(searcher: PlaylistSearcher? = nil, store: PlaylistStore? = nil) {
+    init(searcher: PlaylistSearcher? = nil, store: PlaylistStore? = nil, settings: SearchSettings? = nil) {
         self.searcher = searcher ?? .shared
         self.store = store ?? .shared
+        self.settings = settings ?? .shared
+    }
+
+    /// What Return and a click do (and ⇧Return the other way round: they swap places with "Prefer adding to queue").
+    var primaryAction: SearchAction { settings.preferAddingToQueue ? .enqueue : .play }
+    /// What ⇧Return does.
+    var secondaryAction: SearchAction { settings.preferAddingToQueue ? .play : .enqueue }
+
+    /// Results are of different kinds (tracks, albums, playlists), so each line says which. Not when tracks are
+    /// the only kind there can be.
+    var showsKinds: Bool { !settings.options.tracksOnly }
+
+    /// The hint in the empty field: what can be found.
+    var placeholder: String {
+        let options = settings.options
+        let kinds = ["tracks"] + (options.albums ? ["albums"] : []) + (options.playlists ? ["playlists"] : [])
+        return "Search " + (kinds.count == 1 ? kinds[0] : kinds.dropLast().joined(separator: ", ") + " and " + kinds[kinds.count - 1])
     }
 
     /// Playlists are named in the results only if there is more than one.
@@ -61,18 +89,19 @@ final class SearchModel {
 
     /// Chooses the selected result; if the results are about to change (the query was just typed), the one that
     /// will be selected then.
-    func choose() {
+    func choose(_ action: SearchAction) {
         guard isCurrent else {
-            chooseWhenCurrent = true
+            chooseWhenCurrent = action
             return
         }
         guard results.indices.contains(selected) else { return }
-        onChoose(results[selected])
+        onChoose(results[selected], action)
     }
 
+    /// A click: the same as Return.
     func choose(_ index: Int) {
         guard results.indices.contains(index) else { return }
-        onChoose(results[index])
+        onChoose(results[index], primaryAction)
     }
 
     // MARK: Searching
@@ -83,7 +112,7 @@ final class SearchModel {
             selected = 0
             isCurrent = true
             queryChangedWhileRunning = running   // what a running search finds is of no use
-            chooseWhenCurrent = false
+            chooseWhenCurrent = nil
             return
         }
         isCurrent = false
@@ -106,9 +135,9 @@ final class SearchModel {
                     results = found
                     selected = 0
                     isCurrent = true
-                    if chooseWhenCurrent {
-                        chooseWhenCurrent = false
-                        choose()
+                    if let action = chooseWhenCurrent {
+                        chooseWhenCurrent = nil
+                        choose(action)
                     }
                 }
             } while queryChangedWhileRunning

@@ -52,12 +52,14 @@ struct FieldMatch {
 ///   Words of one or two letters are only ever matched exactly.
 enum FuzzyMatcher {
     /// The best match of `word` in any of `fields`: an exact one if there is one, else a fuzzy one. `nil` if none.
-    static func best(of word: SearchString, in fields: [SearchString]) -> FieldMatch? {
+    /// Without `fuzzy` only exact matches are made.
+    static func best(of word: SearchString, in fields: [SearchString], fuzzy allowed: Bool = true) -> FieldMatch? {
         var best: Int?
         for field in fields {
             if let score = exact(word, in: field), score > (best ?? Int.min) { best = score }
         }
         if let best { return FieldMatch(isExact: true, score: best) }
+        guard allowed else { return nil }
 
         for field in fields {
             if let score = fuzzy(word, in: field), score > (best ?? Int.min) { best = score }

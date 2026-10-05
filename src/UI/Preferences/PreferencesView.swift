@@ -10,6 +10,7 @@ struct PreferencesView: View {
         case general
         case playback
         case playlist
+        case search
         case integrations
         case hotkeys
 
@@ -20,6 +21,7 @@ struct PreferencesView: View {
             case .general: "General"
             case .playback: "Playback"
             case .playlist: "Playlist"
+            case .search: "Search"
             case .integrations: "Integrations"
             case .hotkeys: "Hotkeys"
             }
@@ -30,6 +32,7 @@ struct PreferencesView: View {
             case .general: "gearshape"
             case .playback: "play.circle"
             case .playlist: "music.note.list"
+            case .search: "magnifyingglass"
             case .integrations: "puzzlepiece.extension"
             case .hotkeys: "keyboard"
             }
@@ -71,6 +74,7 @@ struct PreferencesView: View {
                 case .general: GeneralTab()
                 case .playback: PlaybackTab()
                 case .playlist: PlaylistTab()
+                case .search: SearchTab()
                 case .integrations: IntegrationsTab()
                 case .hotkeys: HotkeysTab()
                 }
@@ -316,6 +320,55 @@ private struct PlaybackTab: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
+            }
+        }
+    }
+}
+
+private struct SearchTab: View {
+    @Bindable private var settings = SearchSettings.shared
+
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "Search by Playlist Name",
+                description: "Find playlists by their name (the whole name has to be typed) and list them in the search "
+                    + "results. Turning this off removes playlists from the results."
+            ) {
+                Toggle("", isOn: $settings.byPlaylistName)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Search by Album Name",
+                description: "Find albums by their artist and name and list them in the search results; tracks are also "
+                    + "found by the name of their album. Turning this off removes albums from the results, and "
+                    + "tracks are found only by their own artist and title."
+            ) {
+                Toggle("", isOn: $settings.byAlbumName)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Fuzzy Search",
+                description: "Also find words typed with a typo (floid for Floyd) or with letters left out "
+                    + "(pfloyd for Pink Floyd). Turning this off finds only what contains the typed words."
+            ) {
+                Toggle("", isOn: $settings.fuzzy)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Prefer Adding to Queue",
+                description: "When enabled, ⏎ adds the result to the queue and ⇧⏎ plays it, "
+                    + "instead of the other way round."
+            ) {
+                Toggle("", isOn: $settings.preferAddingToQueue)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
     }

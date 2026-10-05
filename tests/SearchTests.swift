@@ -211,6 +211,69 @@ extension AllTests {
             #expect(search("later", [one], names: ["Jazz", "Later"]).map(\.playlist) == ["Later"])
         }
 
+        @Test("without playlist search no playlist is a result")
+        func playlistsOff() {
+            let one = index("Jazz", entries("j", artist: "Miles", album: "Kind of Blue", titles: ["So What"]))
+            let two = index("Rock", entries("r", artist: "Band", album: "Songs", titles: ["Jazz Hands"]))
+            let query = "jazz"
+            #expect(search(query, [one, two]).first?.kind == .playlist)
+
+            let found = SearchEngine.search(query, indexes: [one, two], playlistNames: ["Jazz", "Rock"], preferred: nil,
+                                            options: SearchOptions(playlists: false))
+            #expect(found.map(\.kind) == [.track])
+            #expect(found.first?.text == "Band – Jazz Hands")
+        }
+
+        @Test("without album search no album is a result and the album name isn't searched")
+        func albumsOff() {
+            let main = index("main", floyd)
+            let options = SearchOptions(albums: false)
+            func find(_ query: String) -> [SearchResult] {
+                SearchEngine.search(query, indexes: [main], playlistNames: ["main"], preferred: nil, options: options)
+            }
+
+            // By artist: every track, no album.
+            let byArtist = find("pink floyd")
+            #expect(byArtist.count == 6)
+            #expect(byArtist.allSatisfy { $0.kind == .track })
+            // The album's name finds neither the album nor its tracks.
+            #expect(find("the wall").isEmpty)
+            #expect(find("moon").isEmpty)
+            #expect(find("money").map(\.text) == ["Pink Floyd – Money"])
+            #expect(find("floyd time").map(\.text) == ["Pink Floyd – Time"])
+
+            // A compilation's tracks are still found by their own artist, but "Various Artists" is an album's.
+            let compilation = index("c", [Make.entry("/Music/V/01.mp3", artist: "Daft Punk", album: "Hits", title: "Around the World", track: 1),
+                                         Make.entry("/Music/V/02.mp3", artist: "Moby", album: "Hits", title: "Porcelain", track: 2)])
+            let found = SearchEngine.search("daft", indexes: [compilation], playlistNames: ["c"], preferred: nil, options: options)
+            #expect(found.map(\.text) == ["Daft Punk – Around the World"])
+            #expect(SearchEngine.search("various", indexes: [compilation], playlistNames: ["c"], preferred: nil, options: options).isEmpty)
+        }
+
+        @Test("without fuzzy search only parts of the text are found")
+        func fuzzyOff() {
+            let main = index("main", floyd)
+            let off = SearchOptions(fuzzy: false)
+            func find(_ query: String, _ options: SearchOptions) -> [SearchResult] {
+                SearchEngine.search(query, indexes: [main], playlistNames: ["main"], preferred: nil, options: options)
+            }
+            #expect(find("mony", SearchOptions()).map(\.text) == ["Pink Floyd – Money"])      // a typo
+            #expect(find("cmfrtbl", SearchOptions()).map(\.text) == ["Pink Floyd – Comfortably Numb"])
+            #expect(find("mony", off).isEmpty)
+            #expect(find("cmfrtbl", off).isEmpty)
+            #expect(find("floid", off).isEmpty)
+            #expect(find("money", off).map(\.text) == ["Pink Floyd – Money"])
+            #expect(find("pink mon", off).map(\.text) == ["Pink Floyd – Money"])
+        }
+
+        @Test("the options tell when tracks are the only kind of result")
+        func tracksOnly() {
+            #expect(!SearchOptions().tracksOnly)
+            #expect(!SearchOptions(playlists: false).tracksOnly)
+            #expect(!SearchOptions(albums: false).tracksOnly)
+            #expect(SearchOptions(playlists: false, albums: false).tracksOnly)
+        }
+
         @Test("the number of results is limited")
         func limit() {
             let many = index("main", entries("m", artist: "Band", album: "Songs", titles: (1...40).map { "Song \($0)" }))
@@ -260,6 +323,16 @@ extension AllTests {
             #expect(await searcher.search("money").map(\.playlist) == ["main", "Other"])
             let byName = await searcher.search("other")
             #expect(byName.contains { $0.kind == .playlist && $0.playlist == "Other" })
+
+            // The searcher follows its settings.
+            let settings = SearchSettings()
+            let narrow = PlaylistSearcher(store: store, settings: settings)
+            settings.byPlaylistName = false
+            #expect(await narrow.search("other").allSatisfy { $0.kind != .playlist })
+            settings.byAlbumName = false
+            #expect(await narrow.search("other").allSatisfy { $0.kind == .track })
+            settings.fuzzy = false
+            #expect(await narrow.search("mony").isEmpty)
         }
     }
 }

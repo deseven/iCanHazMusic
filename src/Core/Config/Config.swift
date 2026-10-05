@@ -153,6 +153,35 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
+    struct Search: Codable, Equatable {
+        /// Playlists are found by their name (and listed in the results). Off: no playlist is ever a result.
+        var byPlaylistName = true
+        /// Albums are found by their name (and listed in the results). Off: album names aren't searched at all.
+        var byAlbumName = true
+        /// Words are also found with typos and as letters in order (`pfloyd`). Off: only parts of the text match.
+        var fuzzy = true
+        /// Return adds the result to the queue and Shift-Return plays it, instead of the other way round.
+        var preferAddingToQueue = false
+
+        enum CodingKeys: String, CodingKey {
+            case byPlaylistName = "by_playlist_name"
+            case byAlbumName = "by_album_name"
+            case fuzzy
+            case preferAddingToQueue = "prefer_adding_to_queue"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = Search()
+            byPlaylistName = c.value(.byPlaylistName, default: d.byPlaylistName)
+            byAlbumName = c.value(.byAlbumName, default: d.byAlbumName)
+            fuzzy = c.value(.fuzzy, default: d.fuzzy)
+            preferAddingToQueue = c.value(.preferAddingToQueue, default: d.preferAddingToQueue)
+        }
+    }
+
     struct Hotkeys: Codable, Equatable {
         /// The play/pause, next and previous keys of the keyboard (and headsets) control the player.
         var mediaKeys = true
@@ -262,6 +291,7 @@ struct AppConfig: Codable, Equatable {
     var general = General()
     var playback = Playback()
     var playlist = Playlist()
+    var search = Search()
     var hotkeys = Hotkeys()
     var integrations = Integrations()
     var activePlaylist = AppConfig.defaultPlaylistName
@@ -271,6 +301,7 @@ struct AppConfig: Codable, Equatable {
         case general
         case playback
         case playlist
+        case search
         case hotkeys
         case integrations
         case activePlaylist = "active_playlist"
@@ -285,6 +316,7 @@ struct AppConfig: Codable, Equatable {
         general = c.value(.general, default: d.general)
         playback = c.value(.playback, default: d.playback)
         playlist = c.value(.playlist, default: d.playlist)
+        search = c.value(.search, default: d.search)
         hotkeys = c.value(.hotkeys, default: d.hotkeys)
         integrations = c.value(.integrations, default: d.integrations)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)

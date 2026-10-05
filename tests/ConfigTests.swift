@@ -268,6 +268,28 @@ extension AllTests {
             #expect(try decode(#"{"playlist": 5}"#).playlist == defaults)
         }
 
+        @Test("the search section is read leniently; playlists, albums and fuzzy are on, queue preference off by default")
+        func searchSection() throws {
+            let defaults = AppConfig().search
+            #expect(defaults.byPlaylistName)
+            #expect(defaults.byAlbumName)
+            #expect(defaults.fuzzy)
+            #expect(!defaults.preferAddingToQueue)
+
+            let config = try decode("""
+            {"search": {"by_playlist_name": false, "by_album_name": false, "fuzzy": false, "prefer_adding_to_queue": true}}
+            """)
+            #expect(!config.search.byPlaylistName)
+            #expect(!config.search.byAlbumName)
+            #expect(!config.search.fuzzy)
+            #expect(config.search.preferAddingToQueue)
+
+            let partial = try decode(#"{"search": {"by_playlist_name": "no", "fuzzy": false}}"#)
+            #expect(partial.search.byPlaylistName == defaults.byPlaylistName)
+            #expect(!partial.search.fuzzy)
+            #expect(try decode(#"{"search": 5}"#).search == defaults)
+        }
+
         @Test("the tag parsing concurrency must be one of the offered values")
         func invalidConcurrency() {
             for count in ConfigLimits.tagParsingConcurrencyOptions {

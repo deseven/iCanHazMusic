@@ -32,7 +32,7 @@ final class SearchPanel {
         PlaylistSearcher.shared.prepare()
 
         let model = SearchModel()
-        model.onChoose = { [weak self] in self?.choose($0) }
+        model.onChoose = { [weak self] in self?.choose($0, $1) }
         let hosting = NSHostingView(rootView: SearchView(
             model: model,
             onCancel: { [weak self] in self?.close() },
@@ -69,7 +69,33 @@ final class SearchPanel {
         panel = nil
     }
 
-    private func choose(_ result: SearchResult) {
+    private func choose(_ result: SearchResult, _ action: SearchAction) {
+        switch action {
+        case .play: play(result)
+        case .goTo: goTo(result)
+        case .enqueue: break   // TODO: the queue doesn't exist yet; the window stays as it is
+        }
+    }
+
+    /// Opens the result's playlist with the result selected, and brings the main window forward (also from the
+    /// background or the Dock).
+    private func goTo(_ result: SearchResult) {
+        close()
+        switch result.kind {
+        case .track, .album:
+            guard let id = result.trackID else { return }
+            PlaylistStore.shared.reveal(trackID: id, inPlaylist: result.playlist, wholeAlbum: result.kind == .album)
+        case .playlist:
+            PlaylistStore.shared.setActive(result.playlist)
+        }
+        NSApp.activate()
+        if let window = Dialogs.hostWindow {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func play(_ result: SearchResult) {
         close()
         let playback = PlaybackState.shared
         switch result.kind {

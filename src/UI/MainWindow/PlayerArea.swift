@@ -63,9 +63,9 @@ struct PlayerArea: View {
     /// A playlist has been opened (also at launch): its last played track, which is the playing one while playback
     /// runs from it, is selected and scrolled to; if there is none, nothing is selected. This is just a convenience:
     /// it doesn't depend on `cursorFollowsPlayback`, and the cursor is placed there without asking playback to go
-    /// to it (`playbackFollowsCursor`).
+    /// to it (`playbackFollowsCursor`). A row the search asked to go to (`PlaylistStore.reveal`) comes first.
     private func playlistOpened() {
-        let row = playback.playingRow ?? store.lastPlayedRow
+        let row = store.takeReveal() ?? playback.playingRow ?? store.lastPlayedRow
         selection = row.map { [$0] } ?? []
         playback.placeCursor(at: row)
         revealRow = row

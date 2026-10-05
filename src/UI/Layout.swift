@@ -56,15 +56,18 @@ enum Layout {
     static let searchWidth: CGFloat = 640
     static let searchFieldHeight: CGFloat = 54
     static let searchRowHeight: CGFloat = 32
+    /// The line of key hints at the bottom (under its divider).
+    static let searchLegendHeight: CGFloat = 30
     /// Space above and below the result rows.
     static let searchListPadding: CGFloat = 6
     /// Where the window's top edge is, as the share of the screen's height above it.
     static let searchTopOffset: CGFloat = 0.2
 
-    /// Height of the search window with this many rows (a message counts as one).
+    /// Height of the search window with this many rows (a message counts as one), the legend included.
     static func searchHeight(rows: Int) -> CGFloat {
-        guard rows > 0 else { return searchFieldHeight }
-        return searchFieldHeight + 1 + 2 * searchListPadding + CGFloat(rows) * searchRowHeight
+        let legend = 1 + searchLegendHeight
+        guard rows > 0 else { return searchFieldHeight + legend }
+        return searchFieldHeight + 1 + 2 * searchListPadding + CGFloat(rows) * searchRowHeight + legend
     }
 
     // Divider between playlist and playback block

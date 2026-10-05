@@ -673,6 +673,30 @@ extension AllTests {
             #expect(loading.store.openCount == 1)
         }
 
+        @Test("reveal opens the playlist (also an open one) and hands the view the row of the track or of its album header, once")
+        func reveal() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "b")
+            let store = env.store
+            await settle(store)
+            let id = try #require(store.playlist(named: "a")?.albums.first?.tracks[1].id)
+            let opened = store.openCount
+
+            store.reveal(trackID: id, inPlaylist: "a")
+            #expect(store.activeName == "a")
+            #expect(store.openCount == opened + 1)
+            #expect(store.takeReveal() == 2)                // row 0 is the album header
+            #expect(store.takeReveal() == nil)
+
+            store.reveal(trackID: id, inPlaylist: "a", wholeAlbum: true)   // already shown: still a request
+            #expect(store.openCount == opened + 2)
+            #expect(store.takeReveal() == 0)
+
+            store.reveal(trackID: 999, inPlaylist: "a")     // no such track: nothing happens
+            #expect(store.openCount == opened + 2)
+            #expect(store.takeReveal() == nil)
+        }
+
         // MARK: Rename
 
         @Test("rename moves the file and keeps the content")

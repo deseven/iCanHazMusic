@@ -83,6 +83,9 @@ final class SearchIndex: @unchecked Sendable {
 ///   to be found in one of those. Flat playlists have no albums.
 /// - A track is left out if its album is in the results and the track's title alone doesn't match the query: it
 ///   would only be the album once more for each of its tracks.
+/// - `SearchOptions` (Preferences > Search) narrow it down: without `playlists` no playlist is a result; without
+///   `albums` no album is, and the album's name (and the "Various Artists" of a compilation) isn't searched for the
+///   tracks either, only their own artist and title; without `fuzzy` a word has to be a part of the text.
 ///
 /// Order: found playlists come first. Then the entries of the playlist that is playing (else
 /// the active one), then those of the others; in each of these groups exact matches come before fuzzy ones, then
@@ -108,7 +111,7 @@ enum SearchEngine {
     /// `playlistNames`: all playlists, also those that have no index (yet). `preferred`: the playlist whose entries
     /// come first.
     static func search(_ query: String, indexes: [SearchIndex], playlistNames: [String], preferred: String?,
-                       limit: Int = defaultLimit) -> [SearchResult] {
+                       options: SearchOptions = SearchOptions(), limit: Int = defaultLimit) -> [SearchResult] {
         let words = SearchText.tokens(of: query)
         guard !words.isEmpty else { return [] }
 
@@ -120,7 +123,9 @@ enum SearchEngine {
             order += 1
         }
 
-        if playlistNames.count > 1 {
+        let fuzzy = options.fuzzy
+
+        if options.playlists, playlistNames.count > 1 {
             let wanted = SearchText.normalized(words)
             for (i, name) in playlistNames.enumerated() where SearchText.normalized(SearchText.tokens(of: name)) == wanted {
                 add(FieldMatch(isExact: true, score: 0), group: Self.playlistGroup, kind: .playlist, index: i)
@@ -131,10 +136,13 @@ enum SearchEngine {
             let group = index.name == preferred ? 0 : 1
             let isFlat = index.playlist.isFlat
             for (a, album) in index.albums.enumerated() {
-                // What each word finds in the album's own fields, which all its tracks share.
-                let albumHits = words.map { FuzzyMatcher.best(of: $0, in: [album.artist, album.title]) }
+                // What each word finds in the album's own fields, which all its tracks share. Without album
+                // search an album is neither a result nor a field of its tracks.
+                let albumHits = options.albums
+                    ? words.map { FuzzyMatcher.best(of: $0, in: [album.artist, album.title], fuzzy: fuzzy) }
+                    : []
                 var albumFound = false
-                if !isFlat, let match = FuzzyMatcher.total(albumHits) {
+                if options.albums, !isFlat, let match = FuzzyMatcher.total(albumHits) {
                     add(match, group: group, kind: .album, index: n, album: a)
                     albumFound = true
                 }
@@ -142,11 +150,16 @@ enum SearchEngine {
                     var titleHits: [FieldMatch?] = []
                     var trackHits: [FieldMatch?] = []
                     for (w, word) in words.enumerated() {
-                        let own = FuzzyMatcher.best(of: word, in: [track.title])
+                        let own = FuzzyMatcher.best(of: word, in: [track.title], fuzzy: fuzzy)
                         titleHits.append(own)
-                        var hit = FuzzyMatcher.better(own, albumHits[w])
-                        if album.hasMultipleArtists {
-                            hit = FuzzyMatcher.better(hit, FuzzyMatcher.best(of: word, in: [track.artist]))
+                        var hit = own
+                        if options.albums {
+                            hit = FuzzyMatcher.better(hit, albumHits[w])
+                            if album.hasMultipleArtists {
+                                hit = FuzzyMatcher.better(hit, FuzzyMatcher.best(of: word, in: [track.artist], fuzzy: fuzzy))
+                            }
+                        } else {
+                            hit = FuzzyMatcher.better(hit, FuzzyMatcher.best(of: word, in: [track.artist], fuzzy: fuzzy))
                         }
                         guard hit != nil else { break }
                         trackHits.append(hit)
@@ -191,7 +204,7 @@ enum SearchEngine {
 /// a playlist whose content has been replaced) and runs searches over them.
 @MainActor
 final class PlaylistSearcher {
-    static let shared = PlaylistSearcher(store: .shared)
+    static let shared = PlaylistSearcher(store: .shared, settings: .shared)
 
     private struct Entry {
         let playlist: Playlist
@@ -199,10 +212,13 @@ final class PlaylistSearcher {
     }
 
     private let store: PlaylistStore
+    private let settings: SearchSettings
     private var entries: [String: Entry] = [:]
 
-    init(store: PlaylistStore) {
+    /// `settings`: what the searches look at; the default is every kind of result with fuzzy matching.
+    init(store: PlaylistStore, settings: SearchSettings? = nil) {
         self.store = store
+        self.settings = settings ?? SearchSettings()
     }
 
     /// Starts making the indexes that are missing or out of date, so the first search doesn't wait for them.
@@ -215,6 +231,7 @@ final class PlaylistSearcher {
 
     /// The results for `query` over the playlists that are in memory (the others are found by name only).
     func search(_ query: String, limit: Int = SearchEngine.defaultLimit) async -> [SearchResult] {
+        let options = settings.options
         guard !SearchText.tokens(of: query).isEmpty else { return [] }
         prepare()
         var indexes: [SearchIndex] = []
@@ -224,7 +241,8 @@ final class PlaylistSearcher {
         let names = store.names
         let preferred = store.playingName ?? store.activeName
         return await Task.detached(priority: .userInitiated) {
-            SearchEngine.search(query, indexes: indexes, playlistNames: names, preferred: preferred, limit: limit)
+            SearchEngine.search(query, indexes: indexes, playlistNames: names, preferred: preferred, options: options,
+                                limit: limit)
         }.value
     }
 
