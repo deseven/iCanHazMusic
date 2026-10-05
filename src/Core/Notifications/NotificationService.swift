@@ -16,7 +16,7 @@ protocol NotificationDelivery: AnyObject {
 }
 
 /// System notifications about playback, for when the app isn't in front: the track that starts and the end of the
-/// playlist.
+/// playlist (or of the queue, with "Stop at queue end").
 ///
 /// A `PlaybackListener`, like `LastFMService` and `LyricsService`. The notifications replace each other (see
 /// `NotificationDelivery`), so the one on screen is always the latest: a track that starts replaces the previous
@@ -63,6 +63,11 @@ final class NotificationService: PlaybackListener {
         delivery.deliver(Self.message(playlistEnded: playlist), cover: nil)
     }
 
+    func queueDidEnd() {
+        guard isEnabled else { return }
+        delivery.deliver(Self.messageQueueEnded, cover: nil)
+    }
+
     // MARK: - Texts
 
     /// Title, then the artist, then the album and the duration.
@@ -76,6 +81,8 @@ final class NotificationService: PlaybackListener {
     static func message(playlistEnded playlist: String) -> NotificationMessage {
         NotificationMessage(title: "Playlist ended", body: "Finished playing “\(playlist)”.")
     }
+
+    static let messageQueueEnded = NotificationMessage(title: "Queue ended", body: "Finished playing the queue.")
 
     /// `3:05`, or `1:02:03` from an hour on.
     static func formatDuration(_ seconds: TimeInterval) -> String {

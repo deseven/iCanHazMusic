@@ -9,16 +9,26 @@ struct PlaylistLayout {
 
     var totalHeight: CGFloat { rowOffsets[rowCount] }
 
-    /// `showAlbumArt`: album headers are as tall as the cover needs (or as the text needs, without it).
+    /// Album headers are as tall as the cover needs (or as the text needs, without it).
+    static func headerHeight(showAlbumArt: Bool) -> CGFloat {
+        showAlbumArt ? Layout.albumHeaderRowHeight : Layout.albumHeaderRowHeightWithoutArt
+    }
+
+    /// `showAlbumArt`: see `headerHeight`.
     init(playlist: Playlist, showAlbumArt: Bool) {
-        let headerHeight = showAlbumArt ? Layout.albumHeaderRowHeight : Layout.albumHeaderRowHeightWithoutArt
-        rowCount = playlist.rows.count
+        let headerHeight = Self.headerHeight(showAlbumArt: showAlbumArt)
+        self.init(heights: playlist.rows.map { $0.isHeader ? headerHeight : Layout.trackRowHeight })
+    }
+
+    /// Rows of the given heights, top to bottom.
+    init(heights: [CGFloat]) {
+        rowCount = heights.count
         var offsets: [CGFloat] = []
         offsets.reserveCapacity(rowCount + 1)
         var y: CGFloat = 0
-        for row in playlist.rows {
+        for height in heights {
             offsets.append(y)
-            y += row.isHeader ? headerHeight : Layout.trackRowHeight
+            y += height
         }
         offsets.append(y)
         rowOffsets = offsets

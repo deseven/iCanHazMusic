@@ -23,6 +23,13 @@ import SwiftUI
 /// going to a track in its playlist. Otherwise (`playlistName`) tracks that are queued show their place in the
 /// queue where the play symbol goes.
 ///
+/// Reordering (`beginDrag`...`endDrag`): dragging a track moves it inside its album only (a track of a flat playlist
+/// anywhere); dragging an album header collapses the playlist to its headers, so albums can be moved over the whole
+/// list, and expands it again on drop with the moved album where the pointer left it. The dragged item follows the
+/// pointer vertically (`ReorderDrag`, drawn by `DraggedItemOverlay`), the items it passes make room; holding the
+/// pointer at an edge scrolls. A drag is a `DragGesture` on the whole content (not on the rows, which come and go
+/// while collapsing), Esc cancels it.
+///
 /// `cursor` is the row the selection last moved to (the moving end of a range). `playingRow` gets the play
 /// symbol; when it changes and `cursorFollowsPlayback` is on, the selection and cursor move to it and it is
 /// scrolled into view.
@@ -56,6 +63,11 @@ struct VirtualPlaylistView: View {
     @State private var pointer = PointerBox()
     @State private var eventMonitor: Any?
     @State private var keys = KeyHandlerBox()
+    @State private var drag: ReorderDrag?
+    @State private var dragPosition = DragPosition()
+    @State private var reorder = ReorderBox()
+
+    private static let contentSpace = "playlistContent"
 
     init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
          playingRow: Int?, cursorFollowsPlayback: Bool, showAlbumArt: Bool, playlistName: String = "",
@@ -78,36 +90,36 @@ struct VirtualPlaylistView: View {
     }
 
     var body: some View {
+        // While an album is dragged the list shown has the album headers only (its items are albums, not rows).
+        let active = drag?.collapsed ?? layout
         // The window can be stale for a moment after the playlist shrank (its update comes with the change handler).
-        let shown = min(window.lowerBound, layout.rowCount)..<min(window.upperBound, layout.rowCount)
-        // The event monitor outlives this struct value, so it calls whatever handler the latest body left here (a
-        // plain reference, not observed: no re-render).
+        let shown = min(window.lowerBound, active.rowCount)..<min(window.upperBound, active.rowCount)
+        // The event monitor and the timer outlive this struct value, so they call whatever handler the latest body
+        // left here (plain references, not observed: no re-render).
         let _ = keys.handler = { event in handleKey(event) }
+        let _ = reorder.tick = { tickDrag() }
         ScrollView {
             VStack(spacing: 0) {
-                Color.clear.frame(height: layout.rowOffsets[shown.lowerBound])
+                Color.clear.frame(height: active.rowOffsets[shown.lowerBound])
                 ForEach(shown, id: \.self) { i in
-                    PlaylistRowView(playlist: playlist, index: i, isSelected: selection.contains(i),
-                                    isPlaying: i == playingRow, showAlbumArt: showAlbumArt,
-                                    queuePosition: queuePosition(at: i), queued: queuedRow(at: i))
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            click(i)
-                            // A separate count: 2 gesture would delay every single click.
-                            if NSApp.currentEvent?.clickCount == 2 { onActivate(i) }
-                        }
-                        .onHover { inside in
-                            if inside { pointer.row = i } else if pointer.row == i { pointer.row = nil }
-                        }
-                        .contextMenu { contextMenu(for: i) }
+                    rowItem(i, drag: drag)
                 }
-                Color.clear.frame(height: layout.totalHeight - layout.rowOffsets[shown.upperBound])
+                Color.clear.frame(height: active.totalHeight - active.rowOffsets[shown.upperBound])
             }
+            .coordinateSpace(name: Self.contentSpace)
+            .overlay(alignment: .topLeading) {
+                if let drag { draggedItem(drag) }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.contentSpace))
+                    .onChanged { dragChanged($0) }
+                    .onEnded { _ in dragEnded() }
+            )
             .background(ScrollViewFinder(box: scrollBox))
         }
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: Range<Int>.self) { [layout] geo in
-            layout.rowRange(minY: geo.visibleRect.minY, maxY: geo.visibleRect.maxY,
+        .onScrollGeometryChange(for: Range<Int>.self) { [active] geo in
+            active.rowRange(minY: geo.visibleRect.minY, maxY: geo.visibleRect.maxY,
                             overscan: Layout.playlistOverscan)
         } action: { _, newWindow in
             window = newWindow   // only fires when the row window actually changes
@@ -134,7 +146,7 @@ struct VirtualPlaylistView: View {
                                      overscan: Layout.playlistOverscan)
         }
         .onChange(of: playingRow) { _, row in
-            guard cursorFollowsPlayback, let row, playlist.rows.indices.contains(row) else { return }
+            guard drag == nil, cursorFollowsPlayback, let row, playlist.rows.indices.contains(row) else { return }
             selection = [row]
             anchor = row
             cursor = row
@@ -149,7 +161,41 @@ struct VirtualPlaylistView: View {
         .onDisappear {
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
             eventMonitor = nil
+            reorder.stopTimer()
         }
+    }
+
+    /// One item of the list that is shown: a row, or (while an album is dragged) the header of an album. The items
+    /// the dragged one passes over are moved to make room, the dragged one itself is drawn by `draggedItem`.
+    @ViewBuilder
+    private func rowItem(_ i: Int, drag d: ReorderDrag?) -> some View {
+        let row = d?.kind == .album ? playlist.headerRow[i] : i
+        let shift = d?.shift(of: i) ?? 0
+        PlaylistRowView(playlist: playlist, index: row, isSelected: selection.contains(row),
+                        isPlaying: row == playingRow, showAlbumArt: showAlbumArt,
+                        queuePosition: queuePosition(at: row), queued: queuedRow(at: row))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !reorder.suppressClicks else { return }
+                click(row)
+                // A separate count: 2 gesture would delay every single click.
+                if NSApp.currentEvent?.clickCount == 2 { onActivate(row) }
+            }
+            .onHover { inside in
+                if inside { pointer.row = row } else if pointer.row == row { pointer.row = nil }
+            }
+            .contextMenu { contextMenu(for: row) }
+            .opacity(d?.from == i ? 0 : 1)
+            .offset(y: shift)
+            .animation(d == nil ? nil : Animation.easeOut(duration: 0.12), value: shift)
+    }
+
+    private func draggedItem(_ d: ReorderDrag) -> some View {
+        let row = d.kind == .album ? playlist.headerRow[d.from] : d.from
+        return DraggedItemOverlay(position: dragPosition,
+                                  content: PlaylistRowView(playlist: playlist, index: row, isSelected: true,
+                                                           isPlaying: row == playingRow, showAlbumArt: showAlbumArt,
+                                                           queuePosition: queuePosition(at: row)))
     }
 
     /// The parent asked for a row to be shown (a playlist was opened, see `PlayerArea`): scroll to it, in the middle
@@ -251,6 +297,10 @@ struct VirtualPlaylistView: View {
     /// the key was used.
     private func handleKey(_ event: NSEvent) -> Bool {
         let code = event.keyCode
+        if drag != nil {    // dragging: Esc cancels, nothing else works
+            if code == 53 { cancelDrag() }
+            return true
+        }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if modifiers.isDisjoint(with: .command), code == 125 || code == 126 {   // Down, up
             move(code == 125 ? 1 : -1, extend: modifiers == .shift)
@@ -410,6 +460,222 @@ struct VirtualPlaylistView: View {
         clip.scroll(to: origin)
         scrollView.reflectScrolledClipView(clip)
         return true
+    }
+
+    // MARK: Reordering
+
+    private func dragChanged(_ value: DragGesture.Value) {
+        switch reorder.gesture {
+        case .ignored:
+            return
+        case .idle:
+            guard beginDrag(startY: value.startLocation.y) else {
+                reorder.gesture = .ignored
+                return
+            }
+            reorder.gesture = .active
+        case .active:
+            break
+        }
+        tickDrag()
+    }
+
+    private func dragEnded() {
+        let box = reorder
+        defer {
+            box.gesture = .idle
+            // The click that ends the press (if SwiftUI counts it as one) comes before this runs.
+            DispatchQueue.main.async { box.suppressClicks = false }
+        }
+        guard box.gesture == .active, drag != nil else { return }
+        tickDrag()   // the pointer's last position
+        dropDrag()
+    }
+
+    /// Takes hold of the item under `startY` (a content offset), if there is one that can be moved. For an album the
+    /// playlist collapses to its headers, scrolled so that the header stays where it is on screen.
+    private func beginDrag(startY: CGFloat) -> Bool {
+        guard queue == nil, drag == nil, !ImportCoordinator.shared.isBusy, !playlist.rows.isEmpty,
+              NSEvent.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty,
+              startY >= 0, startY < layout.totalHeight else { return false }
+        let row = layout.rowIndex(atOffset: startY)
+        let item = playlist.rows[row]
+        let rowTop = layout.rowOffsets[row]
+        let album = playlist.albums[item.albumIndex]
+        guard let firstID = album.tracks.first?.id else { return false }
+
+        let new: ReorderDrag
+        if item.isHeader {
+            let height = PlaylistLayout.headerHeight(showAlbumArt: showAlbumArt)
+            new = ReorderDrag(kind: .album, from: item.albumIndex, range: 0..<playlist.albums.count,
+                              itemHeight: height, top: 0, grab: startY - rowTop, movedID: firstID,
+                              collapsed: PlaylistLayout(heights: Array(repeating: height, count: playlist.albums.count)),
+                              target: item.albumIndex)
+        } else {
+            // A flat playlist's tracks can go anywhere, those of an album stay in it.
+            let range = playlist.isFlat ? 0..<playlist.rows.count : playlist.trackRows[item.albumIndex]
+            guard let id = playlist.track(for: item)?.id else { return false }
+            new = ReorderDrag(kind: .track, from: row, range: range, itemHeight: Layout.trackRowHeight,
+                              top: layout.rowOffsets[range.lowerBound], grab: startY - rowTop, movedID: id,
+                              collapsed: nil, target: row)
+        }
+
+        // Where the header is on screen now, before the content changes.
+        var headerOffset: CGFloat?
+        if new.kind == .album {
+            headerOffset = viewportOffset(ofContentY: rowTop)
+            guard headerOffset != nil else { return false }
+        }
+
+        Log.info("reorder: picked up \(new.kind == .album ? "album" : "track") \(new.from) of '\(playlistName)'")
+        reorder.suppressClicks = true
+        selection = [row]
+        anchor = row
+        cursor = row
+        dragPosition.y = new.slotY(new.from)
+        drag = new
+        if let collapsed = new.collapsed, let headerOffset {
+            let y = collapsed.rowOffsets[new.from]
+            scrollContent(y, to: headerOffset, total: collapsed.totalHeight, using: collapsed)
+            // Once SwiftUI has laid the new content out, in case it moved the scroll position meanwhile.
+            DispatchQueue.main.async {
+                guard drag?.kind == .album else { return }
+                scrollContent(y, to: headerOffset, total: collapsed.totalHeight, using: collapsed)
+            }
+        }
+        reorder.startTimer()
+        return true
+    }
+
+    /// Every 1/60 s and on every pointer movement: scrolls if the pointer is at an edge, then puts the dragged item
+    /// under the pointer and works out which slot it is over.
+    private func tickDrag() {
+        guard let d = drag, let scrollView = scrollBox.scrollView, let content = scrollBox.anchor,
+              let hostWindow = content.window else { return }
+        let clip = scrollView.contentView
+        let pointer = hostWindow.convertPoint(fromScreen: NSEvent.mouseLocation)
+
+        let insets = scrollView.contentInsets
+        let visibleTop = clip.bounds.minY + insets.top
+        let visibleBottom = clip.bounds.maxY - insets.bottom
+        let zone: CGFloat = 40
+        let inClip = clip.convert(pointer, from: nil).y
+        var delta: CGFloat = 0
+        if inClip < visibleTop + zone {
+            delta = -min(28, 3 + (visibleTop + zone - inClip) * 0.35)
+        } else if inClip > visibleBottom - zone {
+            delta = min(28, 3 + (inClip - (visibleBottom - zone)) * 0.35)
+        }
+        if delta != 0, clip.isFlipped {
+            var origin = clip.bounds.origin
+            origin.y += delta
+            origin = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+            if origin != clip.bounds.origin {
+                clip.scroll(to: origin)
+                scrollView.reflectScrolledClipView(clip)
+                refreshWindow(using: d.collapsed ?? layout)
+            }
+        }
+
+        let drawn = d.drawnY(pointerY: content.convert(pointer, from: nil).y)
+        if dragPosition.y != drawn { dragPosition.y = drawn }
+        let target = d.target(forDrawnY: drawn)
+        if target != d.target { drag?.target = target }
+    }
+
+    /// The button was released: moves the item to the slot it is over (if that is another one) and ends the drag.
+    private func dropDrag() {
+        guard let d = drag else { return }
+        let store = PlaylistStore.shared
+        guard d.target != d.from else {
+            endDrag(landing: d.from, playlist: playlist, layout: layout)
+            return
+        }
+
+        let moved: Bool
+        if d.kind == .album || playlist.isFlat {
+            moved = store.moveAlbum(d.from, to: d.target, in: playlistName)
+        } else {
+            moved = store.moveTrack(id: d.movedID, toIndexInAlbum: d.target - d.range.lowerBound, in: playlistName)
+        }
+        guard moved else {
+            Log.error("reorder: the move was refused, putting everything back")
+            endDrag(landing: d.from, playlist: playlist, layout: layout)
+            return
+        }
+        // The store has the new order already, this view value still the old one (SwiftUI catches up on its next
+        // update): the new content is described here, so that it all changes at once.
+        let new = store.activePlaylist
+        endDrag(landing: d.target, playlist: new, layout: PlaylistLayout(playlist: new, showAlbumArt: showAlbumArt))
+    }
+
+    private func cancelDrag() {
+        guard let d = drag else { return }
+        Log.info("reorder: cancelled")
+        reorder.gesture = .ignored   // until the button is released
+        endDrag(landing: d.from, playlist: playlist, layout: layout)
+    }
+
+    /// Shows `playlist` (the playlist as it is after the drag, with its `layout`) in full again. The dragged item is in
+    /// row/album `landing` of it and gets selected. An album stays where the pointer left it on screen: the scroll
+    /// position is set so that its header is where the dragged one was drawn.
+    private func endDrag(landing: Int, playlist new: Playlist, layout newLayout: PlaylistLayout) {
+        guard let d = drag else { return }
+        reorder.stopTimer()
+        let row: Int
+        if d.kind == .album {
+            row = new.headerRow[landing]
+            if let offset = viewportOffset(ofContentY: d.slotY(landing)) {
+                let y = newLayout.rowOffsets[row]
+                scrollContent(y, to: offset, total: newLayout.totalHeight, using: newLayout)
+                DispatchQueue.main.async {
+                    guard drag == nil else { return }
+                    scrollContent(y, to: offset, total: newLayout.totalHeight, using: newLayout)
+                }
+            }
+        } else {
+            row = landing
+        }
+        Log.info("reorder: dropped at \(landing)")
+        drag = nil
+        selection = [row]
+        anchor = row
+        cursor = row
+    }
+
+    /// How far below the top of the visible area (under the insets) content offset `y` is shown now.
+    private func viewportOffset(ofContentY y: CGFloat) -> CGFloat? {
+        guard let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return nil }
+        let clip = scrollView.contentView
+        guard clip.isFlipped else { return nil }
+        return clip.convert(NSPoint(x: 0, y: y), from: content).y - (clip.bounds.minY + scrollView.contentInsets.top)
+    }
+
+    /// Scrolls so that content offset `y` is `offset` points below the top of the visible area, as far as content of
+    /// height `total` allows. The limits are worked out here and not left to the scroll view, whose content still
+    /// has its former height at this point (the new one is only laid out after the current update). `active` is the
+    /// layout of the content to be shown, which the row window is taken from.
+    private func scrollContent(_ y: CGFloat, to offset: CGFloat, total: CGFloat, using active: PlaylistLayout) {
+        guard let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return }
+        let clip = scrollView.contentView
+        guard clip.isFlipped else { return }
+        let insets = scrollView.contentInsets
+        let top = clip.convert(NSPoint.zero, from: content).y   // where offset 0 is in the clip view's coordinates
+        let lowest = top - insets.top
+        let highest = max(lowest, top + total - (clip.bounds.height - insets.bottom))
+        let originY = min(max(top + y - insets.top - offset, lowest), highest)
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: originY))
+        scrollView.reflectScrolledClipView(clip)
+        refreshWindow(using: active)
+    }
+
+    /// Makes the rows around what is visible the ones that are rendered.
+    private func refreshWindow(using active: PlaylistLayout) {
+        guard let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return }
+        let clip = scrollView.contentView
+        let visible = content.convert(clip.bounds, from: clip)
+        let new = active.rowRange(minY: visible.minY, maxY: visible.maxY, overscan: Layout.playlistOverscan)
+        if new != window { window = new }
     }
 }
 

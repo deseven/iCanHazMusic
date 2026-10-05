@@ -152,7 +152,6 @@ private struct PlaybackProgress: View {
                 .font(.body.monospacedDigit())
                 .lineLimit(1)
             SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
-                .padding(.vertical, 4)
         }
     }
 

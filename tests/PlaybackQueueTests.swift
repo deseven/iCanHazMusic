@@ -150,7 +150,7 @@ extension AllTests {
         }
 
         /// Album "X": A1, A2, A3. Album "Y": B1, B2 (very short). A second playlist "other": C1.
-        private func makeEnv() async throws -> Env {
+        private func makeEnv(listener: PlaybackListener? = nil) async throws -> Env {
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.path("work"))
             let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
@@ -169,7 +169,8 @@ extension AllTests {
             store.setActive("main")
 
             let rig = EngineRig(lookahead: 60)
-            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: 0)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, positionStep: 0,
+                                       listeners: listener.map { [$0] } ?? [])
             state.volume = 1
             let listener = rig.engine.onEvent
             rig.engine.onEvent = { [weak rig] event in
@@ -267,14 +268,18 @@ extension AllTests {
 
         @Test("with Stop at queue end playback stops after the last queued track")
         func stopAtEnd() async throws {
-            let env = try await makeEnv()
+            let listener = RecordingListener()
+            let env = try await makeEnv(listener: listener)
             env.queue.stopAtEnd = true
             env.state.play(albumIndex: 0, trackIndex: 0)
             try env.enqueue("A2")
             env.state.nextTrack()
             #expect(env.state.info?.title == "A2")
+            #expect(listener.queuesEnded == 0)
             try await env.run(RampFile.b.frames + 4 * Self.slice)
             #expect(env.state.status == .stopped)
+            #expect(listener.queuesEnded == 1)
+            #expect(listener.playlistsEnded.isEmpty)
         }
 
         @Test("without it playback goes on in the playlist after the queue")

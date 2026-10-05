@@ -212,6 +212,29 @@ final class Playlist {
         return Playlist(albums: AlbumBuilder.build(from: kept, flat: isFlat), isFlat: isFlat, nextID: nextID)
     }
 
+    /// With track `id` moved to place `index` among the tracks of its album (the place it has after the move).
+    /// `nil` if nothing would change (no such track, the same place, a place outside the album). Albums keep
+    /// their order and all IDs stay.
+    func movingTrack(id: TrackID, toIndexInAlbum index: Int) -> Playlist? {
+        guard let pos = positions[id], albums[pos.album].tracks.indices.contains(index), index != pos.track else { return nil }
+        let album = albums[pos.album]
+        var tracks = album.tracks
+        tracks.insert(tracks.remove(at: pos.track), at: index)
+        var updated = albums
+        updated[pos.album] = Album(directory: album.directory, artist: album.artist, title: album.title,
+                                   year: album.year, hasMultipleArtists: album.hasMultipleArtists, tracks: tracks)
+        return Playlist(albums: updated, isFlat: isFlat, nextID: nextID)
+    }
+
+    /// With album number `album` moved to place `index` (the place it has after the move). In a flat playlist
+    /// this moves a single track. `nil` if nothing would change.
+    func movingAlbum(_ album: Int, to index: Int) -> Playlist? {
+        guard albums.indices.contains(album), albums.indices.contains(index), album != index else { return nil }
+        var updated = albums
+        updated.insert(updated.remove(at: album), at: index)
+        return Playlist(albums: updated, isFlat: isFlat, nextID: nextID)
+    }
+
     /// With the tags of the files in `results` taken over (usable results only, others leave their tracks as
     /// they are), and regrouped, since new tags can move a track into another album. The ID, the duration and the
     /// format label are kept: what playback has learned about the file is better than what the tags say.

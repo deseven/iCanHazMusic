@@ -62,6 +62,15 @@ extension AllTests {
             #expect(sent.cover == nil)
         }
 
+        @Test("the end of the queue is announced")
+        func queueEnd() throws {
+            let (service, delivery, _) = try makeService()
+            service.queueDidEnd()
+            let sent = try #require(delivery.delivered.first)
+            #expect(sent.message.title == "Queue ended")
+            #expect(sent.cover == nil)
+        }
+
         @Test("with notifications off nothing is sent; the setting is kept in the config")
         func disabled() throws {
             let dir = try TempDir()
@@ -75,6 +84,7 @@ extension AllTests {
             #expect(!config.config.general.playbackNotifications)
             service.trackDidStart(LastFMTestData.track())
             service.playlistDidEnd(playlist: "Road trip")
+            service.queueDidEnd()
             #expect(delivery.delivered.isEmpty)
 
             // Read back by the next instance, and on again.

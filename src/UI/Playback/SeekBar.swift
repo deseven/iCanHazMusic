@@ -18,6 +18,9 @@ struct SeekBar: View {
                 Capsule().fill(Color.accentColor)
                     .frame(width: geo.size.width * fraction)
             }
+            .frame(height: Self.barHeight)
+            .frame(width: geo.size.width, height: geo.size.height)
+            // The whole frame, including the margin above and below the drawn bar, takes the mouse.
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -32,8 +35,12 @@ struct SeekBar: View {
                     }
             )
         }
-        .frame(height: 6)
+        .frame(height: Self.barHeight + 2 * Self.hitMargin)
     }
+
+    private static let barHeight: CGFloat = 6
+    /// Extra clickable height above and below the drawn bar.
+    private static let hitMargin: CGFloat = 4
 
     private func target(for x: CGFloat, width: CGFloat) -> Double {
         guard width > 0 else { return 0 }

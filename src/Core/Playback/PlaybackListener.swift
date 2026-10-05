@@ -30,10 +30,15 @@ protocol PlaybackListener: AnyObject {
     /// Playback ran out of tracks by itself (not stopped by the user) and `playlist` was played to its end.
     /// Comes after the `trackDidEnd` of the last track.
     func playlistDidEnd(playlist: String)
+
+    /// The queue was played through by itself and "Stop at queue end" stopped playback (not when the user stopped).
+    /// Comes after the `trackDidEnd` of the last queued track.
+    func queueDidEnd()
 }
 
 extension PlaybackListener {
     func playlistDidEnd(playlist: String) {}
+    func queueDidEnd() {}
 }
 
 /// How much of the current track has been listened to, from the positions reported while it plays.

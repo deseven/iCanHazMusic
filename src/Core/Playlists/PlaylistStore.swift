@@ -244,6 +244,29 @@ final class PlaylistStore {
         playback?.queue.remove(ids: removed, fromPlaylist: match)
     }
 
+    /// Moves a track to another place inside its album in the active playlist (drag and drop). Synchronous (a
+    /// reordering is cheap), so the caller knows at once whether it was applied. Returns `false` if it wasn't (see
+    /// `Playlist.movingTrack`; or the playlist isn't the active one / is still loading).
+    @discardableResult
+    func moveTrack(id: TrackID, toIndexInAlbum index: Int, in name: String) -> Bool {
+        guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName),
+              let updated = activePlaylist.movingTrack(id: id, toIndexInAlbum: index) else { return false }
+        Log.info("moved track \(id) to place \(index) of its album in '\(match)'")
+        install(updated, replacing: activePlaylist, as: match)
+        return true
+    }
+
+    /// Moves an album (a track in a flat playlist) to another place in the active playlist (drag and drop); see
+    /// `moveTrack`.
+    @discardableResult
+    func moveAlbum(_ album: Int, to index: Int, in name: String) -> Bool {
+        guard !isLoading, let match = existingName(matching: name), Self.key(match) == Self.key(activeName),
+              let updated = activePlaylist.movingAlbum(album, to: index) else { return false }
+        Log.info("moved album \(album) to place \(index) in '\(match)'")
+        install(updated, replacing: activePlaylist, as: match)
+        return true
+    }
+
     /// Takes over freshly read tags into the active playlist and regroups it (see `Playlist.updatingTags`).
     func applyTags(_ results: [TagReadResult], to name: String) async {
         guard !results.isEmpty else { return }
@@ -418,6 +441,12 @@ final class PlaylistStore {
         let updated = await Task.detached(priority: .userInitiated) { transform(current) }.value
         guard activePlaylist === current else { return false }   // something else replaced the content in the meantime
 
+        install(updated, replacing: current, as: match)
+        return true
+    }
+
+    /// Puts `updated` in place of the active playlist's content `current`, stores it and tells playback.
+    private func install(_ updated: Playlist, replacing current: Playlist, as match: String) {
         commit(updated, as: match)
         let key = Self.key(match)
         if let last = lastPlayedByKey[key], updated.position(of: last) == nil { lastPlayedByKey[key] = nil }
@@ -427,7 +456,6 @@ final class PlaylistStore {
         } else {
             playback?.playlistDidChange()   // a queued track may be in it, at another place now
         }
-        return true
     }
 
     // MARK: - Validation

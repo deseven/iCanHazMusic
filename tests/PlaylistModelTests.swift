@@ -539,6 +539,66 @@ extension AllTests {
             #expect(p.replacingTrack(id: 99, duration: 1, codec: "x") == nil)
         }
 
+        @Test("moving a track reorders its album only, IDs stay")
+        func movingTrack() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 3) + Make.entries(dir: "B", album: "B", count: 2))
+            let moved = p.movingTrack(id: 1, toIndexInAlbum: 2)
+            #expect(moved?.albums[0].tracks.map(\.id) == [2, 3, 1])
+            #expect(moved?.albums[1].tracks.map(\.id) == [4, 5])
+            #expect(moved?.rows.count == p.rows.count)
+            #expect(moved?.row(of: 1) == 3)
+            #expect(moved?.nextID == p.nextID)
+            #expect(p.albums[0].tracks.map(\.id) == [1, 2, 3])        // immutable
+
+            #expect(p.movingTrack(id: 3, toIndexInAlbum: 0)?.albums[0].tracks.map(\.id) == [3, 1, 2])
+            #expect(p.movingTrack(id: 5, toIndexInAlbum: 0)?.albums[1].tracks.map(\.id) == [5, 4])
+        }
+
+        @Test("moving a track nowhere, or out of its album, does nothing")
+        func movingTrackRefused() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 3))
+            #expect(p.movingTrack(id: 2, toIndexInAlbum: 1) == nil)
+            #expect(p.movingTrack(id: 2, toIndexInAlbum: 3) == nil)
+            #expect(p.movingTrack(id: 2, toIndexInAlbum: -1) == nil)
+            #expect(p.movingTrack(id: 99, toIndexInAlbum: 0) == nil)
+        }
+
+        @Test("moving an album keeps its tracks together, in both directions")
+        func movingAlbum() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 2) + Make.entries(dir: "B", album: "B", count: 1)
+                                  + Make.entries(dir: "C", album: "C", count: 2))
+            let down = p.movingAlbum(0, to: 2)
+            #expect(down?.albums.map(\.title) == ["B", "C", "A"])
+            #expect(down?.entries.map(\.id) == [3, 4, 5, 1, 2])
+            #expect(down?.headerRow == [0, 2, 5])
+
+            let up = p.movingAlbum(2, to: 0)
+            #expect(up?.albums.map(\.title) == ["C", "A", "B"])
+            #expect(up?.position(of: 4) == TrackPosition(album: 0, track: 0))
+
+            #expect(p.movingAlbum(1, to: 1) == nil)
+            #expect(p.movingAlbum(3, to: 0) == nil)
+            #expect(p.movingAlbum(0, to: -1) == nil)
+        }
+
+        @Test("a reordered playlist is stored and read back the same")
+        func movedRoundTrip() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 3) + Make.entries(dir: "B", album: "B", count: 2))
+            let moved = p.movingAlbum(0, to: 1)?.movingTrack(id: 4, toIndexInAlbum: 1)
+            let regrouped = Playlist(albums: AlbumBuilder.build(from: moved?.entries ?? []), nextID: p.nextID)
+            #expect(regrouped.entries.map(\.id) == [5, 4, 1, 2, 3])
+            #expect(regrouped.albums.map(\.title) == ["B", "A"])
+        }
+
+        @Test("moving in a flat playlist moves single tracks")
+        func movingFlat() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 3)).settingFlat(true)
+            let moved = p.movingAlbum(2, to: 0)
+            #expect(moved?.isFlat == true)
+            #expect(moved?.entries.map(\.id) == [3, 1, 2])
+            #expect(p.movingTrack(id: 1, toIndexInAlbum: 1) == nil)
+        }
+
         @Test("appending doesn't change the original")
         func immutable() {
             let original = playlist

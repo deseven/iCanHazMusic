@@ -660,6 +660,7 @@ final class PlaybackState {
             } else if queueEnded {
                 Log.info("playback: reached the end of the queue")
                 halt()
+                listeners.forEach { $0.value?.queueDidEnd() }
             } else {
                 let playlist = store.playingName
                 Log.info("playback: reached the end of playlist \"\(playlist ?? "")\"")

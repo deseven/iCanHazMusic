@@ -106,6 +106,7 @@ final class RecordingListener: PlaybackListener {
     private(set) var started: [PlayedTrack] = []
     private(set) var ended: [(track: PlayedTrack, played: TimeInterval)] = []
     private(set) var playlistsEnded: [String] = []
+    private(set) var queuesEnded = 0
 
     func trackDidStart(_ track: PlayedTrack) {
         started.append(track)
@@ -119,5 +120,9 @@ final class RecordingListener: PlaybackListener {
 
     func playlistDidEnd(playlist: String) {
         playlistsEnded.append(playlist)
+    }
+
+    func queueDidEnd() {
+        queuesEnded += 1
     }
 }

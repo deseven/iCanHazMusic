@@ -443,6 +443,33 @@ extension AllTests {
             #expect(onDisk(env)?.isFlat == false)
         }
 
+        @Test("moving tracks and albums is applied at once and written to the file")
+        func move() async throws {
+            let env = try await makeEnv()
+            let entries = Make.entries(dir: "A", album: "A", count: 3) + Make.entries(dir: "B", album: "B", count: 2)
+            await env.store.append(Make.albums(entries), to: "main")
+
+            #expect(env.store.moveTrack(id: 1, toIndexInAlbum: 2, in: "main"))
+            #expect(env.store.activePlaylist.entries.map(\.id) == [2, 3, 1, 4, 5])
+
+            #expect(env.store.moveAlbum(0, to: 1, in: "Main"))
+            #expect(env.store.activePlaylist.entries.map(\.id) == [4, 5, 2, 3, 1])
+            await env.store.flushWrites()
+            #expect(onDisk(env)?.entries.map(\.id) == [4, 5, 2, 3, 1])
+        }
+
+        @Test("moves that change nothing, or aim at another playlist, are refused")
+        func moveRefused() async throws {
+            let env = try await makeEnv(playlists: ["other": PlaylistStoreTests.emptyJSON])
+            await env.store.append(Make.albums(Make.entries(dir: "A", album: "A", count: 3)), to: "main")
+            let before = env.store.activePlaylist
+
+            #expect(!env.store.moveTrack(id: 1, toIndexInAlbum: 0, in: "main"))
+            #expect(!env.store.moveTrack(id: 1, toIndexInAlbum: 2, in: "other"))
+            #expect(!env.store.moveAlbum(0, to: 0, in: "main"))
+            #expect(env.store.activePlaylist === before)
+        }
+
         @Test("remove takes tracks out and writes the file")
         func remove() async throws {
             let env = try await makeEnv()

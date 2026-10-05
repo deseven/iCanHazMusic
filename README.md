@@ -11,19 +11,20 @@ Main app:
   - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, WAV, AIFF/AIFC, CAF
   - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
 - Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
-- Tags reading (ID3v1/v2, Vorbis comments, MP4, with recovery of truncated ID3v1 values), fast!
+- Drag and drop of files, directories and playlists, recursive directory import
+- Tags reading, fast!
 - Album art support (embedded or external images)
-- Albums grouping with album art, or a flat list if you prefer (can be switched per playlist)
 - Very large playlists (tens of thousands of entries at the very least)
 - Playlists import/export (M3U8, M3U, PLS)
 - Playlist search, Spotlight-style
-- Drag and drop of files, directories and playlists, recursive directory import
+- Grouping by albums or a flat list if you prefer (can be switched per playlist)
+- Playlist entries drag'n'drop reordering (in a nice non-confusing way)
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 - Last.fm scrobbling and now playing updates
 - System notifications about the playback
-- Updates from GitHub releases (automatic check can be turned off, manual check in the About window)
 - Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album and volume
 - Dock menu with the current track and playback controls
+- Updates from GitHub releases (automatic check can be turned off, manual check in the About window)
 
 ## Why
 I was a big fan of the legendary [foobar2000](https://www.foobar2000.org/) until I moved to macOS in 2010. Naturally, for some time I continued using foobar under Wine, but the experience was subpar and eventually I started jumping from player to player. Some notable examples in no particular order:
@@ -37,10 +38,10 @@ I remember many other apps, both free and paid, however each and every one of th
 It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in an audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
 
 ## Roadmap
-- playback queue
+- more customization options
 - simple web interface and API
-- playlist entries rearrangement
 - better Last.fm integration (like tracks, track info, number of plays, etc)
+- Subsonic/Navidrome integration
 
 #### What is not planned
 - CUE support
