@@ -31,6 +31,11 @@ final class SystemNotificationDelivery: NotificationDelivery {
         }
     }
 
+    func isDeniedBySystem() async -> Bool {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
     private func isAllowed() async -> Bool {
         let center = UNUserNotificationCenter.current()
         switch await center.notificationSettings().authorizationStatus {

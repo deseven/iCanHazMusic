@@ -16,6 +16,14 @@ struct NotificationMessage: Equatable, Sendable {
 protocol NotificationDelivery: AnyObject {
     /// `cover`: the encoded image (JPEG/PNG bytes) to show with the message, if there is one.
     func deliver(_ message: NotificationMessage, cover: Data?)
+
+    /// The user (or the system) has turned notifications off for the app, so nothing delivered would be shown. Not
+    /// the case while the permission hasn't been asked for yet.
+    func isDeniedBySystem() async -> Bool
+}
+
+extension NotificationDelivery {
+    func isDeniedBySystem() async -> Bool { false }
 }
 
 /// System notifications about playback, for when the app isn't in front: the track that starts and the end of the
@@ -41,6 +49,10 @@ final class NotificationService: PlaybackListener {
         }
     }
 
+    /// Notifications are turned off for the app in System Settings (as of the last `refreshPermission()`); the
+    /// Preferences say so next to the switch.
+    private(set) var isDeniedBySystem = false
+
     @ObservationIgnored private let delivery: NotificationDelivery
     @ObservationIgnored private let coverStore: CoverStore
     @ObservationIgnored private let configStore: ConfigStore?
@@ -51,6 +63,11 @@ final class NotificationService: PlaybackListener {
         self.coverStore = coverStore
         self.configStore = configStore
         isEnabled = configStore?.config.general.playbackNotifications ?? true
+    }
+
+    /// Looks the system's permission up again; the user may have changed it in System Settings meanwhile.
+    func refreshPermission() async {
+        isDeniedBySystem = await delivery.isDeniedBySystem()
     }
 
     func trackDidStart(_ track: PlayedTrack) {

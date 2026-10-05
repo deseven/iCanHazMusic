@@ -162,11 +162,7 @@ private struct GeneralTab: View {
                     .toggleStyle(.switch)
             }
 
-            PrefRow(
-                title: "Playback Notifications",
-                description: "Show a system notification when a track starts and when the playlist ends, for when "
-                    + "\(AppConstants.appName) isn't in front."
-            ) {
+            PrefRow(title: "Playback Notifications", description: notificationsDescription) {
                 Toggle("", isOn: $notifications.isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -202,6 +198,19 @@ private struct GeneralTab: View {
                     .toggleStyle(.switch)
             }
         }
+        .task { await notifications.refreshPermission() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await notifications.refreshPermission() }
+        }
+    }
+
+    private var notificationsDescription: Text {
+        let text = Text("Show a system notification when a track starts and when the playlist ends, for when "
+            + "\(AppConstants.appName) isn't in front.")
+        guard notifications.isEnabled, notifications.isDeniedBySystem else { return text }
+        return text + Text("\nNot working: notifications are turned off for \(AppConstants.appName) in System Settings "
+            + "(Notifications).")
+            .foregroundStyle(.red)
     }
 }
 
