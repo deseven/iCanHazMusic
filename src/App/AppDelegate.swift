@@ -16,8 +16,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyService.shared.onSearch = { SearchPanel.shared.toggle() }
         HotkeyService.shared.start()
         SystemMediaControls.shared.start()
+        observeWindowFocus()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
         Task { await MigrationActions.finishAfterLaunch() }
+    }
+
+    /// The playback position is published 20x a second while one of our windows has the key focus (smooth seek bar),
+    /// else once a second to save redraws.
+    private func observeWindowFocus() {
+        let center = NotificationCenter.default
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                // `NSApp.keyWindow` isn't settled yet while a window is resigning; look again on the next turn.
+                Task { @MainActor in
+                    PlaybackState.shared.smoothUpdates = NSApp.keyWindow != nil
+                }
+            }
+        }
+        PlaybackState.shared.smoothUpdates = NSApp.keyWindow != nil
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

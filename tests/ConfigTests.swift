@@ -146,6 +146,30 @@ extension AllTests {
             #expect(try decode(#"{"playback": {"at_playlist_end": "start_over"}}"#).playback.atPlaylistEnd == .startOver)
         }
 
+        @Test("the seekbar style is default, read by name and reset when unknown; the setting keeps it in the config")
+        func seekbarStyle() throws {
+            #expect(AppConfig().playback.seekbarStyle == .standard)
+            #expect(try decode(#"{"playback": {"seekbar_style": "waveform"}}"#).playback.seekbarStyle == .waveform)
+            #expect(try decode(#"{"playback": {"seekbar_style": "default"}}"#).playback.seekbarStyle == .standard)
+            #expect(try decode(#"{"playback": {"seekbar_style": "spectrum"}}"#).playback.seekbarStyle == .standard)
+            #expect(try decode(#"{"playback": {"seekbar_style": 2}}"#).playback.seekbarStyle == .standard)
+
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = SeekbarSettings(configStore: config)
+            #expect(settings.style == .standard)
+            var changes: [SeekbarStyle] = []
+            settings.onStyleChange = { changes.append($0) }
+            settings.style = .waveform
+            settings.style = .waveform
+            #expect(changes == [.waveform])
+            #expect(config.config.playback.seekbarStyle == .waveform)
+            #expect(SeekbarSettings(configStore: config).style == .waveform)
+            #expect(SeekbarSettings().style == .standard)
+            let data = try JSONEncoder().encode(config.config)
+            #expect(String(decoding: data, as: UTF8.self).contains(#""seekbar_style":"waveform""#))
+        }
+
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")
         func volume() throws {
             #expect(AppConfig().playback.volume == 0.7)

@@ -45,6 +45,7 @@ enum AppConstants {
 ///   playlists/{name}.json
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
+///   .cache/waveforms.sqlite  loudness envelopes of the tracks played with the waveform seekbar, made again on demand
 /// ```
 struct AppPaths {
     /// Name of the default working directory inside Application Support (the previous version used the same one,
@@ -64,6 +65,7 @@ struct AppPaths {
     let cacheDir: URL
     let coverCacheURL: URL
     let lyricsCacheURL: URL
+    let waveformCacheURL: URL
 
     init(workDir: URL) {
         self.workDir = workDir
@@ -73,6 +75,7 @@ struct AppPaths {
         cacheDir = workDir.appendingPathComponent(".cache", isDirectory: true)
         coverCacheURL = cacheDir.appendingPathComponent("covers.sqlite")
         lyricsCacheURL = cacheDir.appendingPathComponent("lyrics.sqlite")
+        waveformCacheURL = cacheDir.appendingPathComponent("waveforms.sqlite")
     }
 
     static var defaultWorkDir: URL {

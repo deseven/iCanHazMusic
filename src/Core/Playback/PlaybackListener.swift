@@ -14,6 +14,8 @@ struct PlayedTrack: Equatable, Sendable {
     let startedAt: Date
     /// `AlbumKey` of the track's album, which is what its cover is cached under (`CoverStore`); nil if unknown.
     var coverKey: String? = nil
+    /// The file that plays; nil if unknown.
+    var url: URL? = nil
 
     /// The track has an artist and a title of its own; without ("Unknown Artist") nobody outside can be told about
     /// it or asked for its lyrics.

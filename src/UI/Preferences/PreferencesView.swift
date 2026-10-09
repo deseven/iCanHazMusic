@@ -335,9 +335,25 @@ private struct HotkeyRow: View {
 
 private struct PlaybackTab: View {
     @Bindable private var playback = PlaybackState.shared
+    @Bindable private var seekbar = SeekbarSettings.shared
 
     var body: some View {
         TabPage {
+            PrefRow(
+                title: "Seekbar Style",
+                description: "Default is a thin progress bar. Waveform shows the loudness of the track over time "
+                    + "and makes the seekbar taller, so the album art gets smaller. The waveform of a track is "
+                    + "made in the background when it plays for the first time and is kept for later."
+            ) {
+                Picker("", selection: $seekbar.style) {
+                    ForEach(SeekbarStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
             PrefRow(
                 title: "Resample Quality",
                 description: "Quality of the sample rate conversion, used for files whose sample rate differs from "

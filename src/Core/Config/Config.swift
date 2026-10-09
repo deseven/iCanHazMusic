@@ -122,6 +122,8 @@ struct AppConfig: Codable, Equatable {
         var atPlaylistEnd = PlaylistEnd.default
         /// Playback stops when the queue has been played through, instead of going on in the playlist.
         var stopAtQueueEnd = false
+        /// How the seek bar of the playback block looks.
+        var seekbarStyle = SeekbarStyle.default
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
@@ -131,6 +133,7 @@ struct AppConfig: Codable, Equatable {
             case order
             case atPlaylistEnd = "at_playlist_end"
             case stopAtQueueEnd = "stop_at_queue_end"
+            case seekbarStyle = "seekbar_style"
         }
 
         init() {}
@@ -145,6 +148,7 @@ struct AppConfig: Codable, Equatable {
             order = c.value(.order, default: d.order)
             atPlaylistEnd = c.value(.atPlaylistEnd, default: d.atPlaylistEnd)
             stopAtQueueEnd = c.value(.stopAtQueueEnd, default: d.stopAtQueueEnd)
+            seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
         }
     }
 

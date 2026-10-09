@@ -148,13 +148,19 @@ struct PlaybackBlock: View {
 private struct PlaybackProgress: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
+    private let seekbar = SeekbarSettings.shared
 
     var body: some View {
         VStack(spacing: 4) {
             Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
                 .font(.body.monospacedDigit())
                 .lineLimit(1)
-            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+            switch seekbar.style {
+            case .standard:
+                SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+            case .waveform:
+                WaveformSeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+            }
         }
     }
 

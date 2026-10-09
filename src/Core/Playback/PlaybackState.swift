@@ -24,7 +24,8 @@ import Observation
 @Observable
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
-                                      listeners: [LastFMService.shared, LyricsService.shared, NotificationService.shared])
+                                      listeners: [LastFMService.shared, LyricsService.shared, NotificationService.shared,
+                                                                                        WaveformService.shared])
 
     enum Status { case stopped, playing, paused }
 
@@ -185,6 +186,14 @@ final class PlaybackState {
         let time = engine.position
         return time.isFinite ? max(time, 0) : 0
     }
+
+    /// While a window of the app has the key focus the position is refreshed (and published) `smoothTickInterval`
+    /// apart instead of once per `positionStep`, so the seek bar moves smoothly. Set by the UI (`AppDelegate`);
+    /// it is only worth the redraws while somebody looks at the app.
+    @ObservationIgnored var smoothUpdates = false
+
+    /// 20 updates a second.
+    static let smoothTickInterval = Duration.milliseconds(50)
 
     // MARK: Internals
 
@@ -741,8 +750,9 @@ final class PlaybackState {
         guard time.isFinite, time >= 0 else { return }
         if time > 0 { failures = 0 }
         progress?.observe(position: time)
-        let moved = positionStep > 0
-            ? (time / positionStep).rounded(.down) != (position / positionStep).rounded(.down)
+        let step = smoothUpdates ? 0 : positionStep
+        let moved = step > 0
+            ? (time / step).rounded(.down) != (position / step).rounded(.down)
             : abs(time - position) > 0.01
         if moved { position = time }
     }
@@ -766,14 +776,21 @@ final class PlaybackState {
     private static let durationTolerance = 0.5
 
     private func startTicking() {
-        guard let tickInterval, tickTask == nil else { return }
+        guard tickInterval != nil, tickTask == nil else { return }
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: tickInterval)
+                guard let interval = self?.currentTickInterval else { return }
+                try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self else { return }
                 self.tick()
             }
         }
+    }
+
+    /// `tickInterval`, or the shorter `smoothTickInterval` while `smoothUpdates` is on (`nil` ticks never).
+    private var currentTickInterval: Duration? {
+        guard let tickInterval else { return nil }
+        return smoothUpdates ? min(tickInterval, Self.smoothTickInterval) : tickInterval
     }
 
     private func stopTicking() {
@@ -803,7 +820,7 @@ final class PlaybackState {
         Log.info("playback: \(how): \(track.artist) – \(track.title) [\(album.title)], \(track.codec.isEmpty ? "format unknown" : track.codec), "
             + "playlist \"\(store.playingName ?? "")\", \(track.url.path)")
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
-                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key)
+                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url)
         progress = PlayProgress(track: played)
         for listener in listeners { listener.value?.trackDidStart(played) }
     }

@@ -58,6 +58,7 @@ extension AllTests {
             #expect(paths.playlistsDir.path == "/tmp/ichm-w/playlists")
             #expect(paths.cacheDir.path == "/tmp/ichm-w/.cache")
             #expect(paths.coverCacheURL.path == "/tmp/ichm-w/.cache/covers.sqlite")
+            #expect(paths.waveformCacheURL.path == "/tmp/ichm-w/.cache/waveforms.sqlite")
         }
     }
 

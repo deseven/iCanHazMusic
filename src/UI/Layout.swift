@@ -47,6 +47,12 @@ enum Layout {
     static let blockPadding: CGFloat = 16
     static let artToControlsGap: CGFloat = 14
     static let infoToButtonsMinGap: CGFloat = 12
+    /// The default seek bar: the drawn bar and the extra clickable height above and below it.
+    static let seekbarBarHeight: CGFloat = 6
+    static let seekbarHitMargin: CGFloat = 4
+    static let seekbarHeight: CGFloat = seekbarBarHeight + 2 * seekbarHitMargin
+    /// The waveform seek bar (the whole frame is drawn and clickable). Fixed, so nothing jumps when the waveform arrives.
+    static let waveformSeekbarHeight: CGFloat = 50
 
     // Preferences window
     static let preferencesWidth: CGFloat = 610
