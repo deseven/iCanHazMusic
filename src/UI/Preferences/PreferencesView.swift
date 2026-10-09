@@ -341,9 +341,10 @@ private struct PlaybackTab: View {
         TabPage {
             PrefRow(
                 title: "Seekbar Style",
-                description: "Default is a thin progress bar. Waveform shows the loudness of the track over time "
-                    + "and makes the seekbar taller, so the album art gets smaller. The waveform of a track is "
-                    + "made in the background when it plays for the first time and is kept for later."
+                description: "Default is a thin progress bar. The other styles show the track over time (loudness, "
+                    + "peaks, low/mid/high frequencies, sections that sound alike, or all frequencies) and make the "
+                    + "seekbar taller, so the album art gets smaller. What they need is measured in the background "
+                    + "when a track plays for the first time and is kept for later, for all of them at once."
             ) {
                 Picker("", selection: $seekbar.style) {
                     ForEach(SeekbarStyle.allCases) { style in

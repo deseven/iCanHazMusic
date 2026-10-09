@@ -146,12 +146,20 @@ extension AllTests {
             #expect(try decode(#"{"playback": {"at_playlist_end": "start_over"}}"#).playback.atPlaylistEnd == .startOver)
         }
 
-        @Test("the seekbar style is default, read by name and reset when unknown; the setting keeps it in the config")
+        @Test("the seekbar style is default, read by name and reset when unknown (the old \"waveform\" too); the setting keeps it in the config")
         func seekbarStyle() throws {
             #expect(AppConfig().playback.seekbarStyle == .standard)
-            #expect(try decode(#"{"playback": {"seekbar_style": "waveform"}}"#).playback.seekbarStyle == .waveform)
+            let names: [(String, SeekbarStyle)] = [("waveform_rms", .waveformRMS), ("waveform_peak_rms", .waveformPeakRMS),
+                                                   ("waveform_tri_band", .waveformTriBand),
+                                                   ("waveform_structure", .waveformStructure), ("spectrogram", .spectrogram)]
+            for (name, style) in names {
+                #expect(try decode(#"{"playback": {"seekbar_style": "\#(name)"}}"#).playback.seekbarStyle == style)
+                #expect(style.rawValue == name && style.usesWaveform)
+            }
+            #expect(!SeekbarStyle.standard.usesWaveform)
+            #expect(try decode(#"{"playback": {"seekbar_style": "waveform"}}"#).playback.seekbarStyle == .standard)
             #expect(try decode(#"{"playback": {"seekbar_style": "default"}}"#).playback.seekbarStyle == .standard)
-            #expect(try decode(#"{"playback": {"seekbar_style": "spectrum"}}"#).playback.seekbarStyle == .standard)
+            #expect(try decode(#"{"playback": {"seekbar_style": "oscilloscope"}}"#).playback.seekbarStyle == .standard)
             #expect(try decode(#"{"playback": {"seekbar_style": 2}}"#).playback.seekbarStyle == .standard)
 
             let dir = try TempDir()
@@ -160,14 +168,14 @@ extension AllTests {
             #expect(settings.style == .standard)
             var changes: [SeekbarStyle] = []
             settings.onStyleChange = { changes.append($0) }
-            settings.style = .waveform
-            settings.style = .waveform
-            #expect(changes == [.waveform])
-            #expect(config.config.playback.seekbarStyle == .waveform)
-            #expect(SeekbarSettings(configStore: config).style == .waveform)
+            settings.style = .waveformRMS
+            settings.style = .waveformRMS
+            #expect(changes == [.waveformRMS])
+            #expect(config.config.playback.seekbarStyle == .waveformRMS)
+            #expect(SeekbarSettings(configStore: config).style == .waveformRMS)
             #expect(SeekbarSettings().style == .standard)
             let data = try JSONEncoder().encode(config.config)
-            #expect(String(decoding: data, as: UTF8.self).contains(#""seekbar_style":"waveform""#))
+            #expect(String(decoding: data, as: UTF8.self).contains(#""seekbar_style":"waveform_rms""#))
         }
 
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")

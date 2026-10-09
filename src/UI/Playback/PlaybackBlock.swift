@@ -158,8 +158,9 @@ private struct PlaybackProgress: View {
             switch seekbar.style {
             case .standard:
                 SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
-            case .waveform:
-                WaveformSeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+            case .waveformRMS, .waveformPeakRMS, .waveformTriBand, .waveformStructure, .spectrogram:
+                WaveformSeekBar(style: seekbar.style, value: state.position, total: state.duration,
+                                scrubbing: $scrubbing) { state.seek(to: $0) }
             }
         }
     }

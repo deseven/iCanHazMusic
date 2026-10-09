@@ -19,12 +19,13 @@ enum WaveformKey {
     }
 }
 
-/// Persistent store of waveforms: `WaveformKey` -> the level bytes.
+/// Persistent store of waveforms: `WaveformKey` -> the whole record of a track (`Waveform.encoded()`, lzfse compressed;
+/// ~30 KB, mostly the spectrogram bands, which don't compress much).
 ///
 /// The same kind of thing as `CoverStore`/`LyricsStore` (plain SQLite through the system `libsqlite3`, one table, one
 /// connection behind a lock, WAL, in `AppPaths.cacheDir`). `PRAGMA user_version` holds `Waveform.formatVersion`; a
-/// different one drops the table. The app never removes anything otherwise (an entry is ~2 KB; entries of files that
-/// are gone or changed stay), the file is safe to delete by hand.
+/// different one drops the table. The app never removes anything otherwise (entries of files that are gone or changed
+/// stay), the file is safe to delete by hand.
 ///
 /// Failures are logged and swallowed (reads find nothing, writes are dropped): a broken store must never break the
 /// app, tracks simply have no waveform then.
@@ -58,13 +59,19 @@ final class WaveformStore: @unchecked Sendable {
         guard sqlite3_step(statement) == SQLITE_ROW,
               let bytes = sqlite3_column_blob(statement, 0) else { return nil }
         let count = Int(sqlite3_column_bytes(statement, 0))
-        guard (1...Waveform.bucketCount).contains(count) else { return nil }
-        return Waveform(levels: Array(UnsafeBufferPointer(start: bytes.assumingMemoryBound(to: UInt8.self), count: count)))
+        guard count > 0 else { return nil }
+        let compressed = Data(bytes: bytes, count: count)
+        guard let data = try? (compressed as NSData).decompressed(using: .lzfse) as Data,
+              let waveform = Waveform(encoded: data) else {
+            Log.error("waveform cache: undecodable entry, ignored")
+            return nil
+        }
+        return waveform
     }
 
     /// Adds or replaces the waveform under `key`.
     func store(_ waveform: Waveform, for key: String) {
-        guard !waveform.levels.isEmpty else { return }
+        guard !waveform.isEmpty, let compressed = try? (waveform.encoded() as NSData).compressed(using: .lzfse) as Data else { return }
         lock.lock()
         defer { lock.unlock() }
         guard let db = openIfNeeded() else { return }
@@ -76,7 +83,7 @@ final class WaveformStore: @unchecked Sendable {
         }
         defer { sqlite3_finalize(statement) }
         bindKey(key, to: statement)
-        waveform.levels.withUnsafeBytes { raw in
+        compressed.withUnsafeBytes { raw in
             _ = sqlite3_bind_blob(statement, 2, raw.baseAddress, Int32(raw.count), Self.transient)
         }
         if sqlite3_step(statement) != SQLITE_DONE { logFailure("insert") }

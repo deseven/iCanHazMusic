@@ -80,7 +80,7 @@ extension AllTests {
             let service: WaveformService
         }
 
-        private func rig(style: SeekbarStyle = .waveform) throws -> Rig {
+        private func rig(style: SeekbarStyle = .waveformRMS) throws -> Rig {
             let dir = try TempDir()
             let store = WaveformStore(url: dir.path(".cache/waveforms.sqlite"))
             let settings = SeekbarSettings()
@@ -91,7 +91,7 @@ extension AllTests {
         }
 
         private func levels(_ seed: Int) -> Waveform {
-            Waveform(levels: (0..<64).map { UInt8(($0 + seed) % 256) })
+            Waveform(rms: (0..<64).map { UInt8(($0 + seed) % 256) })
         }
 
         private func track(_ url: URL?, _ n: Int = 1) -> PlayedTrack {
@@ -222,7 +222,7 @@ extension AllTests {
             rig.service.trackDidStart(track(file))
             #expect(rig.service.state == .idle)
 
-            rig.settings.style = .waveform
+            rig.settings.style = .waveformRMS
             #expect(rig.service.state == .analysing)
             #expect(await waitUntil { rig.service.current == levels(4) })
 
@@ -232,15 +232,44 @@ extension AllTests {
             #expect(rig.store.waveform(for: try #require(WaveformKey.make(url: file))) == levels(4))
 
             // Picked again: from the store.
-            rig.settings.style = .waveform
+            rig.settings.style = .waveformRMS
             #expect(await waitUntil { rig.service.current == levels(4) })
             #expect(rig.analyser.calls.count == 1)
+        }
+
+        @Test("switching between visual styles keeps the waveform: nothing is looked up or analysed again")
+        func switchingBetweenVisualStyles() async throws {
+            let rig = try rig(style: .waveformRMS)
+            let file = try rig.dir.write("a.flac", Data(count: 10))
+            rig.analyser.answer(file, with: WaveformAnalysis(waveform: levels(6), isComplete: true))
+            rig.service.trackDidStart(track(file))
+            #expect(await waitUntil { rig.service.current == levels(6) })
+
+            for style in [SeekbarStyle.waveformPeakRMS, .waveformTriBand, .waveformStructure, .spectrogram] {
+                rig.settings.style = style
+                #expect(rig.service.current == levels(6), "\(style)")
+                #expect(rig.service.state == .idle, "\(style)")
+            }
+            #expect(rig.analyser.calls.count == 1)
+
+            // Mid-pass: the pass goes on.
+            let other = try rig.dir.write("b.flac", Data(count: 20))
+            rig.analyser.hold(other)
+            rig.analyser.answer(other, with: WaveformAnalysis(waveform: levels(9), isComplete: true))
+            rig.service.trackDidEnd(track(file), playedSeconds: 1)
+            rig.service.trackDidStart(track(other, 2))
+            #expect(await waitUntil { rig.analyser.calls.count == 2 })
+            rig.settings.style = .waveformRMS
+            #expect(rig.service.state == .analysing)
+            rig.analyser.release(other)
+            #expect(await waitUntil { rig.service.current == levels(9) })
+            #expect(rig.analyser.calls.count == 2)
         }
 
         @Test("switching the style while nothing plays does nothing")
         func switchingWhileStopped() throws {
             let rig = try rig(style: .standard)
-            rig.settings.style = .waveform
+            rig.settings.style = .waveformRMS
             #expect(rig.service.state == .idle)
             #expect(rig.service.current == nil)
         }
@@ -259,7 +288,7 @@ extension AllTests {
             #expect(rig.service.current == nil)
             #expect(rig.service.state == .idle)
             // The failure of a cancelled pass isn't remembered.
-            rig.settings.style = .waveform
+            rig.settings.style = .waveformRMS
             rig.analyser.answer(file, with: WaveformAnalysis(waveform: levels(8), isComplete: true))
             #expect(await waitUntil { rig.service.current == levels(8) })
         }

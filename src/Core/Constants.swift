@@ -45,7 +45,7 @@ enum AppConstants {
 ///   playlists/{name}.json
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
-///   .cache/waveforms.sqlite  loudness envelopes of the tracks played with the waveform seekbar, made again on demand
+///   .cache/waveforms.sqlite  what the visual seekbar styles show about the tracks played with them (loudness, spectrum, sections), made again on demand
 /// ```
 struct AppPaths {
     /// Name of the default working directory inside Application Support (the previous version used the same one,
