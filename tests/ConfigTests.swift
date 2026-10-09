@@ -120,13 +120,13 @@ extension AllTests {
 
         @Test("resample quality is high by default, read by name and reset when unknown")
         func resampleQuality() throws {
-            #expect(AppConfig().playback.resampleQuality == .high)
+            #expect(AppConfig().playbackEngine.resampleQuality == .high)
             for quality in ResampleQuality.allCases {
-                let json = #"{"playback": {"resample_quality": "\#(quality.rawValue)"}}"#
-                #expect(try decode(json).playback.resampleQuality == quality)
+                let json = #"{"playback_engine": {"resample_quality": "\#(quality.rawValue)"}}"#
+                #expect(try decode(json).playbackEngine.resampleQuality == quality)
             }
-            #expect(try decode(#"{"playback": {"resample_quality": "ultra"}}"#).playback.resampleQuality == .high)
-            #expect(try decode(#"{"playback": {"resample_quality": 3}}"#).playback.resampleQuality == .high)
+            #expect(try decode(#"{"playback_engine": {"resample_quality": "ultra"}}"#).playbackEngine.resampleQuality == .high)
+            #expect(try decode(#"{"playback_engine": {"resample_quality": 3}}"#).playbackEngine.resampleQuality == .high)
         }
 
         @Test("the playback order is default, the end of the playlist stop; both read by name, reset when unknown")
@@ -148,19 +148,19 @@ extension AllTests {
 
         @Test("the seekbar style is default, read by name and reset when unknown (the old \"waveform\" too); the setting keeps it in the config")
         func seekbarStyle() throws {
-            #expect(AppConfig().playback.seekbarStyle == .standard)
+            #expect(AppConfig().nowPlaying.seekbarStyle == .standard)
             let names: [(String, SeekbarStyle)] = [("waveform_rms", .waveformRMS), ("waveform_peak_rms", .waveformPeakRMS),
                                                    ("waveform_tri_band", .waveformTriBand),
                                                    ("waveform_structure", .waveformStructure), ("spectrogram", .spectrogram)]
             for (name, style) in names {
-                #expect(try decode(#"{"playback": {"seekbar_style": "\#(name)"}}"#).playback.seekbarStyle == style)
+                #expect(try decode(#"{"now_playing": {"seekbar_style": "\#(name)"}}"#).nowPlaying.seekbarStyle == style)
                 #expect(style.rawValue == name && style.usesWaveform)
             }
             #expect(!SeekbarStyle.standard.usesWaveform)
-            #expect(try decode(#"{"playback": {"seekbar_style": "waveform"}}"#).playback.seekbarStyle == .standard)
-            #expect(try decode(#"{"playback": {"seekbar_style": "default"}}"#).playback.seekbarStyle == .standard)
-            #expect(try decode(#"{"playback": {"seekbar_style": "oscilloscope"}}"#).playback.seekbarStyle == .standard)
-            #expect(try decode(#"{"playback": {"seekbar_style": 2}}"#).playback.seekbarStyle == .standard)
+            #expect(try decode(#"{"now_playing": {"seekbar_style": "waveform"}}"#).nowPlaying.seekbarStyle == .standard)
+            #expect(try decode(#"{"now_playing": {"seekbar_style": "default"}}"#).nowPlaying.seekbarStyle == .standard)
+            #expect(try decode(#"{"now_playing": {"seekbar_style": "oscilloscope"}}"#).nowPlaying.seekbarStyle == .standard)
+            #expect(try decode(#"{"now_playing": {"seekbar_style": 2}}"#).nowPlaying.seekbarStyle == .standard)
 
             let dir = try TempDir()
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
@@ -171,7 +171,7 @@ extension AllTests {
             settings.style = .waveformRMS
             settings.style = .waveformRMS
             #expect(changes == [.waveformRMS])
-            #expect(config.config.playback.seekbarStyle == .waveformRMS)
+            #expect(config.config.nowPlaying.seekbarStyle == .waveformRMS)
             #expect(SeekbarSettings(configStore: config).style == .waveformRMS)
             #expect(SeekbarSettings().style == .standard)
             let data = try JSONEncoder().encode(config.config)
@@ -180,19 +180,19 @@ extension AllTests {
 
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")
         func volume() throws {
-            #expect(AppConfig().playback.volume == 0.7)
-            #expect(try decode(#"{"playback": {"volume": 0.3}}"#).playback.volume == 0.3)
-            #expect(try decode(#"{"playback": {"volume": "loud"}}"#).playback.volume == 0.7)
+            #expect(AppConfig().playbackEngine.volume == 0.7)
+            #expect(try decode(#"{"playback_engine": {"volume": 0.3}}"#).playbackEngine.volume == 0.3)
+            #expect(try decode(#"{"playback_engine": {"volume": "loud"}}"#).playbackEngine.volume == 0.7)
 
             for volume in [ConfigLimits.volumeMin, 0.5, ConfigLimits.volumeMax] {
                 var config = AppConfig()
-                config.playback.volume = volume
+                config.playbackEngine.volume = volume
                 #expect(config.validated() == config)
             }
             for volume in [-0.1, 1.5, 70] {
                 var config = AppConfig()
-                config.playback.volume = volume
-                #expect(config.validated().playback.volume == 0.7)
+                config.playbackEngine.volume = volume
+                #expect(config.validated().playbackEngine.volume == 0.7)
             }
         }
 

@@ -67,7 +67,7 @@ extension AllTests {
             #expect(config.ui.window.x == 156)
             #expect(config.ui.window.y == 1000 - 37 - 858)   // from the top left to the bottom left origin
             // Ignored ones.
-            #expect(config.playback.volume == AppConfig().playback.volume)
+            #expect(config.playbackEngine.volume == AppConfig().playbackEngine.volume)
             #expect(config.hotkeys[.volumeUp].isEmpty)
         }
 

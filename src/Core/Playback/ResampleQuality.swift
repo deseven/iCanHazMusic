@@ -4,7 +4,7 @@
 import AVFoundation
 
 /// Quality of the sample rate conversion `TrackDecoder` does for files whose rate differs from the output's
-/// (`playback.resample_quality` in the config). The raw value is what the config file holds.
+/// (`playback_engine.resample_quality` in the config). The raw value is what the config file holds.
 enum ResampleQuality: String, Codable, CaseIterable, Identifiable, Sendable {
     case low
     case medium

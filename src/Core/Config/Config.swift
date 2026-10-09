@@ -112,28 +112,19 @@ struct AppConfig: Codable, Equatable {
         var cursorFollowsPlayback = true
         /// The track under the cursor plays next, instead of the one after the current track.
         var playbackFollowsCursor = true
-        /// Quality of the sample rate conversion.
-        var resampleQuality = ResampleQuality.default
-        /// Linear gain, `ConfigLimits.volumeMin...volumeMax`.
-        var volume = 0.7
         /// Which track follows the current one.
         var order = PlaybackOrder.default
         /// What happens after the last track of the playlist.
         var atPlaylistEnd = PlaylistEnd.default
         /// Playback stops when the queue has been played through, instead of going on in the playlist.
         var stopAtQueueEnd = false
-        /// How the seek bar of the playback block looks.
-        var seekbarStyle = SeekbarStyle.default
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
             case playbackFollowsCursor = "playback_follows_cursor"
-            case resampleQuality = "resample_quality"
-            case volume
             case order
             case atPlaylistEnd = "at_playlist_end"
             case stopAtQueueEnd = "stop_at_queue_end"
-            case seekbarStyle = "seekbar_style"
         }
 
         init() {}
@@ -143,11 +134,46 @@ struct AppConfig: Codable, Equatable {
             let d = Playback()
             cursorFollowsPlayback = c.value(.cursorFollowsPlayback, default: d.cursorFollowsPlayback)
             playbackFollowsCursor = c.value(.playbackFollowsCursor, default: d.playbackFollowsCursor)
-            resampleQuality = c.value(.resampleQuality, default: d.resampleQuality)
-            volume = c.value(.volume, default: d.volume)
             order = c.value(.order, default: d.order)
             atPlaylistEnd = c.value(.atPlaylistEnd, default: d.atPlaylistEnd)
             stopAtQueueEnd = c.value(.stopAtQueueEnd, default: d.stopAtQueueEnd)
+        }
+    }
+
+    struct PlaybackEngine: Codable, Equatable {
+        /// Quality of the sample rate conversion.
+        var resampleQuality = ResampleQuality.default
+        /// Linear gain, `ConfigLimits.volumeMin...volumeMax`.
+        var volume = 0.7
+
+        enum CodingKeys: String, CodingKey {
+            case resampleQuality = "resample_quality"
+            case volume
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = PlaybackEngine()
+            resampleQuality = c.value(.resampleQuality, default: d.resampleQuality)
+            volume = c.value(.volume, default: d.volume)
+        }
+    }
+
+    struct NowPlaying: Codable, Equatable {
+        /// How the seek bar of the playback block looks.
+        var seekbarStyle = SeekbarStyle.default
+
+        enum CodingKeys: String, CodingKey {
+            case seekbarStyle = "seekbar_style"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = NowPlaying()
             seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
         }
     }
@@ -310,7 +336,9 @@ struct AppConfig: Codable, Equatable {
     var ui = UI()
     var general = General()
     var playback = Playback()
+    var playbackEngine = PlaybackEngine()
     var playlist = Playlist()
+    var nowPlaying = NowPlaying()
     var search = Search()
     var hotkeys = Hotkeys()
     var integrations = Integrations()
@@ -320,7 +348,9 @@ struct AppConfig: Codable, Equatable {
         case ui
         case general
         case playback
+        case playbackEngine = "playback_engine"
         case playlist
+        case nowPlaying = "now_playing"
         case search
         case hotkeys
         case integrations
@@ -335,7 +365,9 @@ struct AppConfig: Codable, Equatable {
         ui = c.value(.ui, default: d.ui)
         general = c.value(.general, default: d.general)
         playback = c.value(.playback, default: d.playback)
+        playbackEngine = c.value(.playbackEngine, default: d.playbackEngine)
         playlist = c.value(.playlist, default: d.playlist)
+        nowPlaying = c.value(.nowPlaying, default: d.nowPlaying)
         search = c.value(.search, default: d.search)
         hotkeys = c.value(.hotkeys, default: d.hotkeys)
         integrations = c.value(.integrations, default: d.integrations)
@@ -366,8 +398,8 @@ struct AppConfig: Codable, Equatable {
             result.ui.playbackStatusWidth = defaults.ui.playbackStatusWidth
         }
 
-        if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(playback.volume) {
-            result.playback.volume = defaults.playback.volume
+        if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(playbackEngine.volume) {
+            result.playbackEngine.volume = defaults.playbackEngine.volume
         }
 
         if !ConfigLimits.tagParsingConcurrencyOptions.contains(playlist.tagParsingConcurrency) {

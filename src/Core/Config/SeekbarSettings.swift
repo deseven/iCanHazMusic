@@ -4,7 +4,7 @@
 import Foundation
 import Observation
 
-/// How the seek bar of the playback block looks (`playback.seekbar_style` in the config; the raw value is what the
+/// How the seek bar of the playback block looks (`now_playing.seekbar_style` in the config; the raw value is what the
 /// file holds). Everything but `standard` draws what `Waveform` holds about the track; all of those styles need the same
 /// data, so they share one analysis and one stored record, and switching between them is instant.
 enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -40,7 +40,7 @@ enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The settings of the seek bar (Preferences > Playback), which keeps them in the config. `nil` for `configStore`
+/// The settings of the seek bar (Preferences > Now Playing), which keeps them in the config. `nil` for `configStore`
 /// (tests): defaults, nothing is persisted.
 @MainActor
 @Observable
@@ -51,7 +51,7 @@ final class SeekbarSettings {
     var style: SeekbarStyle {
         didSet {
             guard style != oldValue else { return }
-            configStore?.update { $0.playback.seekbarStyle = style }
+            configStore?.update { $0.nowPlaying.seekbarStyle = style }
             Log.info("seekbar style: \(style.rawValue)")
             onStyleChange?(style)
         }
@@ -64,6 +64,6 @@ final class SeekbarSettings {
 
     init(configStore: ConfigStore? = nil) {
         self.configStore = configStore
-        style = configStore?.config.playback.seekbarStyle ?? SeekbarStyle.default
+        style = configStore?.config.nowPlaying.seekbarStyle ?? SeekbarStyle.default
     }
 }

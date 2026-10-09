@@ -11,8 +11,9 @@ struct PreferencesView: View {
 
     private enum Tab: String, CaseIterable, Identifiable {
         case general
-        case playback
+        case playbackEngine
         case playlist
+        case nowPlaying
         case search
         case integrations
         case hotkeys
@@ -22,8 +23,9 @@ struct PreferencesView: View {
         var label: String {
             switch self {
             case .general: "General"
-            case .playback: "Playback"
+            case .playbackEngine: "Playback Engine"
             case .playlist: "Playlist"
+            case .nowPlaying: "Now Playing"
             case .search: "Search"
             case .integrations: "Integrations"
             case .hotkeys: "Hotkeys"
@@ -33,8 +35,9 @@ struct PreferencesView: View {
         var icon: String {
             switch self {
             case .general: "gearshape"
-            case .playback: "play.circle"
+            case .playbackEngine: "cpu"
             case .playlist: "music.note.list"
+            case .nowPlaying: "waveform"
             case .search: "magnifyingglass"
             case .integrations: "puzzlepiece.extension"
             case .hotkeys: "keyboard"
@@ -75,8 +78,9 @@ struct PreferencesView: View {
             Group {
                 switch selectedTab {
                 case .general: GeneralTab()
-                case .playback: PlaybackTab()
+                case .playbackEngine: PlaybackEngineTab()
                 case .playlist: PlaylistTab()
+                case .nowPlaying: NowPlayingTab()
                 case .search: SearchTab()
                 case .integrations: IntegrationsTab()
                 case .hotkeys: HotkeysTab()
@@ -333,18 +337,15 @@ private struct HotkeyRow: View {
     }
 }
 
-private struct PlaybackTab: View {
-    @Bindable private var playback = PlaybackState.shared
+private struct NowPlayingTab: View {
     @Bindable private var seekbar = SeekbarSettings.shared
 
     var body: some View {
         TabPage {
             PrefRow(
                 title: "Seekbar Style",
-                description: "Default is a thin progress bar. The other styles show the track over time (loudness, "
-                    + "peaks, low/mid/high frequencies, sections that sound alike, or all frequencies) and make the "
-                    + "seekbar taller, so the album art gets smaller. What they need is measured in the background "
-                    + "when a track plays for the first time and is kept for later, for all of them at once."
+                description: "Default is a thin progress bar. The other styles aim to represent the track visually in "
+                    + "several different ways, which requires pre-processing (once per track) and caching (on disk)."
             ) {
                 Picker("", selection: $seekbar.style) {
                     ForEach(SeekbarStyle.allCases) { style in
@@ -355,6 +356,15 @@ private struct PlaybackTab: View {
                 .pickerStyle(.menu)
                 .fixedSize()
             }
+        }
+    }
+}
+
+private struct PlaybackEngineTab: View {
+    @Bindable private var playback = PlaybackState.shared
+
+    var body: some View {
+        TabPage {
             PrefRow(
                 title: "Resample Quality",
                 description: "Quality of the sample rate conversion, used for files whose sample rate differs from "

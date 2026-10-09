@@ -71,11 +71,11 @@ final class PlaybackState {
     let queue: PlaybackQueue
 
     /// Linear gain, 0...1. Persisted in the config.
-    var volume = AppConfig.Playback().volume {
+    var volume = AppConfig.PlaybackEngine().volume {
         didSet {
             engine.volume = Float(volume)
             guard volume != oldValue else { return }
-            configStore?.update { $0.playback.volume = min(max(volume, ConfigLimits.volumeMin), ConfigLimits.volumeMax) }
+            configStore?.update { $0.playbackEngine.volume = min(max(volume, ConfigLimits.volumeMin), ConfigLimits.volumeMax) }
         }
     }
 
@@ -127,7 +127,7 @@ final class PlaybackState {
         didSet {
             guard resampleQuality != oldValue else { return }
             engine.resampleQuality = resampleQuality
-            configStore?.update { $0.playback.resampleQuality = resampleQuality }
+            configStore?.update { $0.playbackEngine.resampleQuality = resampleQuality }
             Log.info("resample quality: \(resampleQuality.rawValue)")
         }
     }
@@ -256,10 +256,12 @@ final class PlaybackState {
         if let settings = configStore?.config.playback {
             cursorFollowsPlayback = settings.cursorFollowsPlayback
             playbackFollowsCursor = settings.playbackFollowsCursor
-            resampleQuality = settings.resampleQuality
-            volume = settings.volume
             order = settings.order
             atPlaylistEnd = settings.atPlaylistEnd
+        }
+        if let settings = configStore?.config.playbackEngine {
+            resampleQuality = settings.resampleQuality
+            volume = settings.volume
         }
         engine.volume = Float(volume)
         engine.resampleQuality = resampleQuality
