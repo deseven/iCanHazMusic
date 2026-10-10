@@ -164,9 +164,12 @@ struct AppConfig: Codable, Equatable {
     struct NowPlaying: Codable, Equatable {
         /// How the seek bar of the playback block looks.
         var seekbarStyle = SeekbarStyle.default
+        /// Hovering the album art zooms into the part under the pointer.
+        var zoomAlbumArt = false
 
         enum CodingKeys: String, CodingKey {
             case seekbarStyle = "seekbar_style"
+            case zoomAlbumArt = "zoom_album_art"
         }
 
         init() {}
@@ -175,6 +178,7 @@ struct AppConfig: Codable, Equatable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = NowPlaying()
             seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
+            zoomAlbumArt = c.value(.zoomAlbumArt, default: d.zoomAlbumArt)
         }
     }
 

@@ -41,7 +41,7 @@ final class WaveformService: PlaybackListener {
     private(set) var current: Waveform?
     private(set) var state: State = .idle
 
-    @ObservationIgnored private let settings: SeekbarSettings
+    @ObservationIgnored private let settings: NowPlayingSettings
     @ObservationIgnored private let store: WaveformStore
     @ObservationIgnored private let analyser: Analyser
     @ObservationIgnored private var playing: PlayedTrack?
@@ -51,7 +51,7 @@ final class WaveformService: PlaybackListener {
     /// Keys that couldn't be analysed.
     @ObservationIgnored private var failed = Set<String>()
 
-    init(settings: SeekbarSettings, store: WaveformStore,
+    init(settings: NowPlayingSettings, store: WaveformStore,
          analyser: @escaping Analyser = { await WaveformAnalyzer.analyse(url: $0) }) {
         self.settings = settings
         self.store = store

@@ -164,7 +164,7 @@ extension AllTests {
 
             let dir = try TempDir()
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
-            let settings = SeekbarSettings(configStore: config)
+            let settings = NowPlayingSettings(configStore: config)
             #expect(settings.style == .standard)
             var changes: [SeekbarStyle] = []
             settings.onStyleChange = { changes.append($0) }
@@ -172,10 +172,29 @@ extension AllTests {
             settings.style = .waveformRMS
             #expect(changes == [.waveformRMS])
             #expect(config.config.nowPlaying.seekbarStyle == .waveformRMS)
-            #expect(SeekbarSettings(configStore: config).style == .waveformRMS)
-            #expect(SeekbarSettings().style == .standard)
+            #expect(NowPlayingSettings(configStore: config).style == .waveformRMS)
+            #expect(NowPlayingSettings().style == .standard)
             let data = try JSONEncoder().encode(config.config)
             #expect(String(decoding: data, as: UTF8.self).contains(#""seekbar_style":"waveform_rms""#))
+        }
+
+        @Test("zooming the album art on hover is off by default, read from the config, reset when invalid; the setting keeps it")
+        func zoomAlbumArt() throws {
+            #expect(AppConfig().nowPlaying.zoomAlbumArt == false)
+            #expect(try decode(#"{"now_playing": {"zoom_album_art": true}}"#).nowPlaying.zoomAlbumArt == true)
+            #expect(try decode(#"{"now_playing": {"zoom_album_art": "yes"}}"#).nowPlaying.zoomAlbumArt == false)
+            #expect(try decode(#"{"now_playing": {}}"#).nowPlaying.zoomAlbumArt == false)
+
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = NowPlayingSettings(configStore: config)
+            #expect(settings.zoomAlbumArt == false)
+            settings.zoomAlbumArt = true
+            #expect(config.config.nowPlaying.zoomAlbumArt == true)
+            #expect(NowPlayingSettings(configStore: config).zoomAlbumArt == true)
+            #expect(NowPlayingSettings().zoomAlbumArt == false)
+            let data = try JSONEncoder().encode(config.config)
+            #expect(String(decoding: data, as: UTF8.self).contains(#""zoom_album_art":true"#))
         }
 
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")

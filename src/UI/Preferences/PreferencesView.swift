@@ -338,7 +338,7 @@ private struct HotkeyRow: View {
 }
 
 private struct NowPlayingTab: View {
-    @Bindable private var seekbar = SeekbarSettings.shared
+    @Bindable private var nowPlaying = NowPlayingSettings.shared
 
     var body: some View {
         TabPage {
@@ -347,7 +347,7 @@ private struct NowPlayingTab: View {
                 description: "Default is a thin progress bar. The other styles aim to represent the track visually in "
                     + "several different ways, which requires pre-processing (once per track) and caching (on disk)."
             ) {
-                Picker("", selection: $seekbar.style) {
+                Picker("", selection: $nowPlaying.style) {
                     ForEach(SeekbarStyle.allCases) { style in
                         Text(style.title).tag(style)
                     }
@@ -355,6 +355,18 @@ private struct NowPlayingTab: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
+            }
+
+            PrefRow(
+                title: "Zoom Album Art on Hover",
+                description: "While the mouse pointer is over the album art, show the part of it under the pointer at "
+                    + "the original size of the image, and move it along with the pointer. Nothing is zoomed if the art "
+                    + "is already shown at less than 10% below its original size. Clicking the album art to open it "
+                    + "at the original size works regardless of this setting."
+            ) {
+                Toggle("", isOn: $nowPlaying.zoomAlbumArt)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
     }

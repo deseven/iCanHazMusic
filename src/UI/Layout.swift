@@ -47,6 +47,9 @@ enum Layout {
     static let blockPadding: CGFloat = 16
     static let artToControlsGap: CGFloat = 14
     static let infoToButtonsMinGap: CGFloat = 12
+    /// Album art zoom on hover (Preferences > Now Playing) shows the image at its original size; not done if the art
+    /// is already shown at this fraction of that size or more (less than 10% smaller).
+    static let albumArtNoZoomRatio: CGFloat = 0.9
     /// The default seek bar: the drawn bar and the extra clickable height above and below it.
     static let seekbarBarHeight: CGFloat = 6
     static let seekbarHitMargin: CGFloat = 4
@@ -72,6 +75,15 @@ enum Layout {
     // Lyrics sheet
     static let lyricsSheetWidth: CGFloat = 460
     static let lyricsSheetHeight: CGFloat = 580
+
+    // Album art sheet (the art at its original size, shrunk only to fit the window)
+    static let artSheetPadding: CGFloat = 20
+    /// Room kept free between the sheet and the window's edges.
+    static let artSheetWindowMargin: CGFloat = 20
+    /// Height reserved for the Close button row and the gap above it.
+    static let artSheetButtonRowHeight: CGFloat = 12 + 30
+    /// The smallest side the art is shrunk to, however small the window is.
+    static let artSheetMinSide: CGFloat = 120
 
     // Search window
     static let searchWidth: CGFloat = 640

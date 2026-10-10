@@ -75,7 +75,7 @@ extension AllTests {
         private struct Rig {
             let dir: TempDir
             let store: WaveformStore
-            let settings: SeekbarSettings
+            let settings: NowPlayingSettings
             let analyser: AnalyserStub
             let service: WaveformService
         }
@@ -83,7 +83,7 @@ extension AllTests {
         private func rig(style: SeekbarStyle = .waveformRMS) throws -> Rig {
             let dir = try TempDir()
             let store = WaveformStore(url: dir.path(".cache/waveforms.sqlite"))
-            let settings = SeekbarSettings()
+            let settings = NowPlayingSettings()
             settings.style = style
             let analyser = AnalyserStub()
             let service = WaveformService(settings: settings, store: store) { await analyser.analyse($0) }

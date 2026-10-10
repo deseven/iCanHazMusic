@@ -148,7 +148,7 @@ struct PlaybackBlock: View {
 private struct PlaybackProgress: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
-    private let seekbar = SeekbarSettings.shared
+    private let seekbar = NowPlayingSettings.shared
 
     var body: some View {
         VStack(spacing: 4) {
