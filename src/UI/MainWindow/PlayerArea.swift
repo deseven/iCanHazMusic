@@ -3,10 +3,12 @@
 
 import SwiftUI
 
-/// Playlist + divider + playback block. Owns the width arithmetic of the right-hand block.
+/// Playlist + divider + playback block. Owns the width arithmetic of the right-hand block. With the now playing block
+/// turned off (Preferences) there is only the playlist.
 struct PlayerArea: View {
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
+    private let nowPlaying = NowPlayingSettings.shared
 
     /// Selected rows of the active playlist (reset when another playlist is opened, to its last played track).
     @State private var selection: Set<Int> = []
@@ -20,7 +22,7 @@ struct PlayerArea: View {
     /// clamped to what the current window size allows (so it "comes back" when the window grows).
     @State private var preferredBlockWidth: CGFloat
 
-    /// Height of everything below the album art, measured from the real view.
+    /// Height of everything in the block but the album art, measured from the real view.
     @State private var controlsHeight: CGFloat = 200
 
     init() {
@@ -28,6 +30,7 @@ struct PlayerArea: View {
     }
 
     var body: some View {
+        let showsBlock = nowPlaying.isEnabled
         GeometryReader { geo in
             let range = blockWidthRange(in: geo.size)
             let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
@@ -45,20 +48,24 @@ struct PlayerArea: View {
                 }
                 .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
-                SplitDivider(
-                    width: Binding(get: { blockWidth }, set: { preferredBlockWidth = $0 }),
-                    range: range
-                )
+                if showsBlock {
+                    SplitDivider(
+                        width: Binding(get: { blockWidth }, set: { preferredBlockWidth = $0 }),
+                        range: range
+                    )
 
-                PlaybackBlock(state: playback,
-                              playFromSelection: playFromSelection,
-                              hasSelection: !selection.isEmpty || playback.hasQueuedTracks,
-                              controlsHeight: $controlsHeight)
-                    .frame(width: blockWidth)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                    PlaybackBlock(state: playback,
+                                  playFromSelection: playFromSelection,
+                                  hasSelection: !selection.isEmpty || playback.hasQueuedTracks,
+                                  controlsHeight: $controlsHeight)
+                        .frame(width: blockWidth)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
             }
         }
-        .frame(minWidth: Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth)
+        .frame(minWidth: showsBlock
+               ? Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth
+               : Layout.playlistMinWidth)
         .onChange(of: store.activeName) { _, _ in
             // Rows of the old playlist mean nothing in the new one, which is still being read. (One that is ready
             // at once is dealt with by `playlistOpened`.)
@@ -120,16 +127,17 @@ struct PlayerArea: View {
 
     /// Allowed block width for the given area:
     /// - min: album art at its minimum size
-    /// - max: whichever is smaller of "leave the playlist its minimum" and
+    /// - max: whichever is smaller of "leave the playlist its minimum" and, while the album art is shown,
     ///   "album art can't get taller than the block content allows" (art is square, so the
     ///   height limit is also a width limit; widening beyond it would only add empty space).
+    ///   Without the art there is no height limit.
     private func blockWidthRange(in size: CGSize) -> ClosedRange<CGFloat> {
-        let pad = Layout.blockPadding
-        let maxArtByHeight = size.height - controlsHeight - Layout.artToControlsGap - 2 * pad
-        let maxByHeight = maxArtByHeight + 2 * pad
+        // The block's width is the art's side plus the padding on both sides.
+        let maxByHeight = size.height - controlsHeight
         let maxByPlaylist = size.width - Layout.playlistMinWidth - Layout.dividerLineWidth
         let lower = Layout.blockMinWidth
-        let upper = max(lower, min(maxByHeight, maxByPlaylist, Layout.blockMaxWidth))
-        return lower...upper
+        var upper = min(maxByPlaylist, Layout.blockMaxWidth)
+        if nowPlaying.layout.isVisible(.albumArt) { upper = min(upper, maxByHeight) }
+        return lower...max(lower, upper)
     }
 }

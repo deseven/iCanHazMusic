@@ -237,6 +237,26 @@ extension AllTests {
             #expect(rig.analyser.calls.count == 1)
         }
 
+        @Test("hiding the seek bar, or the whole now playing block, lets go of the waveform; showing it again brings it back from the store")
+        func hidingTheSeekbar() async throws {
+            let rig = try rig(style: .waveformRMS)
+            let file = try rig.dir.write("a.flac", Data(count: 10))
+            rig.analyser.answer(file, with: WaveformAnalysis(waveform: levels(4), isComplete: true))
+            rig.service.trackDidStart(track(file))
+            #expect(await waitUntil { rig.service.current == levels(4) })
+
+            rig.settings.layout.toggle(.seekbar)
+            #expect(rig.service.current == nil && rig.service.state == .idle)
+            rig.settings.layout.toggle(.seekbar)
+            #expect(await waitUntil { rig.service.current == levels(4) })
+
+            rig.settings.isEnabled = false
+            #expect(rig.service.current == nil && rig.service.state == .idle)
+            rig.settings.isEnabled = true
+            #expect(await waitUntil { rig.service.current == levels(4) })
+            #expect(rig.analyser.calls.count == 1)
+        }
+
         @Test("switching between visual styles keeps the waveform: nothing is looked up or analysed again")
         func switchingBetweenVisualStyles() async throws {
             let rig = try rig(style: .waveformRMS)

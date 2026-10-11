@@ -4,6 +4,11 @@
 import SwiftUI
 
 struct TransportButton: View {
+    /// The height of a button, and the width it takes when there is room: up to eight of them are in a row, which
+    /// shrink (to `minWidth`) when the block is too narrow for that.
+    static let side: CGFloat = 32
+    private static let minWidth: CGFloat = 24
+
     let symbol: String
     let help: String
     var size: CGFloat = 16
@@ -13,7 +18,7 @@ struct TransportButton: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size))
-                .frame(width: 32, height: 32)
+                .frame(minWidth: Self.minWidth, maxWidth: Self.side, minHeight: Self.side, maxHeight: Self.side)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)

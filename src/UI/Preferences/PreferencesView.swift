@@ -102,32 +102,58 @@ struct PreferencesView: View {
 /// [ control ]
 /// description
 /// ```
-private struct PrefRow<Control: View>: View {
+///
+/// An `accessory` is shown on the right of the title.
+private struct PrefRow<Control: View, Accessory: View>: View {
     let title: String
     let description: Text
+    @ViewBuilder let accessory: () -> Accessory
     @ViewBuilder let control: () -> Control
 
-    init(title: String, description: String, @ViewBuilder control: @escaping () -> Control) {
-        self.init(title: title, description: Text(description), control: control)
+    init(
+        title: String, description: String,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder control: @escaping () -> Control
+    ) {
+        self.init(title: title, description: Text(description), accessory: accessory, control: control)
     }
 
     /// For descriptions with more than plain text (a link).
-    init(title: String, description: Text, @ViewBuilder control: @escaping () -> Control) {
+    init(
+        title: String, description: Text,
+        @ViewBuilder accessory: @escaping () -> Accessory,
+        @ViewBuilder control: @escaping () -> Control
+    ) {
         self.title = title
         self.description = description
+        self.accessory = accessory
         self.control = control
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.body)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.body)
+                Spacer(minLength: 8)
+                accessory()
+            }
             control()
             description
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+extension PrefRow where Accessory == EmptyView {
+    init(title: String, description: String, @ViewBuilder control: @escaping () -> Control) {
+        self.init(title: title, description: Text(description), accessory: { EmptyView() }, control: control)
+    }
+
+    init(title: String, description: Text, @ViewBuilder control: @escaping () -> Control) {
+        self.init(title: title, description: description, accessory: { EmptyView() }, control: control)
     }
 }
 
@@ -343,18 +369,29 @@ private struct NowPlayingTab: View {
     var body: some View {
         TabPage {
             PrefRow(
-                title: "Seekbar Style",
-                description: "Default is a thin progress bar. The other styles aim to represent the track visually in "
-                    + "several different ways, which requires pre-processing (once per track) and caching (on disk)."
+                title: "Enable Now Playing",
+                description: "Show the block with the album art, the playing track and the controls next to the playlist. "
+                    + "When off, the block is gone and nothing for it (album art, waveform) is loaded."
             ) {
-                Picker("", selection: $nowPlaying.style) {
-                    ForEach(SeekbarStyle.allCases) { style in
-                        Text(style.title).tag(style)
-                    }
+                Toggle("", isOn: $nowPlaying.isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Components",
+                description: "Drag to reorder, or to move a component between the top part of the block and the bottom "
+                    + "part, which stays at the bottom edge. Click the eye to show or hide one, the gear to change "
+                    + "its options. Hidden album art isn't loaded.",
+                accessory: {
+                    Button("Reset Ordering & Visibility") { nowPlaying.resetLayout() }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .disabled(!nowPlaying.isEnabled || nowPlaying.layout == .default)
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
+            ) {
+                NowPlayingComponentList(settings: nowPlaying)
+                    .frame(maxWidth: .infinity)
             }
         }
     }

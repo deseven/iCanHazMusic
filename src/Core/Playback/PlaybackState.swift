@@ -25,7 +25,8 @@ import Observation
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
                                       listeners: [LastFMService.shared, LyricsService.shared, NotificationService.shared,
-                                                                                        WaveformService.shared])
+                                                                                        WaveformService.shared],
+                                      nowPlaying: .shared)
 
     enum Status { case stopped, playing, paused }
 
@@ -35,6 +36,8 @@ final class PlaybackState {
         let title: String
         let album: String
         let year: String?
+        /// Track number from the tags.
+        let number: Int?
         let codec: String
     }
 
@@ -224,6 +227,7 @@ final class PlaybackState {
     @ObservationIgnored private let tickInterval: Duration?
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
+    @ObservationIgnored private let nowPlaying: NowPlayingSettings?
     @ObservationIgnored private var listeners: [WeakListener]
     /// A random number in `0..<count` (replaced by tests). The system generator, which is plenty for shuffling.
     @ObservationIgnored var randomIndex: (Int) -> Int = { Int.random(in: 0..<$0) }
@@ -265,15 +269,17 @@ final class PlaybackState {
     /// the defaults and persists nothing.
     /// `listeners`: told about every track that starts and ends (held weakly).
     /// `queue`: the playback queue; by default a new one that keeps its settings in `configStore`.
+    /// `nowPlaying`: the album art is only loaded while it is shown there; `nil` = always.
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
          positionStep: Double = 1, configStore: ConfigStore? = nil, listeners: [PlaybackListener] = [],
-         queue: PlaybackQueue? = nil) {
+         queue: PlaybackQueue? = nil, nowPlaying: NowPlayingSettings? = nil) {
         self.store = store
         self.engine = engine
         self.queue = queue ?? PlaybackQueue(configStore: configStore)
         self.tickInterval = tickInterval
         self.positionStep = positionStep
         self.configStore = configStore
+        self.nowPlaying = nowPlaying
         self.listeners = listeners.map(WeakListener.init)
         if let settings = configStore?.config.playback {
             cursorFollowsPlayback = settings.cursorFollowsPlayback
@@ -293,6 +299,7 @@ final class PlaybackState {
         engine.outputDeviceUID = outputDevice
         engine.onEvent = { [weak self] event in self?.handle(event) }
         self.queue.onChange = { [weak self] in self?.playlistDidChange() }
+        nowPlaying?.addVisibilityObserver { [weak self] in self?.artVisibilityDidChange() }
         store.playback = self
     }
 
@@ -418,11 +425,7 @@ final class PlaybackState {
         nextPos = nil
         shuffleNext = nil
         cursorRequested = false
-        artworkTask?.cancel()
-        artworkTask = nil
-        artworkKey = nil
-        artwork = nil
-        isLoadingArtwork = false
+        dropArtwork()
         info = nil
         position = 0
         duration = 0
@@ -847,7 +850,7 @@ final class PlaybackState {
         store.setLastPlayed(track.id)
         fileInfoChecked = false
         info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
-                         year: album.year, codec: track.codec)
+                         year: album.year, number: track.number, codec: track.codec)
         position = 0
         duration = track.duration ?? 0
         loadArtworkIfNeeded(for: album, playing: pos.track)
@@ -881,13 +884,14 @@ final class PlaybackState {
         guard let pos = currentPos, let playlist = store.playingPlaylist, let track = track(at: pos, in: playlist) else { return }
         let album = playlist.albums[pos.album]
         info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
-                         year: album.year, codec: track.codec)
+                         year: album.year, number: track.number, codec: track.codec)
         loadArtworkIfNeeded(for: album, playing: pos.track)
     }
 
     /// Loads the original art of the album, unless it is the one already loaded (or loading), which is the case
     /// for every track change within an album.
     private func loadArtworkIfNeeded(for album: Album, playing trackIndex: Int) {
+        guard nowPlaying?.showsArt ?? true else { return }
         let key = album.key
         guard key != artworkKey else { return }
         artworkKey = key
@@ -904,6 +908,25 @@ final class PlaybackState {
             guard !Task.isCancelled, let self, self.artworkKey == key else { return }
             self.artwork = image
             self.isLoadingArtwork = false
+        }
+    }
+
+    /// Lets go of the art, and of the work to load it.
+    private func dropArtwork() {
+        artworkTask?.cancel()
+        artworkTask = nil
+        artworkKey = nil
+        artwork = nil
+        isLoadingArtwork = false
+    }
+
+    /// The now playing block got or lost its album art (or went away altogether): load the art of what plays now, or
+    /// drop it from memory.
+    private func artVisibilityDidChange() {
+        if nowPlaying?.showsArt ?? true {
+            if artworkKey == nil { refreshInfo() }
+        } else if artworkKey != nil {
+            dropArtwork()
         }
     }
 

@@ -6,8 +6,8 @@ import Observation
 
 /// The waveform of what plays, for the visual seek bar styles (everything but the default one).
 ///
-/// - Only for the playing track, and only while the seek bar style needs it (`SeekbarStyle.usesWaveform`): with the
-///   default style nothing is started. No prefetch of the next track, no analysis at import, no crawling of the library.
+/// - Only for the playing track, and only while a visual seek bar is on screen (`NowPlayingSettings.needsWaveform`:
+///   the style is not the default one, the seek bar is not hidden, the now playing block is on): otherwise nothing is started. No prefetch of the next track, no analysis at import, no crawling of the library.
 ///   The analysis makes everything every style needs (RMS, peak, bands, sections) in one pass and the record is stored
 ///   whole, so a second play of the track, or another visual style, is a database lookup.
 /// - When a track starts the stored waveform is looked up (`WaveformStore`, keyed by `WaveformKey`); if there is none
@@ -57,13 +57,14 @@ final class WaveformService: PlaybackListener {
         self.store = store
         self.analyser = analyser
         settings.onStyleChange = { [weak self] _ in self?.refreshCurrent() }
+        settings.addVisibilityObserver { [weak self] in self?.refreshCurrent() }
     }
 
     /// The style was switched while a track plays: make (or look up) the waveform, or let go of it. Between two visual
     /// styles the waveform that is there (or being made) is kept.
     func refreshCurrent() {
         guard let playing else { return cancel() }
-        if settings.style.usesWaveform, current != nil || state == .analysing || state == .unavailable { return }
+        if settings.needsWaveform, current != nil || state == .analysing || state == .unavailable { return }
         begin(playing)
     }
 
@@ -92,7 +93,7 @@ final class WaveformService: PlaybackListener {
 
     private func begin(_ track: PlayedTrack) {
         cancel()
-        guard settings.style.usesWaveform, let source = track.source else { return }
+        guard settings.needsWaveform, let source = track.source else { return }
         let url = source.url
         state = .analysing
         let token = self.token

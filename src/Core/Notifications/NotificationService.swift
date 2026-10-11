@@ -38,7 +38,8 @@ extension NotificationDelivery {
 @MainActor
 @Observable
 final class NotificationService: PlaybackListener {
-    static let shared = NotificationService(delivery: SystemNotificationDelivery(), coverStore: .shared, configStore: .shared)
+    static let shared = NotificationService(delivery: SystemNotificationDelivery(), coverStore: .shared, configStore: .shared,
+                                            nowPlaying: .shared)
 
     /// Send notifications. Persisted in the config.
     var isEnabled: Bool {
@@ -56,12 +57,16 @@ final class NotificationService: PlaybackListener {
     @ObservationIgnored private let delivery: NotificationDelivery
     @ObservationIgnored private let coverStore: CoverStore
     @ObservationIgnored private let configStore: ConfigStore?
+    @ObservationIgnored private let nowPlaying: NowPlayingSettings?
 
     /// `configStore`: where `isEnabled` is read from and kept; `nil` = on, and nothing is persisted.
-    init(delivery: NotificationDelivery, coverStore: CoverStore, configStore: ConfigStore? = nil) {
+    /// `nowPlaying`: no cover is sent while the album art isn't shown in the now playing block; `nil` = always sent.
+    init(delivery: NotificationDelivery, coverStore: CoverStore, configStore: ConfigStore? = nil,
+         nowPlaying: NowPlayingSettings? = nil) {
         self.delivery = delivery
         self.coverStore = coverStore
         self.configStore = configStore
+        self.nowPlaying = nowPlaying
         isEnabled = configStore?.config.general.playbackNotifications ?? true
     }
 
@@ -72,7 +77,8 @@ final class NotificationService: PlaybackListener {
 
     func trackDidStart(_ track: PlayedTrack) {
         guard isEnabled else { return }
-        let cover = track.coverKey.flatMap { coverStore.data(for: $0) }
+        let showsCover = nowPlaying?.showsArt ?? true
+        let cover = showsCover ? track.coverKey.flatMap { coverStore.data(for: $0) } : nil
         delivery.deliver(Self.message(starting: track), cover: cover)
     }
 

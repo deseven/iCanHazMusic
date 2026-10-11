@@ -45,8 +45,23 @@ enum Layout {
     static let blockMinWidth = CGFloat(ConfigLimits.blockMinWidth)
     static let blockMaxWidth = CGFloat(ConfigLimits.blockMaxWidth)
     static let blockPadding: CGFloat = 16
-    static let artToControlsGap: CGFloat = 14
-    static let infoToButtonsMinGap: CGFloat = 12
+    /// The least space between the top stack of components and the bottom one (more when the block is taller).
+    static let stacksMinGap: CGFloat = 12
+
+    /// Space between two components that are next to each other: the larger of what each of them wants around it
+    /// (lines of text sit close, the art and the buttons want more room).
+    static func componentGap(_ a: NowPlayingComponent, _ b: NowPlayingComponent) -> CGFloat {
+        max(componentGap(around: a), componentGap(around: b))
+    }
+
+    private static func componentGap(around component: NowPlayingComponent) -> CGFloat {
+        switch component {
+        case .albumArt: 14
+        case .controls: 12
+        case .volume: 8
+        case .title, .subtitle, .duration, .seekbar, .details: 4
+        }
+    }
 
     /// The default seek bar: the drawn bar and the extra clickable height above and below it.
     static let seekbarBarHeight: CGFloat = 6
@@ -57,8 +72,10 @@ enum Layout {
 
     // Preferences window
     static let preferencesWidth: CGFloat = 610
-    static let preferencesHeight: CGFloat = 540
+    static let preferencesHeight: CGFloat = 620
     static let preferencesTabsWidth: CGFloat = 170
+    /// A row of the list of now playing components (all rows of that list are this tall).
+    static let componentRowHeight: CGFloat = 24
 
     // Import progress sheet
     static let importSheetWidth: CGFloat = 380

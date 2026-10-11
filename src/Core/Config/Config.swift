@@ -174,11 +174,51 @@ struct AppConfig: Codable, Equatable {
     }
 
     struct NowPlaying: Codable, Equatable {
-        /// How the seek bar of the playback block looks.
-        var seekbarStyle = SeekbarStyle.default
+        /// What the options of the components (the gear in Preferences > Now Playing) are set to.
+        struct ComponentOptions: Codable, Equatable {
+            static let defaultTitle = "{artist} – {title}"
+            static let defaultSubtitle = "{album} ({year})"
+
+            /// How the seek bar looks.
+            var seekbarStyle = SeekbarStyle.default
+            /// What the Title shows (`TextTemplate`).
+            var title = ComponentOptions.defaultTitle
+            /// What the Subtitle shows (`TextTemplate`).
+            var subtitle = ComponentOptions.defaultSubtitle
+            /// Which buttons the Playback Controls have, and where.
+            var controls = PlaybackControlsLayout.default
+
+            enum CodingKeys: String, CodingKey {
+                case seekbarStyle = "seekbar_style"
+                case title
+                case subtitle
+                case controls
+            }
+
+            init() {}
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                let d = ComponentOptions()
+                seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
+                title = c.value(.title, default: d.title)
+                subtitle = c.value(.subtitle, default: d.subtitle)
+                controls = c.value(.controls, default: d.controls)
+            }
+        }
+
+        /// The now playing block is shown. Off: it is gone, and nothing that only it needs is done (no album art
+        /// loaded, no waveform made).
+        var enabled = true
+        /// Which components the block has and where (`top` and `bottom` in the file).
+        var layout = NowPlayingLayout.default
+        var componentOptions = ComponentOptions()
 
         enum CodingKeys: String, CodingKey {
-            case seekbarStyle = "seekbar_style"
+            case enabled
+            case top
+            case bottom
+            case componentOptions = "component_options"
         }
 
         init() {}
@@ -186,7 +226,17 @@ struct AppConfig: Codable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = NowPlaying()
-            seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
+            enabled = c.value(.enabled, default: d.enabled)
+            layout = NowPlayingLayout(top: c.items(.top), bottom: c.items(.bottom))
+            componentOptions = c.value(.componentOptions, default: d.componentOptions)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(enabled, forKey: .enabled)
+            try c.encode(layout.top, forKey: .top)
+            try c.encode(layout.bottom, forKey: .bottom)
+            try c.encode(componentOptions, forKey: .componentOptions)
         }
     }
 
@@ -418,6 +468,13 @@ struct AppConfig: Codable, Equatable {
             result.engine.tagParsingConcurrency = defaults.engine.tagParsingConcurrency
         }
 
+        if nowPlaying.componentOptions.title.count > ConfigLimits.componentTextMaxLength {
+            result.nowPlaying.componentOptions.title = defaults.nowPlaying.componentOptions.title
+        }
+        if nowPlaying.componentOptions.subtitle.count > ConfigLimits.componentTextMaxLength {
+            result.nowPlaying.componentOptions.subtitle = defaults.nowPlaying.componentOptions.subtitle
+        }
+
         // A hotkey that isn't valid, or that an earlier action has already, is none. The others are written in
         // their canonical form.
         var taken = Set<Hotkey>()
@@ -447,5 +504,20 @@ private extension KeyedDecodingContainer {
     /// Decodes a value, falling back to `default` when the key is missing or has the wrong type.
     func value<T: Decodable>(_ key: Key, default fallback: T) -> T {
         (try? decodeIfPresent(T.self, forKey: key)) ?? fallback
+    }
+
+    /// The now playing components of a list; the ones that can't be read are left out (`NowPlayingLayout` puts back
+    /// what is missing).
+    func items(_ key: Key) -> [NowPlayingItem] {
+        let entries = (try? decodeIfPresent([LossyItem].self, forKey: key)) ?? []
+        return entries.compactMap(\.item)
+    }
+}
+
+private struct LossyItem: Decodable {
+    let item: NowPlayingItem?
+
+    init(from decoder: Decoder) throws {
+        item = try? NowPlayingItem(from: decoder)
     }
 }

@@ -3,7 +3,9 @@
 
 import SwiftUI
 
-/// Right-hand block: album art, playback info, transport buttons, volume.
+/// Right-hand block: the components chosen in Preferences > Now Playing (album art, what plays, time, seek bar,
+/// transport buttons, volume), in the order chosen. They are in two stacks: the top one starts at the top edge, the
+/// bottom one is pinned to the bottom edge, and the height left over is between them.
 /// The width is dictated by the parent; the art is a square filling that width.
 struct PlaybackBlock: View {
     @Bindable var state: PlaybackState
@@ -11,76 +13,98 @@ struct PlaybackBlock: View {
     let playFromSelection: () -> Void
     /// Whether `playFromSelection` has anything to start.
     let hasSelection: Bool
-    /// Reports the height of everything below the art so the parent can compute how big the art may get.
-    /// Reported to the parent: minimal height of everything below the art
-    /// (info + minimal gap + buttons + volume), excluding the art-to-info gap.
+    /// Reported to the parent so it can compute how big the art may get: the least height of the content, the album art
+    /// not counted (everything else, and the gaps between the components, the ones next to the art included). The
+    /// padding of the block isn't in it.
     @Binding var controlsHeight: CGFloat
 
     private let lyrics = LyricsService.shared
+    private let settings = NowPlayingSettings.shared
 
-    @State private var infoHeight: CGFloat = 0
-    @State private var bottomHeight: CGFloat = 0
+    /// What the components measured (the art isn't: its height follows from the width).
+    @State private var heights: [NowPlayingComponent: CGFloat] = [:]
     /// Position the seek bar is being dragged to.
     @State private var scrubbing: Double?
 
     var body: some View {
+        let top = settings.layout.visibleTop
+        let bottom = settings.layout.visibleBottom
         VStack(spacing: 0) {
-            AlbumArtView(image: state.artwork, isStopped: state.isStopped, isLoading: state.isLoadingArtwork)
-                .aspectRatio(1, contentMode: .fit)   // width-driven, always 1:1
-
-            // Info: centered, right below the art
-            info
-                .padding(.top, Layout.artToControlsGap)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                    infoHeight = $0
-                    reportHeight()
-                }
-
+            stack(top)
             // Flexible gap: absorbs leftover height
-            Spacer(minLength: Layout.infoToButtonsMinGap)
-
-            // Buttons + volume: pinned to the bottom
-            VStack(spacing: 12) {
-                transportButtons
-                volume
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                bottomHeight = $0
-                reportHeight()
-            }
+            Spacer(minLength: top.isEmpty || bottom.isEmpty ? 0 : Layout.stacksMinGap)
+            stack(bottom)
         }
         .padding(Layout.blockPadding)
-    }
-
-    private func reportHeight() {
-        controlsHeight = infoHeight + Layout.infoToButtonsMinGap + bottomHeight
-    }
-
-    private var info: some View {
-        VStack(spacing: 4) {
-            Group {
-                Text(line(state.info.map { "\($0.artist) – \($0.title)" }))
-                    .font(.headline)
-                Text(line(state.info.map { track in
-                    track.year.map { "\(track.album) (\($0))" } ?? track.album
-                }))
-                    .foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
-            .truncationMode(.tail)
-
-            PlaybackProgress(state: state, scrubbing: $scrubbing)
-
-            Text(line(state.info?.codec))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 24)
-                .overlay(alignment: .trailing) { lyricsButton }
+        .onChange(of: requiredHeight(top: top, bottom: bottom), initial: true) { _, height in
+            controlsHeight = height
         }
-        .multilineTextAlignment(.center)
-        .frame(maxWidth: .infinity)
+    }
+
+    private func requiredHeight(top: [NowPlayingComponent], bottom: [NowPlayingComponent]) -> CGFloat {
+        func stackHeight(_ components: [NowPlayingComponent]) -> CGFloat {
+            var total: CGFloat = 0
+            for (index, component) in components.enumerated() {
+                total += heights[component] ?? 0
+                if index > 0 { total += Layout.componentGap(components[index - 1], component) }
+            }
+            return total
+        }
+        let gap = top.isEmpty || bottom.isEmpty ? 0 : Layout.stacksMinGap
+        return stackHeight(top) + gap + stackHeight(bottom)
+    }
+
+    private func stack(_ components: [NowPlayingComponent]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(components.enumerated()), id: \.element) { index, component in
+                view(for: component)
+                    .padding(.top, index == 0 ? 0 : Layout.componentGap(components[index - 1], component))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func view(for component: NowPlayingComponent) -> some View {
+        switch component {
+        case .albumArt:
+            AlbumArtView(image: state.artwork, isStopped: state.isStopped, isLoading: state.isLoadingArtwork)
+                .aspectRatio(1, contentMode: .fit)   // width-driven, always 1:1
+        case .title:
+            measured(component) {
+                Text(line(state.info.map { TextTemplate.render(settings.titleTemplate, values: $0.templateValues) }))
+                    .font(.headline)
+                    .centeredLine()
+            }
+        case .subtitle:
+            measured(component) {
+                Text(line(state.info.map { TextTemplate.render(settings.subtitleTemplate, values: $0.templateValues) }))
+                    .foregroundStyle(.secondary)
+                    .centeredLine()
+            }
+        case .duration:
+            measured(component) { PlaybackTime(state: state, scrubbing: $scrubbing) }
+        case .seekbar:
+            measured(component) { PlaybackSeekbar(state: state, scrubbing: $scrubbing) }
+        case .details:
+            measured(component) {
+                Text(line(state.info?.codec))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .centeredLine()
+                    .padding(.horizontal, 24)
+                    .overlay(alignment: .trailing) { lyricsButton }
+            }
+        case .controls:
+            measured(component) { transportButtons }
+        case .volume:
+            measured(component) { volume }
+        }
+    }
+
+    private func measured<Content: View>(_ component: NowPlayingComponent,
+                                         @ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[component] = $0 }
     }
 
     /// Only there for a track that has lyrics; the space stays, so nothing moves when it comes and goes.
@@ -101,29 +125,47 @@ struct PlaybackBlock: View {
         .accessibilityHidden(!available)
     }
 
+    /// The buttons chosen in the options of the component, spread over the width of the block.
     private var transportButtons: some View {
-        let stopped = state.isStopped
+        let buttons = settings.controls.visible
         return HStack(spacing: 0) {
+            ForEach(Array(buttons.enumerated()), id: \.element) { index, control in
+                if index > 0 { Spacer(minLength: 0) }
+                transportButton(control)
+            }
+        }
+        .frame(minHeight: TransportButton.side)
+    }
+
+    @ViewBuilder
+    private func transportButton(_ control: PlaybackControl) -> some View {
+        let stopped = state.isStopped
+        switch control {
+        case .previousAlbum:
             TransportButton(symbol: "backward.end.fill", help: "Previous album") { state.previousAlbum() }
                 .disabled(stopped)
-            Spacer(minLength: 0)
+        case .previousTrack:
             TransportButton(symbol: "backward.fill", help: "Previous track") { state.previousTrack() }
                 .disabled(stopped)
-            Spacer(minLength: 0)
+        case .playPause:
             TransportButton(symbol: state.status == .playing ? "pause.fill" : "play.fill",
                             help: state.status == .playing ? "Pause" : "Play", size: 26) {
                 if stopped { playFromSelection() } else { state.togglePause() }
             }
             .disabled(stopped && !hasSelection)
-            Spacer(minLength: 0)
+        case .nextTrack:
             TransportButton(symbol: "forward.fill", help: "Next track") { state.nextTrack() }
                 .disabled(stopped)
-            Spacer(minLength: 0)
+        case .nextAlbum:
             TransportButton(symbol: "forward.end.fill", help: "Next album") { state.nextAlbum() }
                 .disabled(stopped)
-            Spacer(minLength: 0)
+        case .stop:
             TransportButton(symbol: "stop.fill", help: "Stop") { state.stop() }
                 .disabled(stopped)
+        case .randomTrack:
+            TransportButton(symbol: "die.face.5.fill", help: "Play a random track") { state.randomTrack() }
+        case .randomAlbum:
+            TransportButton(symbol: "square.stack.fill", help: "Play a random album") { state.randomAlbum() }
         }
     }
 
@@ -143,30 +185,48 @@ struct PlaybackBlock: View {
     }
 }
 
-/// Time label and seek bar. They read the position themselves, so only this view is re-evaluated when it ticks
-/// (reading it in `PlaybackBlock.body` re-evaluates the whole block, which measurably costs CPU).
-private struct PlaybackProgress: View {
+private extension View {
+    /// One line, centered across the block's width, cut off at the end if it doesn't fit.
+    func centeredLine() -> some View {
+        lineLimit(1)
+            .truncationMode(.tail)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// The time label. It reads the position itself, so only this view is re-evaluated when it ticks (reading it in
+/// `PlaybackBlock.body` re-evaluates the whole block, which measurably costs CPU).
+private struct PlaybackTime: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
-    private let seekbar = NowPlayingSettings.shared
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
-                .font(.body.monospacedDigit())
-                .lineLimit(1)
-            switch seekbar.style {
-            case .standard:
-                SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
-            case .waveformRMS, .waveformPeakRMS, .waveformTriBand, .waveformStructure, .spectrogram:
-                WaveformSeekBar(style: seekbar.style, value: state.position, total: state.duration,
-                                scrubbing: $scrubbing) { state.seek(to: $0) }
-            }
-        }
+        Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
+            .font(.body.monospacedDigit())
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
     }
 
     private func format(_ seconds: Double) -> String {
         let s = Int(max(seconds, 0))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// The seek bar, in the style chosen in Preferences. Reads the position itself, like `PlaybackTime`.
+private struct PlaybackSeekbar: View {
+    let state: PlaybackState
+    @Binding var scrubbing: Double?
+    private let seekbar = NowPlayingSettings.shared
+
+    var body: some View {
+        switch seekbar.style {
+        case .standard:
+            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+        case .waveformRMS, .waveformPeakRMS, .waveformTriBand, .waveformStructure, .spectrogram:
+            WaveformSeekBar(style: seekbar.style, value: state.position, total: state.duration,
+                            scrubbing: $scrubbing) { state.seek(to: $0) }
+        }
     }
 }

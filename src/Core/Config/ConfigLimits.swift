@@ -23,6 +23,9 @@ enum ConfigLimits {
     static let volumeMin = 0.0
     static let volumeMax = 1.0
 
+    // Text templates of the now playing components (Title, Subtitle), in characters.
+    static let componentTextMaxLength = 200
+
     // Read-ahead buffer of the playback engine, in seconds.
     static let readAheadDefault = 5
     static let readAheadOptions = [2, readAheadDefault, 15, 30, 60]
