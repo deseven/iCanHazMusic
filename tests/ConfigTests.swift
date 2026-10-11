@@ -120,13 +120,13 @@ extension AllTests {
 
         @Test("resample quality is high by default, read by name and reset when unknown")
         func resampleQuality() throws {
-            #expect(AppConfig().playbackEngine.resampleQuality == .high)
+            #expect(AppConfig().engine.resampleQuality == .high)
             for quality in ResampleQuality.allCases {
-                let json = #"{"playback_engine": {"resample_quality": "\#(quality.rawValue)"}}"#
-                #expect(try decode(json).playbackEngine.resampleQuality == quality)
+                let json = #"{"engine": {"resample_quality": "\#(quality.rawValue)"}}"#
+                #expect(try decode(json).engine.resampleQuality == quality)
             }
-            #expect(try decode(#"{"playback_engine": {"resample_quality": "ultra"}}"#).playbackEngine.resampleQuality == .high)
-            #expect(try decode(#"{"playback_engine": {"resample_quality": 3}}"#).playbackEngine.resampleQuality == .high)
+            #expect(try decode(#"{"engine": {"resample_quality": "ultra"}}"#).engine.resampleQuality == .high)
+            #expect(try decode(#"{"engine": {"resample_quality": 3}}"#).engine.resampleQuality == .high)
         }
 
         @Test("the playback order is default, the end of the playlist stop; both read by name, reset when unknown")
@@ -178,40 +178,22 @@ extension AllTests {
             #expect(String(decoding: data, as: UTF8.self).contains(#""seekbar_style":"waveform_rms""#))
         }
 
-        @Test("zooming the album art on hover is off by default, read from the config, reset when invalid; the setting keeps it")
-        func zoomAlbumArt() throws {
-            #expect(AppConfig().nowPlaying.zoomAlbumArt == false)
-            #expect(try decode(#"{"now_playing": {"zoom_album_art": true}}"#).nowPlaying.zoomAlbumArt == true)
-            #expect(try decode(#"{"now_playing": {"zoom_album_art": "yes"}}"#).nowPlaying.zoomAlbumArt == false)
-            #expect(try decode(#"{"now_playing": {}}"#).nowPlaying.zoomAlbumArt == false)
-
-            let dir = try TempDir()
-            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
-            let settings = NowPlayingSettings(configStore: config)
-            #expect(settings.zoomAlbumArt == false)
-            settings.zoomAlbumArt = true
-            #expect(config.config.nowPlaying.zoomAlbumArt == true)
-            #expect(NowPlayingSettings(configStore: config).zoomAlbumArt == true)
-            #expect(NowPlayingSettings().zoomAlbumArt == false)
-            let data = try JSONEncoder().encode(config.config)
-            #expect(String(decoding: data, as: UTF8.self).contains(#""zoom_album_art":true"#))
-        }
 
         @Test("the volume is 0.7 by default, read leniently and reset outside of 0...1")
         func volume() throws {
-            #expect(AppConfig().playbackEngine.volume == 0.7)
-            #expect(try decode(#"{"playback_engine": {"volume": 0.3}}"#).playbackEngine.volume == 0.3)
-            #expect(try decode(#"{"playback_engine": {"volume": "loud"}}"#).playbackEngine.volume == 0.7)
+            #expect(AppConfig().engine.volume == 0.7)
+            #expect(try decode(#"{"engine": {"volume": 0.3}}"#).engine.volume == 0.3)
+            #expect(try decode(#"{"engine": {"volume": "loud"}}"#).engine.volume == 0.7)
 
             for volume in [ConfigLimits.volumeMin, 0.5, ConfigLimits.volumeMax] {
                 var config = AppConfig()
-                config.playbackEngine.volume = volume
+                config.engine.volume = volume
                 #expect(config.validated() == config)
             }
             for volume in [-0.1, 1.5, 70] {
                 var config = AppConfig()
-                config.playbackEngine.volume = volume
-                #expect(config.validated().playbackEngine.volume == 0.7)
+                config.engine.volume = volume
+                #expect(config.validated().engine.volume == 0.7)
             }
         }
 
@@ -324,24 +306,38 @@ extension AllTests {
             }
         }
 
-        @Test("the playlist section is read leniently, with automatic concurrency and art on by default")
+        @Test("the playlist section is read leniently, with art on by default")
         func playlistSection() throws {
             let defaults = AppConfig().playlist
-            #expect(defaults.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
             #expect(defaults.displayAlbumArt)
 
-            let config = try decode("""
-            {"playlist": {"tag_parsing_concurrency": 8, "display_album_art": false}}
-            """)
-            #expect(config.playlist.tagParsingConcurrency == 8)
+            let config = try decode(#"{"playlist": {"display_album_art": false}}"#)
             #expect(!config.playlist.displayAlbumArt)
+            #expect(try decode(#"{"playlist": {"display_album_art": "no"}}"#).playlist == defaults)
+            #expect(try decode(#"{"playlist": 5}"#).playlist == defaults)
+        }
+
+        @Test("the engine section is read leniently, with automatic concurrency by default")
+        func engineSection() throws {
+            let defaults = AppConfig().engine
+            #expect(defaults.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
+
+            let config = try decode("""
+            {"engine": {"tag_parsing_concurrency": 8, "resample_quality": "max"}}
+            """)
+            #expect(config.engine.tagParsingConcurrency == 8)
+            #expect(config.engine.resampleQuality == .max)
 
             let partial = try decode("""
-            {"playlist": {"tag_parsing_concurrency": "many", "display_album_art": false}}
+            {"engine": {"tag_parsing_concurrency": "many", "resample_quality": "max"}}
             """)
-            #expect(partial.playlist.tagParsingConcurrency == defaults.tagParsingConcurrency)
-            #expect(!partial.playlist.displayAlbumArt)
-            #expect(try decode(#"{"playlist": 5}"#).playlist == defaults)
+            #expect(partial.engine.tagParsingConcurrency == defaults.tagParsingConcurrency)
+            #expect(partial.engine.resampleQuality == .max)
+            #expect(try decode(#"{"engine": 5}"#).engine == defaults)
+
+            // The old place of the value isn't read any more.
+            #expect(try decode(#"{"playlist": {"tag_parsing_concurrency": 8}}"#).engine.tagParsingConcurrency
+                == defaults.tagParsingConcurrency)
         }
 
         @Test("the search section is read leniently; playlists, albums and fuzzy are on, queue preference off by default")
@@ -366,19 +362,48 @@ extension AllTests {
             #expect(try decode(#"{"search": 5}"#).search == defaults)
         }
 
+        @Test("the read-ahead buffer is 5 s and the output device the system's by default; both read leniently")
+        func readAheadAndOutputDevice() throws {
+            let defaults = AppConfig().engine
+            #expect(defaults.readAhead == 5)
+            #expect(defaults.outputDevice.isEmpty)
+
+            let config = try decode(#"{"engine": {"read_ahead": 30, "output_device": "AppleUSBAudio:1"}}"#)
+            #expect(config.engine.readAhead == 30)
+            #expect(config.engine.outputDevice == "AppleUSBAudio:1")
+
+            let invalid = try decode(#"{"engine": {"read_ahead": "long", "output_device": 7}}"#)
+            #expect(invalid.engine.readAhead == defaults.readAhead)
+            #expect(invalid.engine.outputDevice == defaults.outputDevice)
+        }
+
+        @Test("the read-ahead buffer must be one of the offered values")
+        func invalidReadAhead() {
+            for seconds in ConfigLimits.readAheadOptions {
+                var config = AppConfig()
+                config.engine.readAhead = seconds
+                #expect(config.validated() == config)
+            }
+            for seconds in [-1, 0, 3, 61, 600] {
+                var config = AppConfig()
+                config.engine.readAhead = seconds
+                #expect(config.validated().engine.readAhead == ConfigLimits.readAheadDefault)
+            }
+        }
+
         @Test("the tag parsing concurrency must be one of the offered values")
         func invalidConcurrency() {
             for count in ConfigLimits.tagParsingConcurrencyOptions {
                 var config = AppConfig()
-                config.playlist.tagParsingConcurrency = count
+                config.engine.tagParsingConcurrency = count
                 #expect(config.validated() == config)
             }
             for count in [-1, 3, 33, 64] {
                 var config = AppConfig()
-                config.playlist.tagParsingConcurrency = count
+                config.engine.tagParsingConcurrency = count
                 config.playlist.displayAlbumArt = false
                 let result = config.validated()
-                #expect(result.playlist.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
+                #expect(result.engine.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
                 #expect(!result.playlist.displayAlbumArt)
             }
         }

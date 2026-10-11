@@ -30,7 +30,7 @@ from about 1 s, tiny differences before that) and Vorbis (every seek lands a con
   default priming gives exactly `round(frames * outRate / inRate)` frames, no offset and no dependence on chunking.
 - Everything is converted to **one format** (stereo float32 at the output's rate), so gapless playback is nothing
   more than contiguous buffers on one `AVAudioPlayerNode`, even between files of different rates and layouts.
-- A feeder keeps `lookahead` (5 s) of audio scheduled; the next track's decoder starts when the current one has
+- A feeder keeps `lookahead` (5 s by default, Preferences > Engine > Read-Ahead Buffer) of audio scheduled; the next track's decoder starts when the current one has
   delivered its last frame. Changing the next track after its audio was scheduled rebuilds the queue in place.
 - **Position** comes from the node's timeline (`playerTime`), not from completion callbacks. If the feeder ever falls
   behind, the node plays silence and the timeline moves on; the gap is detected when the next buffer is scheduled and
@@ -67,6 +67,7 @@ label differs, writes them back through `PlaylistStore.updateTrack` (the playlis
 - `mixer.outputVolume` (the user's volume) ramps over about 70 ms, `node.volume` (the fades) over about 25 ms.
 - A buffer scheduled on a running node is picked up asynchronously (a few ms). Irrelevant on a device, but an offline
   render right after scheduling can miss it, see `EngineRig.settle`.
+- The output device is the system default unless one is chosen (`outputDeviceUID`). Pinning one (`AUAudioUnit.setDeviceID` on the output node, before the engine starts) makes the engine stop following the system default, so going back to the default needs a new `AVAudioEngine`. The device is looked up only when the output starts; one that is gone is dropped for the default.
 - The device may run at any rate (96 kHz on the dev machine): every file is resampled there, nothing is bit-perfect.
   Neither `AVPlayer` nor the engine switches the device rate; that would need CoreAudio HAL access (and exclusive mode).
 
@@ -82,7 +83,7 @@ Measured on Apple silicon, 44.1 kHz FLAC resampled to a 96 kHz device (engine al
   `taskpolicy -b` reproduces the slow case from a terminal. To check where a process runs, read `proc_pid_rusage`
   (`rusage_info_v6`: `ri_user_ptime`/`ri_system_ptime` vs `ri_user_time`/`ri_system_time`, `ri_cycles`,
   `ri_instructions`, `ri_energy_nj`), no root needed. Instructions per second is the figure to compare.
-- **Sample rate converter quality defaults to `.high`, not `.max`** (selectable in Preferences, `playback_engine.resample_quality`). `.max` costs ~25% more in the converter (13.5 vs 10.1 M
+- **Sample rate converter quality defaults to `.high`, not `.max`** (selectable in Preferences, `engine.resample_quality`). `.max` costs ~25% more in the converter (13.5 vs 10.1 M
   instructions per second of audio, ~8% of the whole engine). Tone measurements through `AVAudioConverter` (FFT,
   44.1 -> 96 kHz): identical up to the measurement floor (-94 dBc) at 1 and 10 kHz, 18 kHz level -0.013 dB and spurious
   components -129 dBc (`.max`: -139 dBc); the two differ only above ~19 kHz (transition band) and in the rejection of

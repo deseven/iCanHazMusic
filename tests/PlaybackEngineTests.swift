@@ -323,6 +323,18 @@ extension AllTests {
             #expect(rig.engine.bufferedSeconds < 0.5 + chunk + 0.001)
         }
 
+        @Test("a changed lookahead applies at once")
+        func lookaheadChange() async throws {
+            let rig = EngineRig(lookahead: 0.5)
+            rig.engine.start(try RampFile.a.url())
+            await rig.engine.settle()
+            #expect(rig.engine.bufferedSeconds < 1)
+
+            rig.engine.lookahead = 1.5
+            await rig.engine.settle()
+            #expect(rig.engine.bufferedSeconds >= 1.5)
+        }
+
         @Test("with a short lookahead the playback is still exact, across a track boundary too",
               arguments: [PlaybackEngine.renderSlice, 4096, 5000])
         func shortLookahead(step: Int) async throws {

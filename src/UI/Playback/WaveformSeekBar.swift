@@ -130,9 +130,8 @@ private struct WaveformBars: View, Animatable {
     private static let triBandOpacities = (all: 0.30, upper: 0.35, high: 0.50)
     /// Spectrogram: opacity of the quietest cell.
     static let spectrogramFloor = 0.06
+    /// The position line is in the text colour (`.primary`), which stands out of the accent colour in either appearance.
     private static let positionLineWidth: CGFloat = 2.5
-    /// How much black is mixed into the accent colour for the position line.
-    private static let positionLineDarkening = 0.45
     /// Structure: ticks where the sections change.
     private static let tickWidth: CGFloat = 1.5
     private static let tickHeight: CGFloat = 4
@@ -145,13 +144,10 @@ private struct WaveformBars: View, Animatable {
     var body: some View {
         Canvas { context, size in
             guard size.width > 0, size.height > 0 else { return }
-            let playedColor: Color
             if let waveform, style == .spectrogram {
                 drawSpectrogram(waveform, in: &context, size: size)
-                playedColor = .primary
             } else {
                 drawBars(in: &context, size: size)
-                playedColor = Color.accentColor.mix(with: .black, by: Self.positionLineDarkening)
             }
 
             // The current position, kept inside the frame at the ends so it isn't cut off.
@@ -159,7 +155,7 @@ private struct WaveformBars: View, Animatable {
             let half = Self.positionLineWidth / 2
             let center = min(max(x, half), size.width - half)
             context.fill(Path(CGRect(x: center - half, y: 0, width: Self.positionLineWidth, height: size.height)),
-                         with: .color(playedColor))
+                         with: .color(.primary))
         }
     }
 

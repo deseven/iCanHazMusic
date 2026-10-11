@@ -11,7 +11,7 @@ struct PreferencesView: View {
 
     private enum Tab: String, CaseIterable, Identifiable {
         case general
-        case playbackEngine
+        case engine
         case playlist
         case nowPlaying
         case search
@@ -23,7 +23,7 @@ struct PreferencesView: View {
         var label: String {
             switch self {
             case .general: "General"
-            case .playbackEngine: "Playback Engine"
+            case .engine: "Engine"
             case .playlist: "Playlist"
             case .nowPlaying: "Now Playing"
             case .search: "Search"
@@ -35,7 +35,7 @@ struct PreferencesView: View {
         var icon: String {
             switch self {
             case .general: "gearshape"
-            case .playbackEngine: "cpu"
+            case .engine: "cpu"
             case .playlist: "music.note.list"
             case .nowPlaying: "waveform"
             case .search: "magnifyingglass"
@@ -78,7 +78,7 @@ struct PreferencesView: View {
             Group {
                 switch selectedTab {
                 case .general: GeneralTab()
-                case .playbackEngine: PlaybackEngineTab()
+                case .engine: EngineTab()
                 case .playlist: PlaylistTab()
                 case .nowPlaying: NowPlayingTab()
                 case .search: SearchTab()
@@ -356,27 +356,38 @@ private struct NowPlayingTab: View {
                 .pickerStyle(.menu)
                 .fixedSize()
             }
-
-            PrefRow(
-                title: "Zoom Album Art on Hover",
-                description: "While the mouse pointer is over the album art, show the part of it under the pointer at "
-                    + "the original size of the image, and move it along with the pointer. Nothing is zoomed if the art "
-                    + "is already shown at less than 10% below its original size. Clicking the album art to open it "
-                    + "at the original size works regardless of this setting."
-            ) {
-                Toggle("", isOn: $nowPlaying.zoomAlbumArt)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
         }
     }
 }
 
-private struct PlaybackEngineTab: View {
+private struct EngineTab: View {
     @Bindable private var playback = PlaybackState.shared
+    @Bindable private var store = PlaylistStore.shared
+    /// Read when the tab appears: devices are only looked at when somebody needs to know.
+    @State private var devices: [AudioOutputDevice] = []
 
     var body: some View {
         TabPage {
+            PrefRow(
+                title: "Output Device",
+                description: "Where the sound goes. System Default follows the output chosen in System Settings. A "
+                    + "device that isn't connected when playback starts is replaced by System Default."
+            ) {
+                Picker("", selection: $playback.outputDevice) {
+                    Text("System Default").tag("")
+                    ForEach(devices) { device in
+                        Text(device.name).tag(device.uid)
+                    }
+                    if !playback.outputDevice.isEmpty, !devices.contains(where: { $0.uid == playback.outputDevice }) {
+                        Text("Unavailable Device").tag(playback.outputDevice)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 220)
+            }
+            .onAppear { devices = AudioOutputDevices.all() }
+
             PrefRow(
                 title: "Resample Quality",
                 description: "Quality of the sample rate conversion, used for files whose sample rate differs from "
@@ -386,6 +397,37 @@ private struct PlaybackEngineTab: View {
                 Picker("", selection: $playback.resampleQuality) {
                     ForEach(ResampleQuality.allCases) { quality in
                         Text(quality.rawValue.capitalized).tag(quality)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
+
+            PrefRow(
+                title: "Read-Ahead Buffer",
+                description: "How much audio is decoded in advance, which is also the time the next track has to open "
+                    + "without a gap. Longer values help with slow network shares and sleeping drives, and use a "
+                    + "little more memory (about 46 MB for 60 s at 96 kHz)."
+            ) {
+                Picker("", selection: $playback.readAhead) {
+                    ForEach(ConfigLimits.readAheadOptions, id: \.self) { seconds in
+                        Text("\(seconds) s").tag(seconds)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
+
+            PrefRow(
+                title: "Tag Parsing Concurrency",
+                description: "How many files are read at the same time when adding them to a playlist. Auto uses "
+                    + "the number of physical CPU cores. Higher values can speed things up on network shares."
+            ) {
+                Picker("", selection: $store.tagParsingConcurrency) {
+                    ForEach(ConfigLimits.tagParsingConcurrencyOptions, id: \.self) { count in
+                        Text(count == ConfigLimits.tagParsingConcurrencyAuto ? "Auto" : String(count)).tag(count)
                     }
                 }
                 .labelsHidden()
@@ -460,21 +502,6 @@ private struct PlaylistTab: View {
 
     var body: some View {
         TabPage {
-            PrefRow(
-                title: "Tag Parsing Concurrency",
-                description: "How many files are read at the same time when adding them to a playlist. Auto uses "
-                    + "the number of physical CPU cores. Higher values can speed things up on network shares."
-            ) {
-                Picker("", selection: $store.tagParsingConcurrency) {
-                    ForEach(ConfigLimits.tagParsingConcurrencyOptions, id: \.self) { count in
-                        Text(count == ConfigLimits.tagParsingConcurrencyAuto ? "Auto" : String(count)).tag(count)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-            }
-
             PrefRow(
                 title: "Display Album Art",
                 description: "Show the album art in the album blocks of playlists grouped by albums. The art is "

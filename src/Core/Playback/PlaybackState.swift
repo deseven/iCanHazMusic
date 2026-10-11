@@ -71,11 +71,11 @@ final class PlaybackState {
     let queue: PlaybackQueue
 
     /// Linear gain, 0...1. Persisted in the config.
-    var volume = AppConfig.PlaybackEngine().volume {
+    var volume = AppConfig.Engine().volume {
         didSet {
             engine.volume = Float(volume)
             guard volume != oldValue else { return }
-            configStore?.update { $0.playbackEngine.volume = min(max(volume, ConfigLimits.volumeMin), ConfigLimits.volumeMax) }
+            configStore?.update { $0.engine.volume = min(max(volume, ConfigLimits.volumeMin), ConfigLimits.volumeMax) }
         }
     }
 
@@ -127,8 +127,30 @@ final class PlaybackState {
         didSet {
             guard resampleQuality != oldValue else { return }
             engine.resampleQuality = resampleQuality
-            configStore?.update { $0.playbackEngine.resampleQuality = resampleQuality }
+            configStore?.update { $0.engine.resampleQuality = resampleQuality }
             Log.info("resample quality: \(resampleQuality.rawValue)")
+        }
+    }
+
+    /// Seconds of audio the engine keeps decoded ahead (one of `ConfigLimits.readAheadOptions`); applies at once.
+    /// Persisted in the config.
+    var readAhead = ConfigLimits.readAheadDefault {
+        didSet {
+            guard readAhead != oldValue else { return }
+            engine.lookahead = Double(readAhead)
+            configStore?.update { $0.engine.readAhead = readAhead }
+            Log.info("read-ahead buffer: \(readAhead) s")
+        }
+    }
+
+    /// UID of the output device, empty = the system default. Checked only when the output starts: a device that is
+    /// gone then is replaced by the default (and this becomes empty). Persisted in the config.
+    var outputDevice = "" {
+        didSet {
+            guard outputDevice != oldValue else { return }
+            engine.outputDeviceUID = outputDevice
+            configStore?.update { $0.engine.outputDevice = outputDevice }
+            Log.info("output device: \(outputDevice.isEmpty ? "system default" : outputDevice)")
         }
     }
 
@@ -238,8 +260,8 @@ final class PlaybackState {
     /// `positionStep`: `position` is only published when it moves into another multiple of this many seconds
     /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
     /// 4 updates a second); 0 publishes every change.
-    /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality`, `volume`, `order` and
-    /// `atPlaylistEnd` are read from and kept; `nil` uses
+    /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality`, `readAhead`, `outputDevice`,
+    /// `volume`, `order` and `atPlaylistEnd` are read from and kept; `nil` uses
     /// the defaults and persists nothing.
     /// `listeners`: told about every track that starts and ends (held weakly).
     /// `queue`: the playback queue; by default a new one that keeps its settings in `configStore`.
@@ -259,12 +281,16 @@ final class PlaybackState {
             order = settings.order
             atPlaylistEnd = settings.atPlaylistEnd
         }
-        if let settings = configStore?.config.playbackEngine {
+        if let settings = configStore?.config.engine {
             resampleQuality = settings.resampleQuality
+            readAhead = settings.readAhead
+            outputDevice = settings.outputDevice
             volume = settings.volume
         }
         engine.volume = Float(volume)
         engine.resampleQuality = resampleQuality
+        engine.lookahead = Double(readAhead)
+        engine.outputDeviceUID = outputDevice
         engine.onEvent = { [weak self] event in self?.handle(event) }
         self.queue.onChange = { [weak self] in self?.playlistDidChange() }
         store.playback = self
@@ -661,6 +687,11 @@ final class PlaybackState {
     // MARK: - Reacting to the engine
 
     private func handle(_ event: PlaybackEngine.Event) {
+        if case .outputDeviceLost(let uid) = event {
+            // Whatever the state: the engine has dropped the device already, so the setting follows.
+            if outputDevice == uid { outputDevice = "" }
+            return
+        }
         guard status != .stopped else { return }
         switch event {
         case .advanced:
@@ -704,6 +735,8 @@ final class PlaybackState {
         case .deviceError(let message):
             Log.error("playback: stopped, audio output failed: \(message)")
             halt()
+        case .outputDeviceLost:
+            break   // handled above
         }
     }
 

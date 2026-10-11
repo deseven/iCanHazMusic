@@ -42,6 +42,9 @@ final class PlaybackEngine {
         case failed(url: URL, wasCurrent: Bool, message: String)
         /// The output can't be started. The engine is idle.
         case deviceError(String)
+        /// The chosen output device (`outputDeviceUID`) wasn't there when the output was started: the system default
+        /// is used and `outputDeviceUID` is empty now.
+        case outputDeviceLost(uid: String)
     }
 
     /// Time the output takes to fade out before pausing/seeking/stopping.
@@ -58,6 +61,21 @@ final class PlaybackEngine {
 
     /// Sample rate conversion quality of the tracks opened from now on (what is decoded already stays as it is).
     var resampleQuality = ResampleQuality.default
+
+    /// Seconds of audio the feeder keeps scheduled ahead of the playhead, which is also the time the next track's
+    /// file has to open in. Takes effect at once.
+    var lookahead: Double
+
+    /// UID of the output device (`AudioOutputDevices`); empty = the system's default, followed when it changes. It is
+    /// looked up only when the output is started, and a device that isn't there then is dropped for the system default
+    /// (`Event.outputDeviceLost`). A change while the output runs restarts it from the same position.
+    var outputDeviceUID = "" {
+        didSet {
+            guard outputDeviceUID != oldValue, case .device = output, engine.isRunning else { return }
+            Log.info("audio output: device changed, restarting the output")
+            configurationChanged()
+        }
+    }
 
     // MARK: Internals
 
@@ -94,10 +112,12 @@ final class PlaybackEngine {
         }
     }
 
-    private let engine = AVAudioEngine()
-    private let node = AVAudioPlayerNode()
+    /// Replaced when the output has to follow the system default again after it was pinned to a device (`bindOutputDevice`).
+    private var engine = AVAudioEngine()
+    private var node = AVAudioPlayerNode()
     private let output: Output
-    private let lookahead: Double
+    /// The device the engine's output is pinned to (UID); empty = it follows the system default.
+    private var boundDeviceUID = ""
 
     private(set) var sampleRate: Double
     private var format: AVAudioFormat
@@ -154,11 +174,16 @@ final class PlaybackEngine {
             }
         case .device:
             engine.mainMixerNode.outputVolume = volume
-            configObserver = NotificationCenter.default.addObserver(
-                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.configurationChanged() }
-            }
+            observeConfigurationChanges()
+        }
+    }
+
+    private func observeConfigurationChanges() {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.configurationChanged() }
         }
     }
 
@@ -388,6 +413,7 @@ final class PlaybackEngine {
         guard case .device = output else { return engine.isRunning }
         if engine.isRunning { return true }
 
+        bindOutputDevice()
         let hardware = engine.outputNode.outputFormat(forBus: 0).sampleRate
         sampleRate = hardware > 0 ? hardware : 44100
         format = Self.makeFormat(sampleRate: sampleRate)
@@ -402,6 +428,44 @@ final class PlaybackEngine {
             Log.error("audio engine: \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// Points the stopped engine at the chosen device, or back at the system default. The device is looked up now,
+    /// not before: one that was unplugged since the last time is given up for the default.
+    private func bindOutputDevice() {
+        let wanted = outputDeviceUID
+        if !wanted.isEmpty {
+            if let device = AudioOutputDevices.deviceID(forUID: wanted) {
+                boundDeviceUID = wanted   // also on a failure: then the engine is replaced below
+                do {
+                    try engine.outputNode.auAudioUnit.setDeviceID(device)
+                    Log.info("audio output: device \(wanted)")
+                    return
+                } catch {
+                    Log.error("audio output: can't use device \(wanted): \(error.localizedDescription)")
+                }
+            } else {
+                Log.info("audio output: device \(wanted) isn't available, using the system default")
+            }
+            outputDeviceUID = ""
+            onEvent?(.outputDeviceLost(uid: wanted))
+        }
+        // An output that was pinned to a device doesn't follow the system default any more, only a new engine does.
+        if !boundDeviceUID.isEmpty {
+            boundDeviceUID = ""
+            replaceEngine()
+        }
+    }
+
+    private func replaceEngine() {
+        node.stop()
+        engine.detach(node)
+        engine = AVAudioEngine()
+        node = AVAudioPlayerNode()
+        engine.attach(node)
+        engine.mainMixerNode.outputVolume = min(max(volume, 0), 1)
+        faded = false
+        observeConfigurationChanges()
     }
 
     /// The output device or its format changed and the system stopped the engine: continue from the same place.

@@ -411,7 +411,7 @@ extension AllTests {
             env.store.displayAlbumArt = false
             env.store.tagParsingConcurrency = 8
             #expect(!env.config.config.playlist.displayAlbumArt)
-            #expect(env.config.config.playlist.tagParsingConcurrency == 8)
+            #expect(env.config.config.engine.tagParsingConcurrency == 8)
             #expect(env.store.effectiveTagParsingConcurrency == 8)
 
             let restarted = PlaylistStore(paths: env.paths, configStore: env.config)

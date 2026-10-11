@@ -526,7 +526,7 @@ extension AllTests {
             let plain = PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil)
             #expect(plain.resampleQuality == .high)
 
-            config.update { $0.playbackEngine.resampleQuality = .max }
+            config.update { $0.engine.resampleQuality = .max }
             let rig = EngineRig(lookahead: 60)
             let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
             #expect(state.resampleQuality == .max)
@@ -534,7 +534,35 @@ extension AllTests {
 
             state.resampleQuality = .low
             #expect(rig.engine.resampleQuality == .low)
-            #expect(config.config.playbackEngine.resampleQuality == .low)
+            #expect(config.config.engine.resampleQuality == .low)
+        }
+
+        @Test("the read-ahead buffer and the output device are read from the config, handed to the engine and written back")
+        func readAheadAndOutputDevicePersist() async throws {
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            let store = PlaylistStore(paths: paths, configStore: config)
+            let plain = PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil)
+            #expect(plain.readAhead == ConfigLimits.readAheadDefault)
+            #expect(plain.outputDevice.isEmpty)
+
+            config.update { $0.engine.readAhead = 30; $0.engine.outputDevice = "dac-1" }
+            let rig = EngineRig(lookahead: 60)
+            let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
+            #expect(state.readAhead == 30 && rig.engine.lookahead == 30)
+            #expect(state.outputDevice == "dac-1" && rig.engine.outputDeviceUID == "dac-1")
+
+            state.readAhead = 2
+            state.outputDevice = "dac-2"
+            #expect(rig.engine.lookahead == 2 && rig.engine.outputDeviceUID == "dac-2")
+            #expect(config.config.engine.readAhead == 2)
+            #expect(config.config.engine.outputDevice == "dac-2")
+
+            // The engine gave up a device that wasn't there when the output started: back to the system default.
+            rig.engine.onEvent?(.outputDeviceLost(uid: "dac-2"))
+            #expect(state.outputDevice.isEmpty)
+            #expect(config.config.engine.outputDevice.isEmpty)
         }
 
         @Test("the volume is read from the config, handed to the engine and written back when changed")
@@ -545,7 +573,7 @@ extension AllTests {
             let store = PlaylistStore(paths: paths, configStore: config)
             #expect(PlaybackState(store: store, engine: EngineRig(lookahead: 60).engine, tickInterval: nil).volume == 0.7)
 
-            config.update { $0.playbackEngine.volume = 0.25 }
+            config.update { $0.engine.volume = 0.25 }
             let rig = EngineRig(lookahead: 60)
             let state = PlaybackState(store: store, engine: rig.engine, tickInterval: nil, configStore: config)
             #expect(state.volume == 0.25)
@@ -553,7 +581,7 @@ extension AllTests {
 
             state.volume = 0.9
             #expect(rig.engine.volume == 0.9)
-            #expect(config.config.playbackEngine.volume == 0.9)
+            #expect(config.config.engine.volume == 0.9)
         }
 
         @Test("the playlist ends after its last track: stopped, nothing shown, nothing held")

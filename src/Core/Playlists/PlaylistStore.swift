@@ -76,7 +76,7 @@ final class PlaylistStore {
     var tagParsingConcurrency = ConfigLimits.tagParsingConcurrencyAuto {
         didSet {
             guard tagParsingConcurrency != oldValue else { return }
-            configStore.update { $0.playlist.tagParsingConcurrency = tagParsingConcurrency }
+            configStore.update { $0.engine.tagParsingConcurrency = tagParsingConcurrency }
         }
     }
 
@@ -121,7 +121,7 @@ final class PlaylistStore {
         self.paths = paths
         self.configStore = configStore
         displayAlbumArt = configStore.config.playlist.displayAlbumArt
-        tagParsingConcurrency = configStore.config.playlist.tagParsingConcurrency
+        tagParsingConcurrency = configStore.config.engine.tagParsingConcurrency
         do {
             try fm.createDirectory(at: paths.playlistsDir, withIntermediateDirectories: true)
         } catch {

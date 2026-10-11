@@ -40,7 +40,7 @@ enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The settings of the now playing block (Preferences > Now Playing: seek bar style, album art zoom), which keeps them
+/// The settings of the now playing block (Preferences > Now Playing: seek bar style), which keeps them
 /// in the config. `nil` for `configStore` (tests): defaults, nothing is persisted.
 @MainActor
 @Observable
@@ -60,20 +60,12 @@ final class NowPlayingSettings {
     /// Called after the style changed (`WaveformService` starts or stops its work, or keeps what it has).
     @ObservationIgnored var onStyleChange: ((SeekbarStyle) -> Void)?
 
-    /// Hovering the album art zooms into the part under the pointer. Persisted in the config.
-    var zoomAlbumArt: Bool {
-        didSet {
-            guard zoomAlbumArt != oldValue else { return }
-            configStore?.update { $0.nowPlaying.zoomAlbumArt = zoomAlbumArt }
-            Log.info("zoom album art on hover: \(zoomAlbumArt)")
-        }
-    }
 
     @ObservationIgnored private let configStore: ConfigStore?
 
     init(configStore: ConfigStore? = nil) {
         self.configStore = configStore
         style = configStore?.config.nowPlaying.seekbarStyle ?? SeekbarStyle.default
-        zoomAlbumArt = configStore?.config.nowPlaying.zoomAlbumArt ?? AppConfig.NowPlaying().zoomAlbumArt
+
     }
 }

@@ -47,9 +47,7 @@ enum Layout {
     static let blockPadding: CGFloat = 16
     static let artToControlsGap: CGFloat = 14
     static let infoToButtonsMinGap: CGFloat = 12
-    /// Album art zoom on hover (Preferences > Now Playing) shows the image at its original size; not done if the art
-    /// is already shown at this fraction of that size or more (less than 10% smaller).
-    static let albumArtNoZoomRatio: CGFloat = 0.9
+
     /// The default seek bar: the drawn bar and the extra clickable height above and below it.
     static let seekbarBarHeight: CGFloat = 6
     static let seekbarHitMargin: CGFloat = 4

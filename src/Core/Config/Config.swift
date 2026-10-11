@@ -140,14 +140,23 @@ struct AppConfig: Codable, Equatable {
         }
     }
 
-    struct PlaybackEngine: Codable, Equatable {
+    struct Engine: Codable, Equatable {
         /// Quality of the sample rate conversion.
         var resampleQuality = ResampleQuality.default
+        /// Seconds of audio the engine keeps decoded ahead of the playhead; one of `ConfigLimits.readAheadOptions`.
+        var readAhead = ConfigLimits.readAheadDefault
+        /// UID of the output device; empty = follow the system's default output.
+        var outputDevice = ""
+        /// Files whose tags are read at the same time; `ConfigLimits.tagParsingConcurrencyAuto` (0) = automatic.
+        var tagParsingConcurrency = ConfigLimits.tagParsingConcurrencyAuto
         /// Linear gain, `ConfigLimits.volumeMin...volumeMax`.
         var volume = 0.7
 
         enum CodingKeys: String, CodingKey {
             case resampleQuality = "resample_quality"
+            case readAhead = "read_ahead"
+            case outputDevice = "output_device"
+            case tagParsingConcurrency = "tag_parsing_concurrency"
             case volume
         }
 
@@ -155,8 +164,11 @@ struct AppConfig: Codable, Equatable {
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            let d = PlaybackEngine()
+            let d = Engine()
             resampleQuality = c.value(.resampleQuality, default: d.resampleQuality)
+            readAhead = c.value(.readAhead, default: d.readAhead)
+            outputDevice = c.value(.outputDevice, default: d.outputDevice)
+            tagParsingConcurrency = c.value(.tagParsingConcurrency, default: d.tagParsingConcurrency)
             volume = c.value(.volume, default: d.volume)
         }
     }
@@ -164,12 +176,9 @@ struct AppConfig: Codable, Equatable {
     struct NowPlaying: Codable, Equatable {
         /// How the seek bar of the playback block looks.
         var seekbarStyle = SeekbarStyle.default
-        /// Hovering the album art zooms into the part under the pointer.
-        var zoomAlbumArt = false
 
         enum CodingKeys: String, CodingKey {
             case seekbarStyle = "seekbar_style"
-            case zoomAlbumArt = "zoom_album_art"
         }
 
         init() {}
@@ -178,18 +187,14 @@ struct AppConfig: Codable, Equatable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = NowPlaying()
             seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
-            zoomAlbumArt = c.value(.zoomAlbumArt, default: d.zoomAlbumArt)
         }
     }
 
     struct Playlist: Codable, Equatable {
-        /// Files whose tags are read at the same time; `ConfigLimits.tagParsingConcurrencyAuto` (0) = automatic.
-        var tagParsingConcurrency = ConfigLimits.tagParsingConcurrencyAuto
         /// Show the album art in the album blocks of grouped playlists (it is cached either way).
         var displayAlbumArt = true
 
         enum CodingKeys: String, CodingKey {
-            case tagParsingConcurrency = "tag_parsing_concurrency"
             case displayAlbumArt = "display_album_art"
         }
 
@@ -198,7 +203,6 @@ struct AppConfig: Codable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Playlist()
-            tagParsingConcurrency = c.value(.tagParsingConcurrency, default: d.tagParsingConcurrency)
             displayAlbumArt = c.value(.displayAlbumArt, default: d.displayAlbumArt)
         }
     }
@@ -340,7 +344,7 @@ struct AppConfig: Codable, Equatable {
     var ui = UI()
     var general = General()
     var playback = Playback()
-    var playbackEngine = PlaybackEngine()
+    var engine = Engine()
     var playlist = Playlist()
     var nowPlaying = NowPlaying()
     var search = Search()
@@ -352,7 +356,7 @@ struct AppConfig: Codable, Equatable {
         case ui
         case general
         case playback
-        case playbackEngine = "playback_engine"
+        case engine
         case playlist
         case nowPlaying = "now_playing"
         case search
@@ -369,7 +373,7 @@ struct AppConfig: Codable, Equatable {
         ui = c.value(.ui, default: d.ui)
         general = c.value(.general, default: d.general)
         playback = c.value(.playback, default: d.playback)
-        playbackEngine = c.value(.playbackEngine, default: d.playbackEngine)
+        engine = c.value(.engine, default: d.engine)
         playlist = c.value(.playlist, default: d.playlist)
         nowPlaying = c.value(.nowPlaying, default: d.nowPlaying)
         search = c.value(.search, default: d.search)
@@ -402,12 +406,16 @@ struct AppConfig: Codable, Equatable {
             result.ui.playbackStatusWidth = defaults.ui.playbackStatusWidth
         }
 
-        if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(playbackEngine.volume) {
-            result.playbackEngine.volume = defaults.playbackEngine.volume
+        if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(engine.volume) {
+            result.engine.volume = defaults.engine.volume
         }
 
-        if !ConfigLimits.tagParsingConcurrencyOptions.contains(playlist.tagParsingConcurrency) {
-            result.playlist.tagParsingConcurrency = defaults.playlist.tagParsingConcurrency
+        if !ConfigLimits.readAheadOptions.contains(engine.readAhead) {
+            result.engine.readAhead = defaults.engine.readAhead
+        }
+
+        if !ConfigLimits.tagParsingConcurrencyOptions.contains(engine.tagParsingConcurrency) {
+            result.engine.tagParsingConcurrency = defaults.engine.tagParsingConcurrency
         }
 
         // A hotkey that isn't valid, or that an earlier action has already, is none. The others are written in

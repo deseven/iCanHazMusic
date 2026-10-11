@@ -23,6 +23,10 @@ enum ConfigLimits {
     static let volumeMin = 0.0
     static let volumeMax = 1.0
 
+    // Read-ahead buffer of the playback engine, in seconds.
+    static let readAheadDefault = 5
+    static let readAheadOptions = [2, readAheadDefault, 15, 30, 60]
+
     // Tag parsing: files read at the same time. 0 = automatic (see `TagReader.defaultConcurrency`).
     static let tagParsingConcurrencyAuto = 0
     static let tagParsingConcurrencyOptions = [tagParsingConcurrencyAuto, 1, 2, 4, 8, 16, 32]
