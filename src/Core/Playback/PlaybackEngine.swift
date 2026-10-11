@@ -39,7 +39,7 @@ final class PlaybackEngine {
         /// The queue ran out, playback ended.
         case finished
         /// A track couldn't be played and was dropped. `wasCurrent`: the one playing (the engine is idle then).
-        case failed(url: URL, wasCurrent: Bool, message: String)
+        case failed(source: PlaybackSource, wasCurrent: Bool, message: String)
         /// The output can't be started. The engine is idle.
         case deviceError(String)
         /// The chosen output device (`outputDeviceUID`) wasn't there when the output was started: the system default
@@ -80,16 +80,17 @@ final class PlaybackEngine {
     // MARK: Internals
 
     private struct Restart {
-        var url: URL
+        var source: PlaybackSource
         /// Where to continue; `nil`: wherever the playhead is when the restart is carried out (a rebuild of the
         /// queue, as opposed to a seek).
         var seconds: Double?
     }
 
     private final class Slot {
-        let url: URL
+        let source: PlaybackSource
         let decoder: TrackDecoder
-        /// Where in the file the first scheduled frame is.
+        /// Where in the track the first scheduled frame is (seconds from the start of the track, which for a part of a
+        /// file is not the start of the file).
         let startSeconds: Double
         /// Timeline frame at which the first scheduled frame plays; valid once `hasScheduled`.
         var startFrame: Int64 = 0
@@ -100,13 +101,13 @@ final class PlaybackEngine {
         var hasScheduled = false
         var decodeFinished = false
         var isDecoding = false
-        /// Length of the file in seconds, known once it has been opened.
+        /// Length of the track in seconds, known once its file has been opened.
         var duration: Double?
         /// Format description of the file (`CodecLabel`), known together with `duration`.
         var codec: String?
 
-        init(url: URL, startSeconds: Double, decoder: TrackDecoder) {
-            self.url = url
+        init(source: PlaybackSource, startSeconds: Double, decoder: TrackDecoder) {
+            self.source = source
             self.startSeconds = startSeconds
             self.decoder = decoder
         }
@@ -126,7 +127,7 @@ final class PlaybackEngine {
 
     /// The current track, followed by the next one once its decoder has been created.
     private var slots: [Slot] = []
-    private var nextURL: URL?
+    private var nextSource: PlaybackSource?
     private var pendingRestart: Restart?
     private var pendingStop = false
     private(set) var wantsPlaying = false
@@ -217,10 +218,10 @@ final class PlaybackEngine {
     }
 
     /// What the current track's file turned out to be, once it has been opened.
-    var currentFile: (url: URL, duration: Double, codec: String)? {
+    var currentFile: (source: PlaybackSource, duration: Double, codec: String)? {
         guard pendingRestart == nil, !pendingStop, let slot = slots.first,
               let duration = slot.duration, let codec = slot.codec else { return nil }
-        return (slot.url, duration, codec)
+        return (slot.source, duration, codec)
     }
 
     /// Audio scheduled but not yet played.
@@ -231,13 +232,18 @@ final class PlaybackEngine {
 
     // MARK: - Commands
 
-    /// Plays `url` from `seconds`, replacing whatever plays now. `next` is queued behind it.
-    func start(_ url: URL, at seconds: Double = 0, next: URL? = nil, playing: Bool = true) {
+    /// Plays `source` from `seconds` (into the track), replacing whatever plays now. `next` is queued behind it.
+    func start(_ source: PlaybackSource, at seconds: Double = 0, next: PlaybackSource? = nil, playing: Bool = true) {
         wantsPlaying = playing
         pendingStop = false
-        nextURL = next
-        pendingRestart = Restart(url: url, seconds: max(0, seconds))
+        nextSource = next
+        pendingRestart = Restart(source: source, seconds: max(0, seconds))
         fadeOutThenCommit()
+    }
+
+    /// Plays a whole file.
+    func start(_ url: URL, at seconds: Double = 0, next: URL? = nil, playing: Bool = true) {
+        start(PlaybackSource(url: url), at: seconds, next: next.map { PlaybackSource(url: $0) }, playing: playing)
     }
 
     func pause() {
@@ -260,7 +266,7 @@ final class PlaybackEngine {
 
     func stop() {
         wantsPlaying = false
-        nextURL = nil
+        nextSource = nil
         pendingRestart = nil
         pendingStop = true
         fadeOutThenCommit()
@@ -273,19 +279,19 @@ final class PlaybackEngine {
 
     /// Moves the current track to `seconds` (at most its last frame).
     func seek(to seconds: Double) {
-        guard !pendingStop, let url = pendingRestart?.url ?? slots.first?.url else { return }
+        guard !pendingStop, let source = pendingRestart?.source ?? slots.first?.source else { return }
         var target = max(0, seconds)
         if pendingRestart == nil, let length = slots.first?.duration {
             target = min(target, max(0, length - 1 / sampleRate))
         }
-        pendingRestart = Restart(url: url, seconds: target)
+        pendingRestart = Restart(source: source, seconds: target)
         fadeOutThenCommit()
     }
 
     /// Sets the track that follows the current one (`nil`: none).
-    func setNext(_ url: URL?) {
-        guard url != nextURL else { return }
-        nextURL = url
+    func setNext(_ source: PlaybackSource?) {
+        guard source != nextSource else { return }
+        nextSource = source
         guard pendingRestart == nil, !pendingStop, slots.count > 1 else { return }
 
         let queued = slots[1]
@@ -294,9 +300,14 @@ final class PlaybackEngine {
             queued.decoder.cancel()
         } else if let current = slots.first {
             // Audio of the old next track is already in the player's queue and can't be taken back.
-            pendingRestart = Restart(url: current.url, seconds: nil)
+            pendingRestart = Restart(source: current.source, seconds: nil)
             fadeOutThenCommit()
         }
+    }
+
+    /// Sets a whole file as the track that follows the current one.
+    func setNext(_ url: URL?) {
+        setNext(url.map { PlaybackSource(url: $0) })
     }
 
     // MARK: - Fading and committing
@@ -369,13 +380,14 @@ final class PlaybackEngine {
         cancelSlots()
         scheduledEnd = 0
         frozenFrame = 0
-        slots = [makeSlot(url: restart.url, seconds: seconds)]
+        slots = [makeSlot(source: restart.source, seconds: seconds)]
         startFeeding()
     }
 
-    private func makeSlot(url: URL, seconds: Double) -> Slot {
-        Slot(url: url, startSeconds: seconds, decoder: TrackDecoder(url: url, startSeconds: seconds, outputFormat: format,
-                                                              resampleQuality: resampleQuality))
+    private func makeSlot(source: PlaybackSource, seconds: Double) -> Slot {
+        let decoder = TrackDecoder(url: source.url, startSeconds: source.start + seconds, endSeconds: source.end,
+                                   isPart: !source.isWholeFile, outputFormat: format, resampleQuality: resampleQuality)
+        return Slot(source: source, startSeconds: seconds, decoder: decoder)
     }
 
     private func cancelSlots() {
@@ -470,7 +482,7 @@ final class PlaybackEngine {
 
     /// The output device or its format changed and the system stopped the engine: continue from the same place.
     private func configurationChanged() {
-        guard case .device = output, isActive, let url = pendingRestart?.url ?? slots.first?.url else { return }
+        guard case .device = output, isActive, let source = pendingRestart?.source ?? slots.first?.source else { return }
         // The engine has already been stopped by the system, so the live position is unreliable (it falls back to
         // the start of the track): use the last one read while it was running.
         var seconds = pendingRestart?.seconds ?? position
@@ -485,7 +497,7 @@ final class PlaybackEngine {
         node.stop()
         faded = false
         node.volume = 1
-        pendingRestart = Restart(url: url, seconds: seconds)
+        pendingRestart = Restart(source: source, seconds: seconds)
         commit()
     }
 
@@ -533,8 +545,8 @@ final class PlaybackEngine {
     /// The slot that needs audio next, creating the next track's slot once the current one is fully decoded.
     private func feedTarget() -> Slot? {
         if let slot = slots.first(where: { !$0.decodeFinished }) { return slot }
-        guard slots.count == 1, let url = nextURL else { return nil }
-        let slot = makeSlot(url: url, seconds: 0)
+        guard slots.count == 1, let source = nextSource else { return nil }
+        let slot = makeSlot(source: source, seconds: 0)
         slots.append(slot)
         return slot
     }
@@ -552,7 +564,7 @@ final class PlaybackEngine {
 
         switch result {
         case .chunk(let chunk):
-            slot.duration = chunk.fileDuration
+            slot.duration = slot.source.length(inFileOf: chunk.fileDuration)
             slot.codec = chunk.codec
             schedule(chunk.buffer, in: slot)
             startPlaybackIfReady()
@@ -561,7 +573,7 @@ final class PlaybackEngine {
             if slot.scheduledFrames == 0 {
                 fail(slot, message: warning ?? "no audio")
             } else {
-                if let warning { Log.error("\(slot.url.path): \(warning)") }
+                if let warning { Log.error("\(slot.source.url.path): \(warning)") }
                 armBoundaryTimer()
             }
         case .failed(let message):
@@ -579,7 +591,7 @@ final class PlaybackEngine {
             if now > scheduledEnd {
                 if slot.hasScheduled {
                     slot.gapFrames += now - scheduledEnd
-                    Log.error("audio underrun in \(slot.url.lastPathComponent): \(Int((Double(now - scheduledEnd) / sampleRate * 1000).rounded())) ms of silence (decoding too slow, slow disk or share?)")
+                    Log.error("audio underrun in \(slot.source.url.lastPathComponent): \(Int((Double(now - scheduledEnd) / sampleRate * 1000).rounded())) ms of silence (decoding too slow, slow disk or share?)")
                 }
                 scheduledEnd = now
             }
@@ -605,13 +617,13 @@ final class PlaybackEngine {
         let wasCurrent = slots.first === slot
         slots.removeAll { $0 === slot }
         slot.decoder.cancel()
-        Log.error("can't play \(slot.url.path): \(message)")
+        Log.error("can't play \(slot.source.url.path): \(message)")
         if wasCurrent {
             teardown()
         } else {
-            nextURL = nil
+            nextSource = nil
         }
-        onEvent?(.failed(url: slot.url, wasCurrent: wasCurrent, message: message))
+        onEvent?(.failed(source: slot.source, wasCurrent: wasCurrent, message: message))
     }
 
     // MARK: - Track boundaries
@@ -623,10 +635,10 @@ final class PlaybackEngine {
         while let first = slots.first, first.decodeFinished, first.hasScheduled, currentFrame() >= first.endFrame {
             if slots.count > 1 {
                 slots.removeFirst()
-                nextURL = nil   // it is the current track now; whoever listens queues the next one
+                nextSource = nil   // it is the current track now; whoever listens queues the next one
                 armBoundaryTimer()
                 onEvent?(.advanced)
-            } else if nextURL == nil {
+            } else if nextSource == nil {
                 teardown()
                 onEvent?(.finished)
                 return

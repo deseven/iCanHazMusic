@@ -65,6 +65,15 @@ struct TagReadResult: Sendable, Identifiable {
     let rawFields: [TagField: String]
     /// Detected album-art source (`.none` for failed files or when artwork detection is off).
     let artwork: ArtworkSource
+    /// Set for the result of a track that is a part of a file cut by a CUE sheet (then `url` is the pseudo path
+    /// `sheet.cue:N`, see `CuePath`, and the sheet's tags come first, see `CueTrack`).
+    var cue: CueSlice? = nil
+
+    /// The same result as the file number `id` of another list.
+    func with(id: Int) -> TagReadResult {
+        TagReadResult(id: id, url: url, tags: tags, status: status, sources: sources, elapsed: elapsed,
+                      rawFields: rawFields, artwork: artwork, cue: cue)
+    }
 }
 
 enum TagReadError: LocalizedError, Sendable {

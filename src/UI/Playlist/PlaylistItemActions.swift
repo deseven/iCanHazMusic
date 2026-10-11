@@ -9,7 +9,8 @@ import AppKit
 enum PlaylistItemActions {
     private static var store: PlaylistStore { .shared }
 
-    /// Shows the files in Finder (selected together in one window); the directory of an album is opened.
+    /// Shows the files in Finder (selected together in one window; for a track of a CUE sheet the sheet); the directory of
+    /// an album is opened.
     /// A track whose album header is selected too is covered by that.
     static func reveal(_ selection: Set<Int>, in shown: Playlist? = nil) {
         let playlist = shown ?? store.activePlaylist
@@ -23,7 +24,7 @@ enum PlaylistItemActions {
             if row.isHeader {
                 directories.append(playlist.albums[row.albumIndex].directory)
             } else if !albums.contains(row.albumIndex), let track = playlist.track(for: row) {
-                files.append(track.url)
+                files.append(track.revealURL)
             }
         }
         if !files.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(files) }
@@ -34,7 +35,7 @@ enum PlaylistItemActions {
     static func reloadTags(_ selection: Set<Int>) async {
         let playlist = store.activePlaylist
         var seen = Set<URL>()
-        let urls = playlist.expandedTrackRows(selection).compactMap { playlist.track(for: playlist.rows[$0])?.url }
+        let urls = playlist.expandedTrackRows(selection).compactMap { playlist.track(for: playlist.rows[$0])?.entryURL }
             .filter { seen.insert($0).inserted }
         await ImportCoordinator.shared.reloadTags(of: urls)
     }

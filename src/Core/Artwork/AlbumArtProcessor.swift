@@ -48,7 +48,10 @@ enum AlbumArtProcessor {
             switch track.artwork {
             case .cover(let name): if cover == nil { cover = name }
             case .anyImage(let name): if anyImage == nil { anyImage = name }
-            case .embedded: if embedded.count < maxEmbeddedAttempts { embedded.append(track.url) }
+            case .embedded:
+                // All tracks of a CUE sheet may come from one file, which needs trying once.
+                let file = track.cue?.fileURL ?? track.url
+                if embedded.count < maxEmbeddedAttempts, !embedded.contains(file) { embedded.append(file) }
             case .none: break
             }
         }

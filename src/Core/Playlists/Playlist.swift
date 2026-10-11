@@ -8,6 +8,7 @@ import Foundation
 struct Track {
     /// Stable identity within the playlist (see `TrackID`).
     let id: TrackID
+    /// The audio file the track is played from (for a track of a CUE sheet, the file the sheet cuts it out of).
     let url: URL
     /// Track number from the tags; `nil` if the file has none.
     let number: Int?
@@ -18,6 +19,24 @@ struct Track {
     /// Short format label: the upper-cased file extension until the track has been played once, then what
     /// `CodecLabel` makes of the file (e.g. "MP3 CBR 320k", "FLAC 24/96").
     let codec: String
+    /// Set for a track of a CUE sheet: where in `url` it is, and which sheet and track it comes from. (A `var` only so
+    /// that the memberwise initializer has it as an optional parameter; nothing changes it.)
+    var cue: CueSlice? = nil
+
+    /// What the track is stored under in the playlist: the file's path, or the pseudo path `sheet.cue:N`.
+    var path: String { cue?.path ?? url.path }
+
+    /// What the engine plays.
+    var source: PlaybackSource {
+        PlaybackSource(url: url, start: cue?.start ?? 0, end: cue?.end)
+    }
+
+    /// What Finder shows for the track: the file, or the sheet for a track of one.
+    var revealURL: URL { cue?.sheetURL ?? url }
+
+    /// What the tags of the track are read from (again): the file, or the sheet (as the pseudo path, which stands
+    /// for the track in it).
+    var entryURL: URL { cue != nil ? URL(fileURLWithPath: path, isDirectory: false) : url }
 
     var durationText: String {
         guard let duration else { return "--:--" }
@@ -31,7 +50,7 @@ struct Track {
 
     /// The same track with another duration and format label.
     func replacing(duration: TimeInterval, codec: String) -> Track {
-        Track(id: id, url: url, number: number, title: title, artist: artist, duration: duration, codec: codec)
+        Track(id: id, url: url, number: number, title: title, artist: artist, duration: duration, codec: codec, cue: cue)
     }
 }
 
@@ -183,7 +202,7 @@ final class Playlist {
                 if track.id > unassignedTrackID, seen.insert(track.id).inserted { return track }
                 defer { next += 1 }
                 return Track(id: next, url: track.url, number: track.number, title: track.title,
-                             artist: track.artist, duration: track.duration, codec: track.codec)
+                             artist: track.artist, duration: track.duration, codec: track.codec, cue: track.cue)
             }
             return Album(directory: album.directory, artist: album.artist, title: album.title, year: album.year,
                          hasMultipleArtists: album.hasMultipleArtists, tracks: tracks)
@@ -250,7 +269,9 @@ final class Playlist {
             guard let new = fresh[old.path] else { return old }
             var entry = new
             entry.id = old.id
-            entry.duration = old.duration ?? new.duration
+            // What a sheet says about the length of a track is better than what playback measured of an older version
+            // of it; the last track of a file is measured by playback, as for any file.
+            entry.duration = new.cue?.end != nil ? new.duration : (old.duration ?? new.duration)
             entry.codec = old.codec
             return entry
         }

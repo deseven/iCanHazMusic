@@ -86,7 +86,7 @@ extension AllTests {
             let settings = NowPlayingSettings()
             settings.style = style
             let analyser = AnalyserStub()
-            let service = WaveformService(settings: settings, store: store) { await analyser.analyse($0) }
+            let service = WaveformService(settings: settings, store: store) { await analyser.analyse($0.url) }
             return Rig(dir: dir, store: store, settings: settings, analyser: analyser, service: service)
         }
 

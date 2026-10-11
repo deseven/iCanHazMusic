@@ -36,7 +36,7 @@ final class EngineRig {
         switch event {
         case .advanced: "advanced"
         case .finished: "finished"
-        case .failed(let url, let wasCurrent, _): "failed:\(url.lastPathComponent):\(wasCurrent ? "current" : "next")"
+        case .failed(let source, let wasCurrent, _): "failed:\(source.url.lastPathComponent):\(wasCurrent ? "current" : "next")"
         case .deviceError: "deviceError"
         case .outputDeviceLost(let uid): "outputDeviceLost:\(uid)"
         }

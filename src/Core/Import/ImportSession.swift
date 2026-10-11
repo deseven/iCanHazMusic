@@ -27,7 +27,7 @@ final class ImportSession {
     struct Outcome {
         /// Albums in playlist order, ready to be appended.
         let albums: [Album]
-        /// How many supported files were found (0 = nothing to do).
+        /// How many supported files and tracks of CUE sheets were found (0 = nothing to do).
         let fileCount: Int
         let aborted: Bool
     }
@@ -58,7 +58,7 @@ final class ImportSession {
     @ObservationIgnored private let tagParsingConcurrency: Int
     @ObservationIgnored private var readingStartedAt: Date?
     @ObservationIgnored private var readingFinishedAt: Date?
-    @ObservationIgnored private var gatherTask: Task<[URL], Never>?
+    @ObservationIgnored private var gatherTask: Task<[ReadInput], Never>?
     @ObservationIgnored private var readTask: Task<[TagReadResult], Never>?
     @ObservationIgnored private var artTask: Task<Void, Never>?
 
@@ -90,24 +90,27 @@ final class ImportSession {
         artTask?.cancel()
     }
 
+    /// Imports files and directories. CUE sheets among them (or found in the directories) add their tracks, and the audio
+    /// files they name are not added on their own (see `AudioFileGatherer.gatherInputs`). Whether a sheet's track is a
+    /// part of its file or the plain file depends on whether the sheet cuts it (`CueTrack.importResult`).
     func run(inputs: [URL]) async -> Outcome {
-        await run(flat: false) { AudioFileGatherer.gather(from: inputs) }
+        await run(flat: false) { AudioFileGatherer.gatherInputs(from: inputs) }
     }
 
     /// Imports the files listed in playlist files (`PlaylistExchange`), in the order of the playlists. The tags are
     /// read from the files; files that don't exist show up as failed. Every track is an album of its own, so a flat
     /// playlist keeps the order of the list (a grouped one regroups when it takes them in).
     func run(playlists: [URL]) async -> Outcome {
-        await run(flat: true) { PlaylistExchange.audioFiles(in: playlists) }
+        await run(flat: true) { PlaylistExchange.audioFiles(in: playlists).map(ReadInput.file) }
     }
 
     /// Imports exactly these files, in this order, duplicates included (files without a supported extension are
     /// dropped; missing ones show up as failed). Every track is an album of its own, like `run(playlists:)`.
     func run(files: [URL]) async -> Outcome {
-        await run(flat: true) { files.filter(AudioFileGatherer.isSupported) }
+        await run(flat: true) { files.filter(AudioFileGatherer.isSupported).map(ReadInput.file) }
     }
 
-    private func run(flat: Bool, gathering: @escaping @Sendable () -> [URL]) async -> Outcome {
+    private func run(flat: Bool, gathering: @escaping @Sendable () -> [ReadInput]) async -> Outcome {
         // 1. Gather
         let gather = Task.detached(priority: .userInitiated) { gathering() }
         gatherTask = gather
@@ -132,34 +135,76 @@ final class ImportSession {
         return Outcome(albums: albums, fileCount: files.count, aborted: isAborting)
     }
 
-    /// Reads the tags (and processes the art) of files that are in the playlist already.
+    /// Reads the tags (and processes the art) of files that are in the playlist already. A track of a CUE sheet is given
+    /// by its pseudo path (`CuePath`); the sheet is read again for it, and the track stays a part of its file.
     func reload(files: [URL]) async -> ReloadOutcome {
         total = files.count
         guard !files.isEmpty else { return ReloadOutcome(results: [], aborted: false) }
-        guard let results = await read(files) else { return ReloadOutcome(results: [], aborted: true) }
+        let inputs = await Task.detached(priority: .userInitiated) { Self.reloadInputs(for: files) }.value
+        guard let results = await read(inputs) else { return ReloadOutcome(results: [], aborted: true) }
         stage = .updating
         Log.info("reload: \(processed)/\(total) files read (\(successful) ok, \(incomplete) incomplete, \(failed) failed), art for \(artsProcessed)/\(albumsProcessed), lyrics in \(lyricsFound) files")
         return ReloadOutcome(results: results, aborted: false)
     }
 
+    /// What reading the tags of these playlist entries means: a file is read, a track of a sheet is looked up in the
+    /// sheet again (each sheet is read once).
+    nonisolated static func reloadInputs(for files: [URL]) -> [ReadInput] {
+        var sheets: [String: CueSheet.Contents] = [:]
+        var unreadable = Set<String>()
+        return files.map { url in
+            guard let cue = CuePath.parse(url.path) else { return .file(url) }
+            if sheets[cue.sheet] == nil, !unreadable.contains(cue.sheet) {
+                if let contents = CueSheet.contents(of: URL(fileURLWithPath: cue.sheet, isDirectory: false)) {
+                    sheets[cue.sheet] = contents
+                } else {
+                    unreadable.insert(cue.sheet)
+                }
+            }
+            guard let contents = sheets[cue.sheet] else { return .unavailable(url, reason: "can't read the cue sheet") }
+            guard let track = contents.tracks.first(where: { $0.pathNumber == cue.number }) else {
+                return .unavailable(url, reason: "the track isn't in the cue sheet (any more)")
+            }
+            return .cuePart(track)
+        }
+    }
+
     /// Reads tags. As soon as all files of a directory are read, its albums are known and their art is
-    /// processed (concurrently with the rest of the reading), once per album. Results are in the order of `files`;
+    /// processed (concurrently with the rest of the reading), once per album. Results are in the order of `inputs`;
     /// `nil` if aborted.
-    private func read(_ files: [URL]) async -> [TagReadResult]? {
+    ///
+    /// Every audio file is read once, however many inputs need it (the tracks of a CUE sheet are cut from one file); the
+    /// tracks' results are made of that read and the sheet.
+    private func read(_ inputs: [ReadInput]) async -> [TagReadResult]? {
         stage = .reading
         readingStartedAt = Date()
-        Log.info("reading tags of \(files.count) files, \(tagParsingConcurrency) at a time")
+
+        var audioFiles: [URL] = []
+        var audioIndex: [String: Int] = [:]
+        var dependents: [[Int]] = []   // per audio file: the inputs that need it
+        for (i, input) in inputs.enumerated() {
+            guard let url = input.audioURL else { continue }
+            if let known = audioIndex[url.path] {
+                dependents[known].append(i)
+            } else {
+                audioIndex[url.path] = audioFiles.count
+                audioFiles.append(url)
+                dependents.append([i])
+            }
+        }
+
+        Log.info("reading tags of \(audioFiles.count) files for \(inputs.count) tracks, \(tagParsingConcurrency) at a time")
         let reader = TagReader(strategy: .auto, concurrency: tagParsingConcurrency)
         let (artJobs, artFeed) = AsyncStream<AlbumArtJob>.makeStream()
         let art = Task { await processArt(artJobs) }
         artTask = art
 
         let read = Task { () -> [TagReadResult] in
-            var unread = Dictionary(grouping: files, by: { $0.deletingLastPathComponent().path }).mapValues(\.count)
-            var results: [TagReadResult?] = Array(repeating: nil, count: files.count)
+            var unread = Dictionary(grouping: inputs, by: { $0.resultURL.deletingLastPathComponent().path }).mapValues(\.count)
+            var results: [TagReadResult?] = Array(repeating: nil, count: inputs.count)
             var finishedFiles: [String: [TagReadResult]] = [:]
-            for await result in reader.read(urls: files) {
-                if Task.isCancelled { break }
+
+            @MainActor func accept(_ result: TagReadResult) {
                 results[result.id] = result
                 record(result)
 
@@ -168,6 +213,23 @@ final class ImportSession {
                 unread[directory.path, default: 1] -= 1
                 if unread[directory.path] == 0, let all = finishedFiles.removeValue(forKey: directory.path) {
                     for job in AlbumArtProcessor.jobs(directory: directory, results: all) { artFeed.yield(job) }
+                }
+            }
+
+            for (i, input) in inputs.enumerated() {
+                guard case .unavailable(let url, let reason) = input else { continue }
+                accept(TagReadResult(id: i, url: url, tags: TrackTags(), status: .failed(reason), sources: [], elapsed: 0,
+                                     rawFields: [:], artwork: .none))
+            }
+            for await file in reader.read(urls: audioFiles) {
+                if Task.isCancelled { break }
+                for i in dependents[file.id] {
+                    switch inputs[i] {
+                    case .file: accept(file.with(id: i))
+                    case .cueTrack(let track): accept(track.importResult(id: i, from: file))
+                    case .cuePart(let track): accept(track.tagResult(id: i, from: file))
+                    case .unavailable: break
+                    }
                 }
             }
             artFeed.finish()

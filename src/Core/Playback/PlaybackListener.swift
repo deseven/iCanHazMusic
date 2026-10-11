@@ -16,6 +16,14 @@ struct PlayedTrack: Equatable, Sendable {
     var coverKey: String? = nil
     /// The file that plays; nil if unknown.
     var url: URL? = nil
+    /// Set if the track is a part of `url` (a track of a CUE sheet).
+    var cue: CueSlice? = nil
+
+    /// What plays, if known.
+    var source: PlaybackSource? {
+        guard let url else { return nil }
+        return PlaybackSource(url: url, start: cue?.start ?? 0, end: cue?.end)
+    }
 
     /// The track has an artist and a title of its own; without ("Unknown Artist") nobody outside can be told about
     /// it or asked for its lyrics.

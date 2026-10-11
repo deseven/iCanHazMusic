@@ -32,10 +32,15 @@ enum PlaylistActions {
             url.appendPathExtension(format.fileExtension)
         }
 
-        let data = PlaylistExchange.data(for: playlist.entries, format: format)
+        let export = PlaylistExchange.export(playlist.entries, format: format)
         do {
-            try data.write(to: url, options: .atomic)
-            Log.info("exported \(playlist.trackCount) tracks to \(url.path)")
+            try export.data.write(to: url, options: .atomic)
+            Log.info("exported \(playlist.trackCount - export.skipped) tracks to \(url.path), \(export.skipped) skipped")
+            if export.skipped > 0 {
+                let n = export.skipped
+                await Dialogs.showInfo("\(n) \(n == 1 ? "entry was" : "entries were") not exported, format is unsupported.",
+                                       title: "Export Incomplete")
+            }
         } catch {
             Log.error("can't export playlist to \(url.path): \(error.localizedDescription)")
             await Dialogs.showError("The playlist couldn't be saved: \(error.localizedDescription)", title: "Export Failed")

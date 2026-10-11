@@ -542,7 +542,7 @@ extension AllTests {
         func removeNextLate() async throws {
             let rig = try await playing(next: .b)
             let at = rig.frame
-            rig.engine.setNext(nil)
+            rig.engine.setNext(nil as URL?)
             try await rig.render(RampFile.a.frames + RampFile.b.frames)
             let commit = at + rig.fadeFrames
             #expect(rig.events == ["finished"])

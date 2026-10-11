@@ -243,8 +243,8 @@ final class PlaybackState {
     /// Observed through `playingRow`.
     private var currentPos: Position?
     @ObservationIgnored private var nextPos: Target?
-    /// The file handed to the engine as the next one (to check it is still the track meant when it starts).
-    @ObservationIgnored private var nextURL: URL?
+    /// What was handed to the engine as the next track (to check it is still the track meant when it starts).
+    @ObservationIgnored private var nextSource: PlaybackSource?
     /// The user moved the cursor to a track that hasn't been played since: it is due next (see `playbackFollowsCursor`).
     @ObservationIgnored private var cursorRequested = false
     @ObservationIgnored private var placingCursor = false
@@ -661,8 +661,8 @@ final class PlaybackState {
         currentPos = pos
         shuffleNext = nil
         nextPos = nextTarget(after: pos)
-        nextURL = nextPos.flatMap { self.track(at: $0.pos, in: self.playlist(of: $0)) }?.url
-        engine.start(track.url, next: nextURL)
+        nextSource = nextPos.flatMap { self.track(at: $0.pos, in: self.playlist(of: $0)) }?.source
+        engine.start(track.source, next: nextSource)
 
         status = .playing
         trackDidChange(how: "started")
@@ -672,16 +672,16 @@ final class PlaybackState {
     /// Hands the track following `pos` (if there is one) to the engine.
     private func prepareNext(after pos: Position) {
         guard let next = nextTarget(after: pos), let track = track(at: next.pos, in: playlist(of: next)) else {
-            if nextURL != nil { Log.info("playback: nothing queued next") }
+            if nextSource != nil { Log.info("playback: nothing queued next") }
             nextPos = nil
-            nextURL = nil
-            engine.setNext(nil)
+            nextSource = nil
+            engine.setNext(nil as PlaybackSource?)
             return
         }
-        if nextURL != track.url { Log.info("playback: next up: \(track.url.path)") }
+        if nextSource != track.source { Log.info("playback: next up: \(track.path)") }
         nextPos = next
-        nextURL = track.url
-        engine.setNext(track.url)
+        nextSource = track.source
+        engine.setNext(track.source)
     }
 
     // MARK: - Reacting to the engine
@@ -712,7 +712,7 @@ final class PlaybackState {
                 halt()
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
-        case .failed(let url, let wasCurrent, _):
+        case .failed(let source, let wasCurrent, _):
             failures += 1
             if failures > 4 * max(store.playingPlaylist?.trackCount ?? 0, 1) {
                 Log.error("playback: stopped, the tracks keep failing to open")
@@ -721,7 +721,7 @@ final class PlaybackState {
             }
             if wasCurrent, let pos = currentPos {
                 if let next = nextTarget(after: pos) { begin(next) } else { halt() }
-            } else if let failed = nextPos, track(at: failed.pos, in: playlist(of: failed))?.url == url {
+            } else if let failed = nextPos, track(at: failed.pos, in: playlist(of: failed))?.source == source {
                 if let entry = failed.queued {
                     queue.started(entry)   // the file can't be played: it is not queued any more
                     if let pos = currentPos { prepareNext(after: pos) }
@@ -749,7 +749,7 @@ final class PlaybackState {
         if let name = next.playlist {
             // The track the cursor asked for or the queue has next is in another playlist: playback moves over to it.
             // (If that changed since, what plays isn't what it was meant to be: stop.)
-            guard track(at: next.pos, in: store.playlist(named: name))?.url == nextURL else {
+            guard track(at: next.pos, in: store.playlist(named: name))?.source == nextSource else {
                 halt()
                 return
             }
@@ -797,7 +797,7 @@ final class PlaybackState {
     private func checkFileInfo() {
         guard !fileInfoChecked, let file = engine.currentFile, let pos = currentPos,
               let playlist = store.playingPlaylist, let track = track(at: pos, in: playlist),
-              track.url == file.url else { return }
+              track.source == file.source else { return }
         fileInfoChecked = true
 
         let durationDiffers = track.duration.map { abs($0 - file.duration) > Self.durationTolerance } ?? true
@@ -853,9 +853,9 @@ final class PlaybackState {
         loadArtworkIfNeeded(for: album, playing: pos.track)
 
         Log.info("playback: \(how): \(track.artist) – \(track.title) [\(album.title)], \(track.codec.isEmpty ? "format unknown" : track.codec), "
-            + "playlist \"\(store.playingName ?? "")\", \(track.url.path)")
+            + "playlist \"\(store.playingName ?? "")\", \(track.path)")
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
-                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url)
+                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue)
         progress = PlayProgress(track: played)
         for listener in listeners { listener.value?.trackDidStart(played) }
     }

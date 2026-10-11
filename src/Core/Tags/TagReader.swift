@@ -251,6 +251,13 @@ final class TagReader: Sendable {
 
     // MARK: Normalisation
 
+    /// The artist of a set of raw fields. Old ffprobe logic: if there is no artist, try these; the *last* non-empty
+    /// one won there, so effective priority is album_artist > performer > band > discogs_artist_list > composer.
+    static func artist(in fields: [TagField: String]) -> String? {
+        fields[.artist] ?? fields[.albumArtist] ?? fields[.performer] ?? fields[.band]
+            ?? fields[.discogsArtist] ?? fields[.composer]
+    }
+
     /// Applies artist fallback chain, year/track parsing and "Unknown ..." defaults.
     static func finalize(raw: RawTags, failed: String?) -> (TrackTags, TagReadStatus) {
         var tags = TrackTags()
@@ -261,11 +268,7 @@ final class TagReader: Sendable {
             return (tags, .failed(failed.isEmpty ? "unknown error" : failed))
         }
 
-        // Old ffprobe logic: if there is no artist, try these; the *last* non-empty one won there,
-        // so effective priority is album_artist > performer > band > discogs_artist_list > composer.
-        let artist = raw.fields[.artist]
-            ?? raw.fields[.albumArtist] ?? raw.fields[.performer] ?? raw.fields[.band]
-            ?? raw.fields[.discogsArtist] ?? raw.fields[.composer]
+        let artist = artist(in: raw.fields)
 
         var fallbacks: [String] = []
         if let t = raw.fields[.title] { tags.title = t } else { fallbacks.append("title") }

@@ -32,13 +32,26 @@ enum PlaylistExchange {
 
     // MARK: - Export
 
-    static func data(for entries: [TrackEntry], format: PlaylistFormat) -> Data {
+    /// What an export makes of the entries.
+    struct Export {
+        let data: Data
+        /// Entries that are not in `data`: the tracks of CUE sheets. None of the formats has a way to name a part of an
+        /// audio file, and listing the whole file for each of them would play it once per track.
+        let skipped: Int
+    }
+
+    static func export(_ entries: [TrackEntry], format: PlaylistFormat) -> Export {
+        let exported = entries.filter { $0.cue == nil }
         let text: String
         switch format {
-        case .m3u, .m3u8: text = m3u(entries)
-        case .pls: text = pls(entries)
+        case .m3u, .m3u8: text = m3u(exported)
+        case .pls: text = pls(exported)
         }
-        return Data(text.utf8)
+        return Export(data: Data(text.utf8), skipped: entries.count - exported.count)
+    }
+
+    static func data(for entries: [TrackEntry], format: PlaylistFormat) -> Data {
+        export(entries, format: format).data
     }
 
     private static func m3u(_ entries: [TrackEntry]) -> String {

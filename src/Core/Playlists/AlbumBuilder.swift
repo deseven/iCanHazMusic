@@ -33,7 +33,7 @@ enum AlbumBuilder {
     /// (the playlist shows no album blocks then, but positions and playback still work on albums).
     static func build(from entries: [TrackEntry], flat: Bool = false) -> [Album] {
         if flat {
-            return entries.map { makeAlbum(directory: $0.url.deletingLastPathComponent(), entries: [$0]) }
+            return entries.map { makeAlbum(directory: $0.directory, entries: [$0]) }
         }
         struct Group {
             var directory: URL
@@ -43,7 +43,7 @@ enum AlbumBuilder {
         var indexByKey: [String: Int] = [:]
 
         for entry in entries {
-            let directory = entry.url.deletingLastPathComponent()
+            let directory = entry.directory
             let key = AlbumKey.make(directory: directory, title: entry.album)
             if let i = indexByKey[key] {
                 groups[i].entries.append(entry)
@@ -73,7 +73,8 @@ enum AlbumBuilder {
                 title: e.title,
                 artist: e.artist,
                 duration: e.duration,
-                codec: e.codec
+                codec: e.codec,
+                cue: e.cue
             )
         }
         return Album(

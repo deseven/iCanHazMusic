@@ -194,7 +194,7 @@ extension AllTests {
         @Test("the background variant gives the same result")
         func background() async throws {
             let url = try RampFile.b.url()
-            let result = await WaveformAnalyzer.analyse(url: url)
+            let result = await WaveformAnalyzer.analyse(source: PlaybackSource(url: url))
             #expect(result == analyse(url))
             #expect(result != nil)
         }
@@ -202,7 +202,7 @@ extension AllTests {
         @Test("cancelling the task cancels the pass")
         func cancelTask() async throws {
             let url = try RampFile.a.url()
-            let task = Task { await WaveformAnalyzer.analyse(url: url) }
+            let task = Task { await WaveformAnalyzer.analyse(source: PlaybackSource(url: url)) }
             task.cancel()
             // Either the pass hadn't started (nil) or it noticed the cancellation; it never delivers a wrong result.
             let result = await task.value

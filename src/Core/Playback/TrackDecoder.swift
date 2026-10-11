@@ -15,7 +15,10 @@ import Foundation
 /// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at the
 ///   given `ResampleQuality` (`.high` unless told otherwise; the frame counts come out exact at every quality, so
 ///   the playback position stays correct). A file whose rate already is the engine's is passed through untouched.
-///   `.max` costs ~25% more in the converter for no audible gain, see `docs/playback.md`.
+///   `.max` costs ~25% more in the converter for no audible gain, see `dev-docs/playback.md`.
+/// - A track can be a part of the file (`endSeconds`, and a `startSeconds` that is where the part starts, for the tracks of
+///   a CUE sheet): decoding stops at the end frame, and a part that lies beyond the end of the file fails instead of
+///   playing its last frame.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
 final class TrackDecoder: @unchecked Sendable {
@@ -46,6 +49,8 @@ final class TrackDecoder: @unchecked Sendable {
 
     let url: URL
     private let startSeconds: Double
+    private let endSeconds: Double?
+    private let isPart: Bool
     private let outputFormat: AVAudioFormat
     private let resampleQuality: ResampleQuality
     private let queue = DispatchQueue(label: "wtf.d7.icanhazmusic.decoder", qos: .userInitiated)
@@ -58,6 +63,8 @@ final class TrackDecoder: @unchecked Sendable {
     private var finished = false
     private var file: AVAudioFile?
     private var fileDuration: Double = 0
+    /// The frame (of the file) decoding stops at: the end of the track, or of the file.
+    private var endFrame: Int64 = 0
     private var codec = ""
     private var downmix: ChannelDownmix?
     private var readBuffer: AVAudioPCMBuffer?
@@ -67,9 +74,14 @@ final class TrackDecoder: @unchecked Sendable {
     private var converterDone = false
     private var warning: String?
 
-    init(url: URL, startSeconds: Double, outputFormat: AVAudioFormat, resampleQuality: ResampleQuality = .default) {
+    /// `startSeconds` and `endSeconds` are positions in the file. `isPart`: the track is a part of the file, so one that
+    /// is not in the file at all is an error (a whole file starts at its last frame at the latest).
+    init(url: URL, startSeconds: Double, endSeconds: Double? = nil, isPart: Bool = false, outputFormat: AVAudioFormat,
+         resampleQuality: ResampleQuality = .default) {
         self.url = url
         self.startSeconds = max(0, startSeconds)
+        self.endSeconds = endSeconds
+        self.isPart = isPart || endSeconds != nil
         self.outputFormat = outputFormat
         self.resampleQuality = resampleQuality
     }
@@ -142,8 +154,15 @@ final class TrackDecoder: @unchecked Sendable {
             self.converter = converter
         }
 
-        // A position past the end plays the last frame, not nothing.
-        let start = min(max(Int64((startSeconds * format.sampleRate).rounded()), 0), file.length - 1)
+        endFrame = file.length
+        if let endSeconds { endFrame = min(file.length, max(0, Int64((endSeconds * format.sampleRate).rounded()))) }
+        var start = max(Int64((startSeconds * format.sampleRate).rounded()), 0)
+        if isPart {
+            guard start < endFrame else { throw DecoderError("the track lies beyond the end of the file") }
+        } else {
+            // A position past the end plays the last frame, not nothing.
+            start = min(start, file.length - 1)
+        }
         if start > 0 { file.framePosition = start }
         opened = true
 
@@ -151,7 +170,8 @@ final class TrackDecoder: @unchecked Sendable {
         let conversion = converter == nil
             ? "no resampling"
             : "resampled to \(Int(outputFormat.sampleRate)) Hz (\(resampleQuality.rawValue) quality)"
-        let from = start > 0 ? ", from \(String(format: "%.1f", Double(start) / format.sampleRate)) s" : ""
+        var from = start > 0 ? ", from \(String(format: "%.1f", Double(start) / format.sampleRate)) s" : ""
+        if endFrame < file.length { from += " to \(String(format: "%.1f", Double(endFrame) / format.sampleRate)) s" }
         Log.info("decoder: opened \(url.path): \(codec), \(Int(format.sampleRate)) Hz, \(channels), "
             + "\(String(format: "%.1f", fileDuration)) s, \(conversion)\(from)")
     }
@@ -199,17 +219,17 @@ final class TrackDecoder: @unchecked Sendable {
     /// The next block of the file, folded down to stereo in `format`; `nil` at the end (or at an error).
     private func readBlock(into format: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard let file, let readBuffer, let downmix else { return nil }
-        let remaining = file.length - file.framePosition
+        let remaining = endFrame - file.framePosition
         guard remaining > 0 else { return nil }
 
         do {
             try file.read(into: readBuffer, frameCount: AVAudioFrameCount(min(Int64(Self.blockFrames), remaining)))
         } catch {
-            warning = "decoding stopped after \(file.framePosition) of \(file.length) frames: \(error.localizedDescription)"
+            warning = "decoding stopped after \(file.framePosition) of \(endFrame) frames: \(error.localizedDescription)"
             return nil
         }
         guard readBuffer.frameLength > 0 else {
-            warning = "the file ends after \(file.framePosition) of \(file.length) frames"
+            warning = "the file ends after \(file.framePosition) of \(endFrame) frames"
             return nil
         }
 

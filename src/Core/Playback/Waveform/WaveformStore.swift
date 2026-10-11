@@ -11,10 +11,20 @@ import SQLite3
 enum WaveformKey {
     /// `nil` if the file can't be examined (gone, share unavailable). Blocking: call it off the main thread.
     static func make(url: URL) -> String? {
+        make(source: PlaybackSource(url: url))
+    }
+
+    /// For a part of a file (a track of a CUE sheet) the key has the part in it, so every track has a waveform of its own;
+    /// for a whole file it is the same key as always.
+    static func make(source: PlaybackSource) -> String? {
+        let url = source.url
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attributes[.size] as? NSNumber,
               let modified = attributes[.modificationDate] as? Date else { return nil }
-        let text = "\(url.path)|\(size.int64Value)|\(Int64((modified.timeIntervalSince1970 * 1000).rounded()))"
+        var text = "\(url.path)|\(size.int64Value)|\(Int64((modified.timeIntervalSince1970 * 1000).rounded()))"
+        if !source.isWholeFile {
+            text += "|\(Int64((source.start * 1000).rounded()))-\(source.end.map { String(Int64(($0 * 1000).rounded())) } ?? "")"
+        }
         return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

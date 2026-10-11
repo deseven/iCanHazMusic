@@ -38,7 +38,7 @@ final class ImportCoordinator {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = AudioFileGatherer.supportedExtensions.sorted()
+        panel.allowedContentTypes = (AudioFileGatherer.supportedExtensions.sorted() + ["cue"])
             .compactMap { UTType(filenameExtension: $0) }
         await runPanel(panel)
     }
@@ -54,7 +54,7 @@ final class ImportCoordinator {
         await runPanel(panel, playlists: true)
     }
 
-    /// Files and/or directories dropped on the window. Returns whether the drop was accepted.
+    /// Files and/or directories dropped on the window (CUE sheets among them add their tracks). Returns whether the drop was accepted.
     ///
     /// Playlist files are only imported if nothing but playlist files was dropped. In a mix with audio files or
     /// directories they are ignored, as albums often carry a playlist of their own and importing it as well would
@@ -155,7 +155,7 @@ final class ImportCoordinator {
 
         if outcome.fileCount == 0, !outcome.aborted {
             await Dialogs.showError(
-                playlists ? "The playlist(s) don't list any supported audio files." : "No supported audio files were found.",
+                playlists ? "The playlist(s) don't list any supported audio files." : "No supported audio files or usable CUE sheets were found.",
                 title: "Nothing to Add"
             )
         }

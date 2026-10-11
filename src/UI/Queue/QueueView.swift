@@ -44,8 +44,9 @@ struct QueueView: View {
     private static func playlist(of rows: [(entry: QueueEntry, track: Track)]) -> Playlist {
         let albums = rows.enumerated().map { index, row in
             let track = Track(id: index + 1, url: row.track.url, number: nil, title: row.track.title,
-                              artist: row.track.artist, duration: row.track.duration, codec: row.track.codec)
-            return Album(directory: row.track.url.deletingLastPathComponent(), artist: row.track.artist, title: "",
+                              artist: row.track.artist, duration: row.track.duration, codec: row.track.codec,
+                              cue: row.track.cue)
+            return Album(directory: URL(fileURLWithPath: row.track.path, isDirectory: false).deletingLastPathComponent(), artist: row.track.artist, title: "",
                          year: nil, hasMultipleArtists: false, tracks: [track])
         }
         return Playlist(albums: albums, isFlat: true)

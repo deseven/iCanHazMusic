@@ -55,14 +55,15 @@ enum WaveformAnalyzer {
     /// Frames read at once.
     static let blockFrames = 16_384
 
-    /// Measures `url` on a background queue. `nil` if the file doesn't open, has no audio, or the task is cancelled.
-    static func analyse(url: URL) async -> WaveformAnalysis? {
+    /// Measures `source` (a file, or a part of one) on a background queue. `nil` if the file doesn't open, has no audio, or the
+    /// task is cancelled.
+    static func analyse(source: PlaybackSource) async -> WaveformAnalysis? {
         let cancellation = WaveformCancellation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let queue = DispatchQueue(label: "wtf.d7.icanhazmusic.waveform", qos: .utility, attributes: .concurrent)
                 queue.async {
-                    continuation.resume(returning: analyse(url: url, workers: workers) { cancellation.isCancelled })
+                    continuation.resume(returning: analyse(url: source.url, start: source.start, end: source.end, workers: workers) { cancellation.isCancelled })
                 }
             }
         } onCancel: {
@@ -71,12 +72,18 @@ enum WaveformAnalyzer {
     }
 
     /// Measures `url` on the calling thread (and `workers` threads of the pool). `nil` if the file doesn't open, has no
-    /// audio, or `isCancelled` said yes.
-    static func analyse(url: URL, workers: Int, isCancelled: @escaping @Sendable () -> Bool) -> WaveformAnalysis? {
+    /// audio, or `isCancelled` said yes. `start`/`end` (seconds in the file) cut a track out of it, the way a CUE sheet
+    /// does: everything below is then about those frames only (`end` nil = to the end of the file); a track that isn't in
+    /// the file gives `nil`.
+    static func analyse(url: URL, start: TimeInterval = 0, end: TimeInterval? = nil, workers: Int,
+                        isCancelled: @escaping @Sendable () -> Bool) -> WaveformAnalysis? {
         guard let first = try? AVAudioFile(forReading: url),
               first.length > 0, first.processingFormat.sampleRate > 0 else { return nil }
-        let length = first.length
         let sampleRate = first.processingFormat.sampleRate
+        let base = min(first.length, max(0, Int64((start * sampleRate).rounded())))
+        let limit = end.map { min(first.length, max(0, Int64(($0 * sampleRate).rounded()))) } ?? first.length
+        let length = limit - base
+        guard length > 0 else { return nil }
         let bucketFrames = (length + Int64(Waveform.bucketCount) - 1) / Int64(Waveform.bucketCount)
         let buckets = Int((length + bucketFrames - 1) / bucketFrames)
         let slices = max(1, min(workers, buckets))
@@ -95,7 +102,8 @@ enum WaveformAnalyzer {
                 var file = index == 0 ? firstFile.take() : nil
                 if file == nil { file = try? AVAudioFile(forReading: url) }
                 if let file {
-                    result = measure(file, buckets: start..<end, bucketFrames: bucketFrames, hop: hop, isCancelled: isCancelled)
+                    result = measure(file, base: base, length: length, buckets: start..<end, bucketFrames: bucketFrames, hop: hop,
+                                     isCancelled: isCancelled)
                 } else {
                     result = Slice(buckets: end - start, isComplete: false)
                 }
@@ -162,7 +170,8 @@ enum WaveformAnalyzer {
         static let cancelled = Slice(buckets: 0, isComplete: false, wasCancelled: true)
     }
 
-    private static func measure(_ file: AVAudioFile, buckets: Range<Int>, bucketFrames: Int64, hop: Int,
+    /// `base`/`length`: the frames of the file that are measured; positions below are relative to `base`.
+    private static func measure(_ file: AVAudioFile, base: Int64, length: Int64, buckets: Range<Int>, bucketFrames: Int64, hop: Int,
                                 isCancelled: () -> Bool) -> Slice {
         let format = file.processingFormat
         let downmix = ChannelDownmix(format: format)
@@ -187,11 +196,11 @@ enum WaveformAnalyzer {
         let fftSize = SpectralLayout.fftSize
 
         let startFrame = Int64(buckets.lowerBound) * bucketFrames
-        let endFrame = min(file.length, Int64(buckets.upperBound) * bucketFrames)
+        let endFrame = min(length, Int64(buckets.upperBound) * bucketFrames)
         // The last frames of the slice need the next `fftSize` frames of the file.
-        let readEnd = min(file.length, endFrame + Int64(fftSize))
+        let readEnd = min(length, endFrame + Int64(fftSize))
         // `framePosition` raises an Objective-C exception outside 0..<length; a slice starts inside by construction.
-        if startFrame > 0, startFrame < file.length { file.framePosition = startFrame }
+        if base + startFrame > 0, base + startFrame < file.length { file.framePosition = base + startFrame }
 
         var mono = [Float](repeating: 0, count: blockFrames)
         var pending: [Float] = []
@@ -213,7 +222,7 @@ enum WaveformAnalyzer {
             let got = Int(readBuffer.frameLength)
             guard got > 0 else {
                 // The file ends before it said it would: a short tail is no reason to distrust the rest.
-                slice.isComplete = endFrame - position <= max(bucketFrames, file.length / 50)
+                slice.isComplete = endFrame - position <= max(bucketFrames, length / 50)
                 break
             }
 

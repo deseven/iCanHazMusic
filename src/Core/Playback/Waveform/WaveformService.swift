@@ -35,7 +35,7 @@ final class WaveformService: PlaybackListener {
     }
 
     /// Measures a file; nil if it can't. Cancelling the calling task cancels the pass.
-    typealias Analyser = @Sendable (URL) async -> WaveformAnalysis?
+    typealias Analyser = @Sendable (PlaybackSource) async -> WaveformAnalysis?
 
     /// The waveform of the track that plays (or is paused), nil if there is none (yet).
     private(set) var current: Waveform?
@@ -52,7 +52,7 @@ final class WaveformService: PlaybackListener {
     @ObservationIgnored private var failed = Set<String>()
 
     init(settings: NowPlayingSettings, store: WaveformStore,
-         analyser: @escaping Analyser = { await WaveformAnalyzer.analyse(url: $0) }) {
+         analyser: @escaping Analyser = { await WaveformAnalyzer.analyse(source: $0) }) {
         self.settings = settings
         self.store = store
         self.analyser = analyser
@@ -92,7 +92,8 @@ final class WaveformService: PlaybackListener {
 
     private func begin(_ track: PlayedTrack) {
         cancel()
-        guard settings.style.usesWaveform, let url = track.url else { return }
+        guard settings.style.usesWaveform, let source = track.source else { return }
+        let url = source.url
         state = .analysing
         let token = self.token
         let store = self.store
@@ -100,7 +101,7 @@ final class WaveformService: PlaybackListener {
         task = Task { [weak self] in
             // Stat and database: off the main thread, a stalled share must not block the UI.
             let (key, stored) = await Self.offMain { () -> (String?, Waveform?) in
-                let key = WaveformKey.make(url: url)
+                let key = WaveformKey.make(source: source)
                 return (key, key.flatMap { store.waveform(for: $0) })
             }
             guard let self, self.token == token else { return }
@@ -119,7 +120,7 @@ final class WaveformService: PlaybackListener {
             }
 
             let started = ContinuousClock.now
-            let analysis = await analyser(url)
+            let analysis = await analyser(source)
             if let analysis, analysis.isComplete {
                 await Self.offMain { store.store(analysis.waveform, for: key) }
             }
