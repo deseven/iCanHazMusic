@@ -2,12 +2,15 @@
 A music player for macOS 15.4 or higher. The latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
 
 Main app:  
-![iCHM screenshot](https://d7.wtf/s/ichm-swift.png)
+![iCHM screenshot](screenshots/main.png)
+
+More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 
 ## Features
 ### Playback
 - Playback of everything macOS can decode natively:
   - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, WAV, AIFF/AIFC, CAF
+  - CUE sheets
   - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
 - Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
 - Playback modes & queue
@@ -46,13 +49,11 @@ I remember many other apps, both free and paid, however each and every one of th
 It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in an audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
 
 ## Roadmap
-- more customization options
 - simple web interface and API
 - better Last.fm integration (like tracks, track info, number of plays, etc)
 - Subsonic/Navidrome integration
 
 #### What is not planned
-- CUE support
 - equalizer
 - tags editing, format conversion and other Swiss knife functions
 - advanced foobar2000-level customization
