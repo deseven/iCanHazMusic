@@ -24,6 +24,11 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 - Playlists import/export (M3U8, M3U, PLS)
 - Playlist search, Spotlight-style
 
+### UI
+- Basic interface customization with inidividual components reordering and visibility toggles
+- Text size scaling
+- Different seekbar styles
+
 ### Integrations
 - Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album, volume and search
 - Dock menu with the current track and playback controls
