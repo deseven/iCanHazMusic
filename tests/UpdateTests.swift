@@ -221,4 +221,91 @@ extension AllTests {
             #expect(found >= 3)
         }
     }
+
+    /// Runs the real installer script against a stand-in for the app (a process of ours) and fake bundles.
+    @MainActor @Suite("Update installer script")
+    struct UpdateInstallerScriptTests {
+        private struct Outcome {
+            /// The script ended (within the test's deadline) with status 0.
+            let succeeded: Bool
+            let app: Process
+            let installedMarker: String?
+            let opened: String?
+            let stagingRemoved: Bool
+        }
+
+        /// `app`: arguments of `/bin/sh -c` for the stand-in. Returns `nil` if something couldn't be started.
+        private func install(app script: String, timeouts: UpdateInstaller.QuitTimeouts) async throws -> Outcome? {
+            let dir = try TempDir()
+            try dir.write("Applications/X.app/marker", Data("old".utf8))
+            try dir.write("staging/extracted/X.app/marker", Data("new".utf8))
+            let installed = dir.path("Applications/X.app")
+            let staging = dir.path("staging")
+            let opener = try dir.write("opener.sh", Data("#!/bin/sh\necho \"$1\" > '\(dir.path("opened").path)'\n".utf8))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: opener.path)
+            let installer = try dir.write("install-update.sh", Data(
+                UpdateInstaller.installerScript(timeouts: timeouts, openCommand: "'\(opener.path)'").utf8))
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: installer.path)
+
+            let app = Process()
+            app.executableURL = URL(fileURLWithPath: "/bin/sh")
+            app.arguments = ["-c", script]
+            try app.run()
+            let process = Process()
+            process.executableURL = installer
+            process.arguments = ["\(app.processIdentifier)", dir.path("staging/extracted/X.app").path, installed.path, staging.path]
+            try process.run()
+
+            let deadline = timeouts.graceful + timeouts.afterTerm + timeouts.afterKill + 5
+            for _ in 0..<Int(deadline * 20) where process.isRunning || app.isRunning {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            guard !process.isRunning, !app.isRunning else {
+                process.terminate()
+                app.terminate()
+                return nil
+            }
+            func text(_ url: URL) -> String? {
+                (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return Outcome(
+                succeeded: process.terminationStatus == 0,
+                app: app,
+                installedMarker: text(installed.appendingPathComponent("marker")),
+                opened: text(dir.path("opened")),
+                stagingRemoved: !FileManager.default.fileExists(atPath: staging.path)
+            )
+        }
+
+        private func expectInstalled(_ outcome: Outcome) {
+            #expect(outcome.succeeded)
+            #expect(outcome.installedMarker == "new")
+            #expect(outcome.opened?.hasSuffix("/Applications/X.app") == true)
+            #expect(outcome.stagingRemoved)
+        }
+
+        @Test("the update is installed once the app quits on its own, without signalling it")
+        func quitsOnItsOwn() async throws {
+            let start = Date()
+            let outcome = try #require(try await install(app: "sleep 0.5", timeouts: .init(graceful: 20, afterTerm: 5, afterKill: 5)))
+            expectInstalled(outcome)
+            #expect(outcome.app.terminationReason == .exit && outcome.app.terminationStatus == 0)
+            #expect(Date().timeIntervalSince(start) < 10)
+        }
+
+        @Test("an app that doesn't quit gets SIGTERM after the grace period")
+        func term() async throws {
+            let outcome = try #require(try await install(app: "exec sleep 600", timeouts: .init(graceful: 0.5, afterTerm: 5, afterKill: 5)))
+            expectInstalled(outcome)
+            #expect(outcome.app.terminationReason == .uncaughtSignal && outcome.app.terminationStatus == SIGTERM)
+        }
+
+        @Test("an app that ignores SIGTERM gets SIGKILL")
+        func kill() async throws {
+            let outcome = try #require(try await install(app: "trap '' TERM; exec sleep 600",
+                                                         timeouts: .init(graceful: 0.3, afterTerm: 0.5, afterKill: 5)))
+            expectInstalled(outcome)
+            #expect(outcome.app.terminationReason == .uncaughtSignal && outcome.app.terminationStatus == SIGKILL)
+        }
+    }
 }

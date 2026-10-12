@@ -11,10 +11,21 @@ import Security
 /// strict signature check and satisfy the designated requirement of the running app (so it has to be signed by
 /// the same identity) -> a shell script waits for this process to end, swaps the bundles and starts the new app.
 ///
-/// The caller has to quit the app afterwards (`NSApp.terminate`; Core doesn't know AppKit).
+/// The caller has to quit the app afterwards (`AppTermination`; Core doesn't know AppKit). The script doesn't rely
+/// on that: a self-update can't be fixed by a self-update, so a bug in the app's quit path would otherwise strand
+/// every user of that version (it happened in 1.0.0 and 1.1.0). If the app is still running after `QuitTimeouts`,
+/// the script sends SIGTERM, then SIGKILL; that may lose the last moments of config changes and cut the sound off,
+/// which beats a hung app.
 enum UpdateInstaller {
-    /// How long the script waits for the app to quit before it gives up.
-    private static let quitDeadlineSeconds = 300
+    /// How long the installer script waits for the app at each step, see `installerScript`.
+    struct QuitTimeouts {
+        /// For the app to quit on its own (it fades the music out and flushes its writes first).
+        var graceful: TimeInterval = 20
+        /// After SIGTERM.
+        var afterTerm: TimeInterval = 5
+        /// After SIGKILL, before giving up (and leaving the installed app as it is).
+        var afterKill: TimeInterval = 5
+    }
 
     static func install(_ info: UpdateInfo, installedBundle: URL = Bundle.main.bundleURL) async throws {
         guard installedBundle.pathExtension == "app" else { throw UpdateError.notAnAppBundle }
@@ -55,7 +66,7 @@ enum UpdateInstaller {
         try verifySignature(current: installedBundle, candidate: stagedBundle)
 
         let script = staging.appendingPathComponent("install-update.sh")
-        try installerScript.write(to: script, atomically: true, encoding: .utf8)
+        try installerScript().write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
 
         let process = Process()
@@ -154,30 +165,63 @@ enum UpdateInstaller {
         }.value
     }
 
-    /// Arguments: pid of the app, staged bundle, installed bundle, staging directory (removed at the end).
-    private static let installerScript = """
-    #!/bin/sh
-    set -eu
+    /// The script that waits for the app to end (forcing it after `timeouts`), swaps the bundles and starts the new
+    /// one with `openCommand`. Arguments: pid of the app, staged bundle, installed bundle, staging directory (removed
+    /// at the end). Escalations are logged to the system log (tag `iCanHazMusic-update`), since `app.log` belongs to
+    /// the process being replaced.
+    ///
+    /// The app is recognised by pid + start time, so a process that got the pid later is never signalled.
+    static func installerScript(timeouts: QuitTimeouts = QuitTimeouts(), openCommand: String = "/usr/bin/open") -> String {
+        func ticks(_ seconds: TimeInterval) -> Int { max(0, Int((seconds * 10).rounded())) }
+        return """
+        #!/bin/sh
+        set -eu
 
-    pid="$1"
-    staged_bundle="$2"
-    installed_bundle="$3"
-    staging_directory="$4"
-    deadline=$(( $(date +%s) + \(quitDeadlineSeconds) ))
+        pid="$1"
+        staged_bundle="$2"
+        installed_bundle="$3"
+        staging_directory="$4"
 
-    while kill -0 "$pid" 2>/dev/null; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-            rm -rf "$staging_directory"
-            exit 1
+        log() { /usr/bin/logger -t iCanHazMusic-update "$1" || true; }
+
+        started="$(/bin/ps -o lstart= -p "$pid" 2>/dev/null || true)"
+
+        alive() {
+            [ -n "$started" ] || return 1
+            [ "$(/bin/ps -o lstart= -p "$pid" 2>/dev/null || true)" = "$started" ] || return 1
+            case "$(/bin/ps -o stat= -p "$pid" 2>/dev/null || true)" in Z*) return 1 ;; esac
+        }
+
+        # Waits up to $1 tenths of a second for the app to end; fails if it is still running.
+        wait_for_quit() {
+            ticks="$1"
+            while alive; do
+                [ "$ticks" -gt 0 ] || return 1
+                ticks=$((ticks - 1))
+                sleep 0.1
+            done
+        }
+
+        if ! wait_for_quit \(ticks(timeouts.graceful)); then
+            log "the app (pid $pid) didn't quit, sending SIGTERM"
+            if alive; then kill -TERM "$pid" 2>/dev/null || true; fi
+            if ! wait_for_quit \(ticks(timeouts.afterTerm)); then
+                log "the app (pid $pid) didn't quit on SIGTERM, sending SIGKILL"
+                if alive; then kill -KILL "$pid" 2>/dev/null || true; fi
+                if ! wait_for_quit \(ticks(timeouts.afterKill)); then
+                    log "the app (pid $pid) is still running, the update is cancelled"
+                    rm -rf "$staging_directory"
+                    exit 1
+                fi
+            fi
         fi
-        sleep 0.2
-    done
 
-    rm -rf "$installed_bundle"
-    mv "$staged_bundle" "$installed_bundle"
+        rm -rf "$installed_bundle"
+        mv "$staged_bundle" "$installed_bundle"
 
-    /usr/bin/open "$installed_bundle"
+        \(openCommand) "$installed_bundle"
 
-    rm -rf "$staging_directory"
-    """
+        rm -rf "$staging_directory"
+        """
+    }
 }

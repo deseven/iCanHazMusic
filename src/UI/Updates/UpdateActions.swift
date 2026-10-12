@@ -63,14 +63,11 @@ enum UpdateActions {
             do {
                 try await service.install(update)
                 sheet.model.progress = "Restarting..."
-                // `NSApp.terminate` is silently ignored (the delegate isn't even asked) while a sheet is attached to a
-                // window, so close it first. The installer script is already waiting for us to quit.
+                // Quitting is silently ignored (the delegate isn't even asked) while a sheet is attached to a window,
+                // so close it first. The installer script is already waiting for us to quit (and forces it if we
+                // don't, see `UpdateInstaller`).
                 await sheet.dismiss()
-                // Not `NSApp.terminate(nil)` from here: we are in a main-actor job (a main-queue drain), and while
-                // something plays `AppDelegate` answers `.terminateLater` and replies from a `Task`. AppKit waits for
-                // that reply in a nested run loop, which never drains the main queue we're already inside: deadlock.
-                // From a run loop timer, the main queue is free to run the reply.
-                NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)
+                AppTermination.request(reason: "installing v\(update.version)")
             } catch {
                 Log.error("updates: installing v\(update.version) failed: \(error.localizedDescription)")
                 await sheet.dismiss()

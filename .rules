@@ -16,7 +16,7 @@ This file is a map and a list of invariants, not documentation of every file: re
 ### `src/`
 UI and logic are split (still one SwiftPM target, so no `public` needed). **UI may depend on Core, never the other way round.** One view per file.
 
-- `App/` – `@main` entry, `AppDelegate` (on quit it stops playback first so the fade-out avoids a pop: `PlaybackState.stopAndWait()`), Dock menu.
+- `App/` – `@main` entry, `AppDelegate` (on quit it stops playback first so the fade-out avoids a pop: `PlaybackState.stopAndWait()`), `AppTermination` (the only way the app quits itself), Dock menu.
 - `Core/` – Logic. **Foundation only (plus UI-less system frameworks such as CryptoKit, Carbon, AudioToolbox): never import SwiftUI/AppKit.** Things that need AppKit (opening URLs, alerts) are handed in by the UI as closures.
   - `Config/` – `ConfigStore` (`config.json`), `ConfigLimits` (validation limits), and the small settings owners (`WindowSettings`: close quits, whether the playlist selector is shown, swapping it with now playing; `NowPlayingSettings` with `SeekbarStyle`; `NowPlayingLayout` is the model of the Now Playing block's components; `PlaylistSettings` with `AlbumHeaderStyle` and `PlaylistColumnsLayout`, the track row columns per `PlaylistMode`, which the UI turns into a `TrackRowStyle`).
   - `Playlists/` – `PlaylistStore` (the playlist list; **every playlist is kept in memory**, because search needs them all; the active one loads first, the rest preload in the background; changes go through `commit` and are saved in the background), the immutable `Playlist` row model, `AlbumBuilder` (flat entries -> albums by directory + album tag, `AlbumKey`), `TrackEntry`/`PlaylistFile` (stored format), `PlaylistExchange` (m3u8/m3u/pls import/export).
@@ -43,7 +43,8 @@ UI and logic are split (still one SwiftPM target, so no `public` needed). **UI m
 **Updates**
 - Only stable GitHub releases with an `ichm.zip` asset count; the version is read from the release title (`iCHM 0.4.0`, else the tag), so keep releasing that way.
 - The installer requires the new app to satisfy the running app's designated requirement. `NSApp.terminate` is silently ignored while a sheet is attached to a window, so dismiss the update sheet before quitting.
-- **Never call `NSApp.terminate` from a `Task`/async main-actor code**: with playback running `applicationShouldTerminate` answers `.terminateLater` and replies from a `Task`, which can't run while AppKit waits inside a main-queue job (the app hangs). Defer it to the run loop: `NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)`.
+- **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: called from a `Task`/async main-actor code, `terminate` hangs the app while something plays (`applicationShouldTerminate` answers `.terminateLater` and replies from a `Task`, which can't run while AppKit waits inside a main-queue job). This shipped in 1.0.0-hf and 1.1.0.
+- The installer script doesn't trust the app to quit: after `UpdateInstaller.QuitTimeouts` (20 s) it sends SIGTERM, then SIGKILL, recognising the app by pid + start time. A self-update bug can't be fixed by a self-update, so keep that safety net.
 
 **Playlists and tracks**
 - Tracks have IDs (`TrackID`: positive, unique within a playlist, stable through regrouping/removal/tag reloads, never reused, `next_id`). The same file added twice = two IDs. **Refer to tracks by ID** wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.
