@@ -12,6 +12,7 @@ struct PreferencesView: View {
     private enum Tab: String, CaseIterable, Identifiable {
         case general
         case engine
+        case ui
         case playlist
         case nowPlaying
         case search
@@ -24,6 +25,7 @@ struct PreferencesView: View {
             switch self {
             case .general: "General"
             case .engine: "Engine"
+            case .ui: "UI"
             case .playlist: "Playlist"
             case .nowPlaying: "Now Playing"
             case .search: "Search"
@@ -36,6 +38,7 @@ struct PreferencesView: View {
             switch self {
             case .general: "gearshape"
             case .engine: "cpu"
+            case .ui: "macwindow"
             case .playlist: "music.note.list"
             case .nowPlaying: "waveform"
             case .search: "magnifyingglass"
@@ -79,6 +82,7 @@ struct PreferencesView: View {
                 switch selectedTab {
                 case .general: GeneralTab()
                 case .engine: EngineTab()
+                case .ui: UITab()
                 case .playlist: PlaylistTab()
                 case .nowPlaying: NowPlayingTab()
                 case .search: SearchTab()
@@ -200,7 +204,7 @@ private struct GeneralTab: View {
 
             PrefRow(
                 title: "Lyrics Support",
-                description: "Show the lyrics of tracks: a button in the playlist and in the playback block. Turning this "
+                description: "Show the lyrics of tracks: a button in the playlist and in the now playing block. Turning this "
                     + "off also turns off the LRCLIB lookup."
             ) {
                 Toggle("", isOn: $lyrics.isEnabled)
@@ -369,16 +373,6 @@ private struct NowPlayingTab: View {
     var body: some View {
         TabPage {
             PrefRow(
-                title: "Enable Now Playing",
-                description: "Show the block with the album art, the playing track and the controls next to the playlist. "
-                    + "When off, the block is gone and nothing for it (album art, waveform) is loaded."
-            ) {
-                Toggle("", isOn: $nowPlaying.isEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-
-            PrefRow(
                 title: "Components",
                 description: "Drag to reorder, or to move a component between the top part of the block and the bottom "
                     + "part, which stays at the bottom edge. Click the eye to show or hide one, the gear to change "
@@ -387,7 +381,7 @@ private struct NowPlayingTab: View {
                     Button("Reset Ordering & Visibility") { nowPlaying.resetLayout() }
                         .buttonStyle(.link)
                         .font(.caption)
-                        .disabled(!nowPlaying.isEnabled || nowPlaying.layout == .default)
+                        .disabled(nowPlaying.layout == .default)
                 }
             ) {
                 NowPlayingComponentList(settings: nowPlaying)
@@ -470,6 +464,24 @@ private struct EngineTab: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
+            }
+        }
+    }
+}
+
+private struct UITab: View {
+    @Bindable private var windowSettings = WindowSettings.shared
+
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "Swap Playlist Selector with Now Playing",
+                description: "Put the playlist selector and its toolbar button on the right side of the main window, "
+                    + "and the now playing block and its button on the left."
+            ) {
+                Toggle("", isOn: $windowSettings.swapsSides)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
     }

@@ -6,7 +6,7 @@ import Testing
 @testable import iCanHazMusic
 
 extension AllTests {
-    /// The playlist logic of playback (which track follows which, what the playback block shows), running on an
+    /// The playlist logic of playback (which track follows which, what the now playing block shows), running on an
     /// offline engine and a store of its own.
     @MainActor @Suite("PlaybackState")
     struct PlaybackStateTests {
@@ -24,7 +24,7 @@ extension AllTests {
             /// Output frame `i` is the first sample of the track starting after `tracks`.
             func start(_ tracks: [RampFile]) -> Int { tracks.reduce(0) { $0 + $1.frames } }
 
-            /// Renders `frames` and refreshes what the playback block would show.
+            /// Renders `frames` and refreshes what the now playing block would show.
             func run(_ frames: Int) async throws {
                 try await rig.render(frames)
                 state.tick()

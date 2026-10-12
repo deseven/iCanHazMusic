@@ -9,7 +9,7 @@ import UserNotifications
 /// - Every message uses the same request identifier, which makes the system replace the notification that is
 ///   already there instead of adding another one: only the latest message is ever shown.
 /// - macOS asks the user for permission the first time something is delivered. If it was refused, nothing is shown.
-/// - There is no delegate on purpose: while the app is in front the system shows no banner (the playback block says
+/// - There is no delegate on purpose: while the app is in front the system shows no banner (the now playing block says
 ///   it all).
 /// - The notification center only works for a signed app bundle; from a bare executable (`swift run`, tests) this does
 ///   nothing.

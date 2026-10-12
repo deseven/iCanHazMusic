@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The lyrics sheet on the main window: from the playback block (the track that plays) and from the playlist's
+/// The lyrics sheet on the main window: from the now playing block (the track that plays) and from the playlist's
 /// context menu (the selected track). One at a time; the window is blocked until it is closed (Close, Esc, or a click on the window behind).
 @MainActor
 enum LyricsSheet {

@@ -4,7 +4,7 @@
 import SwiftUI
 
 /// The sheet on the main window that shows the album art at its original resolution (one image pixel per point,
-/// whatever the display's scale), opened by clicking the art in the playback block. Only shrunk, keeping the
+/// whatever the display's scale), opened by clicking the art in the now playing block. Only shrunk, keeping the
 /// proportions, if it wouldn't fit in the window. One at a time; the window is blocked until it is closed (Close,
 /// Esc, or a click on the window behind).
 @MainActor

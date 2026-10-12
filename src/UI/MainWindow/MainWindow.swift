@@ -3,19 +3,13 @@
 
 import SwiftUI
 
-/// [ playlist selector (toggle) ] [ playlist ] [ divider ] [ playback block ]
+/// The main window: `PlayerArea` (the playlist between the playlist selector and the now playing block), and a toolbar
+/// button for each of the side panels, on the side of the window the panel is on.
 struct MainWindow: View {
-    @State private var columnVisibility: NavigationSplitViewVisibility
-    /// Sidebar width at launch. Kept constant: it's only the *ideal* width the column starts with.
-    @State private var initialSidebarWidth: CGFloat
     private let store = PlaylistStore.shared
+    private let nowPlaying = NowPlayingSettings.shared
+    private let windowSettings = WindowSettings.shared
     @Environment(\.openWindow) private var openWindow
-
-    init() {
-        let selector = ConfigStore.shared.config.ui.playlistSelector
-        _columnVisibility = State(initialValue: selector.shown ? .all : .detailOnly)
-        _initialSidebarWidth = State(initialValue: CGFloat(selector.width))
-    }
 
     /// The app name, followed by the active playlist's name if there are several playlists to tell apart.
     private var windowTitle: String {
@@ -23,30 +17,43 @@ struct MainWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            PlaylistSelector()
-                .navigationSplitViewColumnWidth(min: Layout.sidebarMin,
-                                                ideal: initialSidebarWidth,
-                                                max: Layout.sidebarMax)
-                .sidebarMaxWidth(Layout.sidebarMax)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-
-                    // Ignore the intermediate widths while the sidebar animates in/out.
-                    guard (Layout.sidebarMin...Layout.sidebarMax).contains(width) else { return }
-                    ConfigStore.shared.update { $0.ui.playlistSelector.width = Int(width.rounded()) }
+        PlayerArea()
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    if windowSettings.swapsSides { nowPlayingToggle } else { selectorToggle }
                 }
-        } detail: {
-            PlayerArea()
+                ToolbarItem(placement: .primaryAction) {
+                    if windowSettings.swapsSides { selectorToggle } else { nowPlayingToggle }
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                ImportCoordinator.shared.handleDrop(urls)
+            }
+            .navigationTitle(windowTitle)
+            .onAppear {
+                MainWindowOpener.shared.register { openWindow(id: AppConstants.mainWindowID) }
+            }
+    }
+
+    private var selectorToggle: some View {
+        panelToggle("Playlist Selector", isShown: windowSettings.showsPlaylistSelector,
+                    edge: windowSettings.swapsSides ? .trailing : .leading) {
+            windowSettings.showsPlaylistSelector.toggle()
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            ImportCoordinator.shared.handleDrop(urls)
+    }
+
+    private var nowPlayingToggle: some View {
+        panelToggle("Now Playing", isShown: nowPlaying.isShown,
+                    edge: windowSettings.swapsSides ? .leading : .trailing) {
+            nowPlaying.isShown.toggle()
         }
-        .navigationTitle(windowTitle)
-        .onAppear {
-            MainWindowOpener.shared.register { openWindow(id: AppConstants.mainWindowID) }
+    }
+
+    private func panelToggle(_ title: String, isShown: Bool, edge: HorizontalEdge,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: edge == .leading ? "sidebar.left" : "sidebar.right")
         }
-        .onChange(of: columnVisibility) { _, visibility in
-            ConfigStore.shared.update { $0.ui.playlistSelector.shown = (visibility != .detailOnly) }
-        }
+        .help(isShown ? "Hide \(title)" : "Show \(title)")
     }
 }

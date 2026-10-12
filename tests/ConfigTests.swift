@@ -23,7 +23,8 @@ extension AllTests {
             {"active_playlist": "rock",
              "ui": {"window": {"width": 1000, "height": 700, "x": 10, "y": 20},
                     "playlist_selector": {"shown": false, "width": 200},
-                    "playback_status_width": 400}}
+                    "now_playing": {"shown": false, "width": 400},
+                    "swap_playlist_selector_with_now_playing": true}}
             """)
             #expect(config.activePlaylist == "rock")
             #expect(config.ui.window.width == 1000)
@@ -33,7 +34,22 @@ extension AllTests {
             #expect(config.ui.window.hasPosition)
             #expect(config.ui.playlistSelector.shown == false)
             #expect(config.ui.playlistSelector.width == 200)
-            #expect(config.ui.playbackStatusWidth == 400)
+            #expect(config.ui.nowPlaying.shown == false)
+            #expect(config.ui.nowPlaying.width == 400)
+            #expect(config.ui.swapPlaylistSelectorWithNowPlaying)
+        }
+
+        @Test("the now playing block is shown and the sides aren't swapped by default")
+        func uiDefaults() throws {
+            let ui = AppConfig().ui
+            #expect(ui.nowPlaying.shown)
+            #expect(!ui.swapPlaylistSelectorWithNowPlaying)
+            let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppConfig())) as? [String: Any]
+            let written = try #require(json?["ui"] as? [String: Any])
+            let block = try #require(written["now_playing"] as? [String: Any])
+            #expect(block["shown"] as? Bool == true)
+            #expect(block["width"] as? Int == ui.nowPlaying.width)
+            #expect(written["swap_playlist_selector_with_now_playing"] as? Bool == false)
         }
 
         @Test("a malformed value only resets that value")
@@ -42,14 +58,17 @@ extension AllTests {
             {"active_playlist": 5,
              "ui": {"window": {"width": "wide", "height": 700},
                     "playlist_selector": "nope",
-                    "playback_status_width": 333}}
+                    "now_playing": {"shown": "yes", "width": 333},
+                    "swap_playlist_selector_with_now_playing": 1}}
             """)
             let defaults = AppConfig()
             #expect(config.activePlaylist == defaults.activePlaylist)
             #expect(config.ui.window.width == defaults.ui.window.width)
             #expect(config.ui.window.height == 700)
             #expect(config.ui.playlistSelector == defaults.ui.playlistSelector)
-            #expect(config.ui.playbackStatusWidth == 333)
+            #expect(config.ui.nowPlaying.shown == defaults.ui.nowPlaying.shown)
+            #expect(config.ui.nowPlaying.width == 333)
+            #expect(config.ui.swapPlaylistSelectorWithNowPlaying == defaults.ui.swapPlaylistSelectorWithNowPlaying)
         }
 
         @Test("the playback section is read leniently, with both options on by default")
@@ -116,6 +135,30 @@ extension AllTests {
             #expect(config.config.general.closeQuits)
             #expect(WindowSettings(configStore: config).closeQuits)
             #expect(!WindowSettings().closeQuits)
+        }
+
+        @Test("swapping the playlist selector with now playing is read from the config and kept in it")
+        func swapsSidesSetting() throws {
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = WindowSettings(configStore: config)
+            #expect(!settings.swapsSides)
+            settings.swapsSides = true
+            #expect(config.config.ui.swapPlaylistSelectorWithNowPlaying)
+            #expect(WindowSettings(configStore: config).swapsSides)
+            #expect(!WindowSettings().swapsSides)
+        }
+
+        @Test("whether the playlist selector is shown is read from the config and kept in it")
+        func showsPlaylistSelectorSetting() throws {
+            let dir = try TempDir()
+            let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = WindowSettings(configStore: config)
+            #expect(settings.showsPlaylistSelector)
+            settings.showsPlaylistSelector = false
+            #expect(!config.config.ui.playlistSelector.shown)
+            #expect(!WindowSettings(configStore: config).showsPlaylistSelector)
+            #expect(WindowSettings().showsPlaylistSelector)
         }
 
         @Test("resample quality is high by default, read by name and reset when unknown")
@@ -442,7 +485,7 @@ extension AllTests {
             config.ui.window.x = 5
             config.ui.window.y = 5
             config.ui.playlistSelector.width = 180
-            config.ui.playbackStatusWidth = 500
+            config.ui.nowPlaying.width = 500
             config.activePlaylist = "x"
             #expect(config.validated() == config)
         }
@@ -452,8 +495,8 @@ extension AllTests {
             var config = AppConfig()
             config.ui.window.width = ConfigLimits.windowMinWidth
             config.ui.window.height = ConfigLimits.windowMaxSide
-            config.ui.playlistSelector.width = ConfigLimits.sidebarMax
-            config.ui.playbackStatusWidth = ConfigLimits.blockMinWidth
+            config.ui.playlistSelector.width = ConfigLimits.playlistSelectorMaxWidth
+            config.ui.nowPlaying.width = ConfigLimits.nowPlayingMinWidth
             #expect(config.validated() == config)
         }
 
@@ -470,15 +513,15 @@ extension AllTests {
             }
         }
 
-        @Test("sidebar and playback block widths are reset independently")
+        @Test("playlist selector and now playing block widths are reset independently")
         func invalidWidths() {
             var config = AppConfig()
             config.ui.window.width = 1000
-            config.ui.playlistSelector.width = ConfigLimits.sidebarMin - 1
-            config.ui.playbackStatusWidth = ConfigLimits.blockMaxWidth + 1
+            config.ui.playlistSelector.width = ConfigLimits.playlistSelectorMinWidth - 1
+            config.ui.nowPlaying.width = ConfigLimits.nowPlayingMaxWidth + 1
             let result = config.validated()
             #expect(result.ui.playlistSelector.width == AppConfig().ui.playlistSelector.width)
-            #expect(result.ui.playbackStatusWidth == AppConfig().ui.playbackStatusWidth)
+            #expect(result.ui.nowPlaying.width == AppConfig().ui.nowPlaying.width)
             #expect(result.ui.window.width == 1000)
         }
 
@@ -527,7 +570,7 @@ extension AllTests {
             let dir = try TempDir()
             let paths = makePaths(dir)
             try dir.write("work/config.json", Data("""
-            {"active_playlist": "rock", "ui": {"playback_status_width": 99999,
+            {"active_playlist": "rock", "ui": {"now_playing": {"width": 99999},
              "playlist_selector": {"width": 150, "shown": false}}}
             """.utf8))
 
@@ -535,7 +578,7 @@ extension AllTests {
             #expect(store.config.activePlaylist == "rock")
             #expect(store.config.ui.playlistSelector.width == 150)
             #expect(store.config.ui.playlistSelector.shown == false)
-            #expect(store.config.ui.playbackStatusWidth == AppConfig().ui.playbackStatusWidth)
+            #expect(store.config.ui.nowPlaying.width == AppConfig().ui.nowPlaying.width)
 
             let onDisk = try readConfig(paths)
             #expect(onDisk == store.config)

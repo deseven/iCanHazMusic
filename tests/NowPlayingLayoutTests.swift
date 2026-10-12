@@ -30,7 +30,7 @@ extension AllTests {
             #expect(layout.visibleTop == [.albumArt, .title, .subtitle, .seekbar, .details])
             #expect(layout.visibleBottom == [.controls, .volume])
             #expect(AppConfig().nowPlaying.layout == layout)
-            #expect(AppConfig().nowPlaying.enabled)
+            #expect(AppConfig().ui.nowPlaying.shown)
         }
 
         @Test("a layout built from outside is repaired: duplicates dropped, missing ones put back at their default end")
@@ -106,11 +106,9 @@ extension AllTests {
         @Test("the config reads and writes the lists as `top` and `bottom`")
         func configRoundTrip() throws {
             let config = try decode("""
-            {"now_playing": {"enabled": false,
-                             "top": [{"id": "volume", "visible": true}, {"id": "album_art", "visible": false}],
+            {"now_playing": {"top": [{"id": "volume", "visible": true}, {"id": "album_art", "visible": false}],
                              "bottom": [{"id": "seekbar"}]}}
             """)
-            #expect(!config.nowPlaying.enabled)
             #expect(names(config.nowPlaying.layout.top).prefix(2) == ["volume", "album_art"])
             #expect(!config.nowPlaying.layout.isVisible(.albumArt))
             #expect(names(config.nowPlaying.layout.bottom).first == "seekbar")
@@ -118,7 +116,7 @@ extension AllTests {
 
             let data = try JSONEncoder().encode(config)
             let text = String(decoding: data, as: UTF8.self)
-            #expect(text.contains(#""enabled":false"#))
+
             #expect(text.contains(#""id":"album_art""#) && text.contains(#""visible":false"#))
             #expect(try decode(text) == config)
         }
@@ -132,13 +130,12 @@ extension AllTests {
                              "bottom": "not a list"}}
             """)
             #expect(config.nowPlaying.componentOptions.seekbarStyle == .spectrogram)
-            #expect(config.nowPlaying.enabled)
             #expect(names(config.nowPlaying.layout.top).prefix(2) == ["subtitle", "title"])
             #expect(config.nowPlaying.layout.isVisible(.title))          // a visible flag that isn't one counts as on
             #expect(Set(config.nowPlaying.layout.top.map(\.component) + config.nowPlaying.layout.bottom.map(\.component)).count == 8)
 
             #expect(try decode(#"{"now_playing": {"top": 3}}"#).nowPlaying.layout == .default)
-            #expect(try decode(#"{"now_playing": {"enabled": "no"}}"#).nowPlaying.enabled)
+            #expect(try decode(#"{"ui": {"now_playing": {"shown": "no"}}}"#).ui.nowPlaying.shown)
         }
 
         @Test("the texts of Title and Subtitle are in `component_options`, default, read leniently and reset when too long")
@@ -232,12 +229,12 @@ extension AllTests {
 
         // MARK: Settings
 
-        @Test("the settings keep the layout and the switch in the config and tell the observers")
+        @Test("the settings keep the layout and whether the block is shown in the config and tell the observers")
         func settings() throws {
             let dir = try TempDir()
             let config = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
             let settings = NowPlayingSettings(configStore: config)
-            #expect(settings.isEnabled && settings.showsArt && settings.showsSeekbar && !settings.needsWaveform)
+            #expect(settings.isShown && settings.showsArt && settings.showsSeekbar && !settings.needsWaveform)
             var calls = 0
             settings.addVisibilityObserver { calls += 1 }
 
@@ -245,21 +242,21 @@ extension AllTests {
             #expect(calls == 1 && !settings.showsArt)
             #expect(!config.config.nowPlaying.layout.isVisible(.albumArt))
             settings.layout.toggle(.albumArt)
-            settings.isEnabled = false
-            settings.isEnabled = false
+            settings.isShown = false
+            settings.isShown = false
             #expect(calls == 3)
             #expect(!settings.showsArt && !settings.showsSeekbar)
-            #expect(!config.config.nowPlaying.enabled)
+            #expect(!config.config.ui.nowPlaying.shown)
 
             let restarted = NowPlayingSettings(configStore: config)
-            #expect(!restarted.isEnabled)
-            restarted.isEnabled = true
+            #expect(!restarted.isShown)
+            restarted.isShown = true
             restarted.layout.move(from: 0, to: 8)
             #expect(restarted.layout != .default)
             #expect(NowPlayingSettings(configStore: config).layout == restarted.layout)
             restarted.resetLayout()
             #expect(NowPlayingSettings(configStore: config).layout == .default)
-            #expect(NowPlayingSettings().isEnabled)
+            #expect(NowPlayingSettings().isShown)
         }
 
         @Test("the waveform is wanted for a visual style only while the seek bar is on screen")
@@ -270,9 +267,9 @@ extension AllTests {
             settings.layout.toggle(.seekbar)
             #expect(!settings.needsWaveform)
             settings.layout.toggle(.seekbar)
-            settings.isEnabled = false
+            settings.isShown = false
             #expect(!settings.needsWaveform)
-            settings.isEnabled = true
+            settings.isShown = true
             #expect(settings.needsWaveform)
             settings.style = .standard
             #expect(!settings.needsWaveform)
@@ -397,7 +394,7 @@ extension AllTests {
             settings.layout.toggle(.albumArt)
             service.trackDidStart(track)
             settings.layout.toggle(.albumArt)
-            settings.isEnabled = false
+            settings.isShown = false
             service.trackDidStart(track)
             #expect(delivery.covers == [image, nil, nil])
         }
@@ -428,9 +425,9 @@ extension AllTests {
             #expect(await waitUntil { state.artwork != nil })
             #expect(!state.isLoadingArtwork)
 
-            settings.isEnabled = false                                     // the block goes away: so does the art
+            settings.isShown = false                                       // the block goes away: so does the art
             #expect(state.artwork == nil && !state.isLoadingArtwork)
-            settings.isEnabled = true
+            settings.isShown = true
             #expect(await waitUntil { state.artwork != nil })
             state.stop()
         }

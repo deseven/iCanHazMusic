@@ -5,7 +5,7 @@ import CoreGraphics
 import Foundation
 import Observation
 
-/// What the playback block shows, and the playlist logic of playback: which track follows which.
+/// What the now playing block shows, and the playlist logic of playback: which track follows which.
 ///
 /// The audio itself is played by `PlaybackEngine`, which always holds at most two tracks: the current one and
 /// the one after it in the playlist (the next album's first track after the last track of an album), so the
@@ -30,7 +30,7 @@ final class PlaybackState {
 
     enum Status { case stopped, playing, paused }
 
-    /// What the playback block shows about the current track.
+    /// What the now playing block shows about the current track.
     struct TrackInfo {
         let artist: String
         let title: String

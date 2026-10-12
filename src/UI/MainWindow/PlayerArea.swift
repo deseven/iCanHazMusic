@@ -3,12 +3,14 @@
 
 import SwiftUI
 
-/// Playlist + divider + playback block. Owns the width arithmetic of the right-hand block. With the now playing block
-/// turned off (Preferences) there is only the playlist.
+/// [ playlist selector ] [ playlist ] [ now playing block ], or the other way round when they are swapped
+/// (`WindowSettings.swapsSides`). Both side panels are `SidePanel`s: shown and hidden with their toolbar buttons, slid
+/// in and out the same way, resized with their dividers. Owns the width arithmetic of both.
 struct PlayerArea: View {
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
     private let nowPlaying = NowPlayingSettings.shared
+    private let windowSettings = WindowSettings.shared
 
     /// Selected rows of the active playlist (reset when another playlist is opened, to its last played track).
     @State private var selection: Set<Int> = []
@@ -18,24 +20,41 @@ struct PlayerArea: View {
     /// the playlist is hidden behind a spinner, so the user doesn't see it being filled and scrolled.
     @State private var openedName: String?
 
-    /// Width the user asked for by dragging the divider. The effective width is this value
-    /// clamped to what the current window size allows (so it "comes back" when the window grows).
+    /// Widths the user asked for by dragging the dividers. The effective widths are these values
+    /// clamped to what the current window size allows (so they "come back" when the window grows).
+    @State private var preferredSelectorWidth: CGFloat
     @State private var preferredBlockWidth: CGFloat
 
     /// Height of everything in the block but the album art, measured from the real view.
     @State private var controlsHeight: CGFloat = 200
 
     init() {
-        _preferredBlockWidth = State(initialValue: CGFloat(ConfigStore.shared.config.ui.playbackStatusWidth))
+        let ui = ConfigStore.shared.config.ui
+        _preferredSelectorWidth = State(initialValue: CGFloat(ui.playlistSelector.width))
+        _preferredBlockWidth = State(initialValue: CGFloat(ui.nowPlaying.width))
     }
 
     var body: some View {
-        let showsBlock = nowPlaying.isEnabled
+        let showsSelector = windowSettings.showsPlaylistSelector
+        let showsBlock = nowPlaying.isShown
+        let swapped = windowSettings.swapsSides
+        let selectorEdge: HorizontalEdge = swapped ? .trailing : .leading
+        let blockEdge: HorizontalEdge = swapped ? .leading : .trailing
         GeometryReader { geo in
-            let range = blockWidthRange(in: geo.size)
-            let blockWidth = min(max(preferredBlockWidth, range.lowerBound), range.upperBound)
+            let selectorRange = selectorWidthRange(in: geo.size, withBlock: showsBlock)
+            let selectorWidth = min(max(preferredSelectorWidth, selectorRange.lowerBound), selectorRange.upperBound)
+            let selectorRoom = showsSelector ? selectorWidth + Layout.dividerLineWidth : 0
+            let blockRange = blockWidthRange(in: CGSize(width: geo.size.width - selectorRoom, height: geo.size.height))
+            let blockWidth = min(max(preferredBlockWidth, blockRange.lowerBound), blockRange.upperBound)
 
             HStack(spacing: 0) {
+                if showsSelector && selectorEdge == .leading {
+                    selectorPanel(edge: .leading, width: selectorWidth, range: selectorRange)
+                }
+                if showsBlock && blockEdge == .leading {
+                    blockPanel(edge: .leading, width: blockWidth, range: blockRange)
+                }
+
                 Group {
                     if store.isQueueShown && playback.queue.isEnabled {
                         QueueView()
@@ -48,24 +67,19 @@ struct PlayerArea: View {
                 }
                 .frame(minWidth: Layout.playlistMinWidth, maxWidth: .infinity, maxHeight: .infinity)
 
-                if showsBlock {
-                    SplitDivider(
-                        width: Binding(get: { blockWidth }, set: { preferredBlockWidth = $0 }),
-                        range: range
-                    )
-
-                    PlaybackBlock(state: playback,
-                                  playFromSelection: playFromSelection,
-                                  hasSelection: !selection.isEmpty || playback.hasQueuedTracks,
-                                  controlsHeight: $controlsHeight)
-                        .frame(width: blockWidth)
-                        .frame(maxHeight: .infinity, alignment: .top)
+                if showsBlock && blockEdge == .trailing {
+                    blockPanel(edge: .trailing, width: blockWidth, range: blockRange)
+                }
+                if showsSelector && selectorEdge == .trailing {
+                    selectorPanel(edge: .trailing, width: selectorWidth, range: selectorRange)
                 }
             }
+            .clipped()   // a sliding panel is partly outside the area
+            .animation(Layout.sidePanelAnimation, value: showsSelector)
+            .animation(Layout.sidePanelAnimation, value: showsBlock)
+            .animation(Layout.sidePanelAnimation, value: swapped)
         }
-        .frame(minWidth: showsBlock
-               ? Layout.playlistMinWidth + Layout.dividerLineWidth + Layout.blockMinWidth
-               : Layout.playlistMinWidth)
+        .frame(minWidth: minWidth(showsSelector: showsSelector, showsBlock: showsBlock))
         .onChange(of: store.activeName) { _, _ in
             // Rows of the old playlist mean nothing in the new one, which is still being read. (One that is ready
             // at once is dealt with by `playlistOpened`.)
@@ -88,9 +102,46 @@ struct PlayerArea: View {
         .onAppear {
             if !store.isLoading { playlistOpened() }   // the playlist was ready before this view was
         }
-        .onChange(of: preferredBlockWidth) { _, width in
-            ConfigStore.shared.update { $0.ui.playbackStatusWidth = Int(width.rounded()) }
+        .onChange(of: preferredSelectorWidth) { _, width in
+            ConfigStore.shared.update { $0.ui.playlistSelector.width = Int(width.rounded()) }
         }
+        .onChange(of: preferredBlockWidth) { _, width in
+            ConfigStore.shared.update { $0.ui.nowPlaying.width = Int(width.rounded()) }
+        }
+    }
+
+    private func selectorPanel(edge: HorizontalEdge, width: CGFloat, range: ClosedRange<CGFloat>) -> some View {
+        SidePanel(edge: edge, width: Binding(get: { width }, set: { preferredSelectorWidth = $0 }), range: range) {
+            PlaylistSelector()
+        }
+        .sidePanelTransition(edge)
+    }
+
+    private func blockPanel(edge: HorizontalEdge, width: CGFloat, range: ClosedRange<CGFloat>) -> some View {
+        SidePanel(edge: edge, width: Binding(get: { width }, set: { preferredBlockWidth = $0 }), range: range) {
+            NowPlayingBlock(state: playback,
+                            playFromSelection: playFromSelection,
+                            hasSelection: !selection.isEmpty || playback.hasQueuedTracks,
+                            controlsHeight: $controlsHeight)
+        }
+        .sidePanelTransition(edge)
+    }
+
+    /// The playlist at its minimum, and each panel that is shown at its minimum with its divider.
+    private func minWidth(showsSelector: Bool, showsBlock: Bool) -> CGFloat {
+        var width = Layout.playlistMinWidth
+        if showsSelector { width += Layout.playlistSelectorMinWidth + Layout.dividerLineWidth }
+        if showsBlock { width += Layout.nowPlayingMinWidth + Layout.dividerLineWidth }
+        return width
+    }
+
+    /// Allowed selector width for the given area: its own limits, and at most what leaves the playlist (and the
+    /// block, if it is shown) their minimum. The selector is fitted first, the block takes what is left.
+    private func selectorWidthRange(in size: CGSize, withBlock: Bool) -> ClosedRange<CGFloat> {
+        let lower = Layout.playlistSelectorMinWidth
+        var room = size.width - Layout.playlistMinWidth - Layout.dividerLineWidth
+        if withBlock { room -= Layout.nowPlayingMinWidth + Layout.dividerLineWidth }
+        return lower...max(lower, min(Layout.playlistSelectorMaxWidth, room))
     }
 
     /// A playlist has been opened (also at launch): its last played track, which is the playing one while playback
@@ -125,7 +176,7 @@ struct PlayerArea: View {
         playback.play(row: row)
     }
 
-    /// Allowed block width for the given area:
+    /// Allowed block width for the given area (what the selector leaves):
     /// - min: album art at its minimum size
     /// - max: whichever is smaller of "leave the playlist its minimum" and, while the album art is shown,
     ///   "album art can't get taller than the block content allows" (art is square, so the
@@ -135,8 +186,8 @@ struct PlayerArea: View {
         // The block's width is the art's side plus the padding on both sides.
         let maxByHeight = size.height - controlsHeight
         let maxByPlaylist = size.width - Layout.playlistMinWidth - Layout.dividerLineWidth
-        let lower = Layout.blockMinWidth
-        var upper = min(maxByPlaylist, Layout.blockMaxWidth)
+        let lower = Layout.nowPlayingMinWidth
+        var upper = min(maxByPlaylist, Layout.nowPlayingMaxWidth)
         if nowPlaying.layout.isVisible(.albumArt) { upper = min(upper, maxByHeight) }
         return lower...max(lower, upper)
     }

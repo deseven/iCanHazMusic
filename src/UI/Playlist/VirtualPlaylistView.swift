@@ -280,8 +280,8 @@ struct VirtualPlaylistView: View {
 
     /// - A right click (or ⌃-click) outside the selection selects the row under the pointer before the menu opens.
     ///   The menu items read the selection when they are chosen, so they act on what is selected by then.
-    /// - The playlist is the keyboard target of the whole main window, whatever has the key focus (the sidebar
-    ///   after choosing a playlist, a button...): ↑/↓, Return, Space and Backspace are handled here, `handleKey`.
+    /// - The playlist is the keyboard target of the whole main window, whatever has the key focus (the playlist
+    ///   selector after choosing a playlist, a button...): ↑/↓, Return, Space and Backspace are handled here, `handleKey`.
     ///   This is a monitor and not `onKeyPress`, which depends on focus and left Backspace unhandled (the system
     ///   beeped); the key codes are the same on every layout. Text being edited keeps its keys.
     private func installEventMonitor() {

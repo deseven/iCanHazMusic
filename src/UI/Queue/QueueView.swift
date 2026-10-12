@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The queue, shown in place of a playlist when its item is chosen in the sidebar: a flat list of the queued tracks,
+/// The queue, shown in place of a playlist when its item is chosen in the playlist selector: a flat list of the queued tracks,
 /// `place  Artist – Title  duration  [playlist]`, in the order they play. Entries can be removed, nothing else is
 /// done with them (see `VirtualPlaylistView`, which does the list).
 struct QueueView: View {

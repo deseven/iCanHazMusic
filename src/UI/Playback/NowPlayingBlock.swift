@@ -3,11 +3,12 @@
 
 import SwiftUI
 
-/// Right-hand block: the components chosen in Preferences > Now Playing (album art, what plays, time, seek bar,
-/// transport buttons, volume), in the order chosen. They are in two stacks: the top one starts at the top edge, the
-/// bottom one is pinned to the bottom edge, and the height left over is between them.
+/// The now playing block next to the playlist (on the right, or on the left when swapped with the playlist selector):
+/// the components chosen in Preferences > Now Playing (album art, what plays, time, seek bar, transport buttons,
+/// volume), in the order chosen. They are in two stacks: the top one starts at the top edge, the bottom one is pinned
+/// to the bottom edge, and the height left over is between them.
 /// The width is dictated by the parent; the art is a square filling that width.
-struct PlaybackBlock: View {
+struct NowPlayingBlock: View {
     @Bindable var state: PlaybackState
     /// Starts playback from what is selected in the playlist (the play button while nothing plays).
     let playFromSelection: () -> Void
@@ -35,7 +36,7 @@ struct PlaybackBlock: View {
             Spacer(minLength: top.isEmpty || bottom.isEmpty ? 0 : Layout.stacksMinGap)
             stack(bottom)
         }
-        .padding(Layout.blockPadding)
+        .padding(Layout.nowPlayingPadding)
         .onChange(of: requiredHeight(top: top, bottom: bottom), initial: true) { _, height in
             controlsHeight = height
         }

@@ -4,10 +4,12 @@
 import SwiftUI
 
 /// Vertical draggable divider. Visually a 1pt line, with a wider invisible hit area.
-/// Dragging left makes the block (on the right) wider.
+/// Dragging towards the block makes it narrower, dragging away from it wider.
 struct SplitDivider: View {
     @Binding var width: CGFloat
     let range: ClosedRange<CGFloat>
+    /// The side of the divider the block whose `width` it changes is on.
+    let blockEdge: HorizontalEdge
 
     @State private var startWidth: CGFloat?
 
@@ -28,7 +30,8 @@ struct SplitDivider: View {
                             .onChanged { value in
                                 let start = startWidth ?? width
                                 startWidth = start
-                                width = min(max(start - value.translation.width, range.lowerBound), range.upperBound)
+                                let delta = blockEdge == .trailing ? -value.translation.width : value.translation.width
+                                width = min(max(start + delta, range.lowerBound), range.upperBound)
                             }
                             .onEnded { _ in startWidth = nil }
                     )

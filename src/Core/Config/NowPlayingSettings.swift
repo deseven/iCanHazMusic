@@ -4,7 +4,7 @@
 import Foundation
 import Observation
 
-/// How the seek bar of the playback block looks (`now_playing.component_options.seekbar_style` in the config; the raw value is what the
+/// How the seek bar of the now playing block looks (`now_playing.component_options.seekbar_style` in the config; the raw value is what the
 /// file holds). Everything but `standard` draws what `Waveform` holds about the track; all of those styles need the same
 /// data, so they share one analysis and one stored record, and switching between them is instant.
 enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -40,9 +40,9 @@ enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The settings of the now playing block (Preferences > Now Playing: whether it is there, which components it has and
-/// in what order, their options: the seek bar style, the texts of Title and Subtitle), which keeps them in the config. `nil` for `configStore` (tests): defaults,
-/// nothing is persisted.
+/// The settings of the now playing block (whether it is shown, the toolbar button; Preferences > Now Playing: which
+/// components it has and in what order, their options: the seek bar style, the texts of Title and Subtitle), which
+/// keeps them in the config. `nil` for `configStore` (tests): defaults, nothing is persisted.
 ///
 /// What is hidden isn't done either: `showsArt` and `needsWaveform` are what the album art and the waveform are
 /// loaded for. Whoever acts on them hears about changes through `addVisibilityObserver`.
@@ -51,12 +51,12 @@ enum SeekbarStyle: String, Codable, CaseIterable, Identifiable, Sendable {
 final class NowPlayingSettings {
     static let shared = NowPlayingSettings(configStore: .shared)
 
-    /// The block is shown at all. Persisted in the config.
-    var isEnabled: Bool {
+    /// The block is shown at all (`ui.now_playing.shown`). Persisted in the config.
+    var isShown: Bool {
         didSet {
-            guard isEnabled != oldValue else { return }
-            configStore?.update { $0.nowPlaying.enabled = isEnabled }
-            Log.info("now playing block: \(isEnabled ? "on" : "off")")
+            guard isShown != oldValue else { return }
+            configStore?.update { $0.ui.nowPlaying.shown = isShown }
+            Log.info("now playing block: \(isShown ? "shown" : "hidden")")
             visibilityDidChange()
         }
     }
@@ -72,10 +72,10 @@ final class NowPlayingSettings {
     }
 
     /// The album art is on screen: it is loaded, and sent along with notifications.
-    var showsArt: Bool { isEnabled && layout.isVisible(.albumArt) }
+    var showsArt: Bool { isShown && layout.isVisible(.albumArt) }
 
     /// The seek bar is on screen.
-    var showsSeekbar: Bool { isEnabled && layout.isVisible(.seekbar) }
+    var showsSeekbar: Bool { isShown && layout.isVisible(.seekbar) }
 
     /// The waveform of the playing track is wanted: a visual seek bar is on screen.
     var needsWaveform: Bool { showsSeekbar && style.usesWaveform }
@@ -140,7 +140,7 @@ final class NowPlayingSettings {
     init(configStore: ConfigStore? = nil) {
         self.configStore = configStore
         let config = configStore?.config.nowPlaying ?? AppConfig.NowPlaying()
-        isEnabled = config.enabled
+        isShown = configStore?.config.ui.nowPlaying.shown ?? AppConfig.UI.NowPlaying().shown
         layout = config.layout
         style = config.componentOptions.seekbarStyle
         titleTemplate = config.componentOptions.title
@@ -150,7 +150,7 @@ final class NowPlayingSettings {
         controls = config.componentOptions.controls
     }
 
-    /// `observer` is called after the block was turned on or off or its components changed (not necessarily in a way
+    /// `observer` is called after the block was shown or hidden or its components changed (not necessarily in a way
     /// that matters to the caller: compare `showsArt` and the like).
     func addVisibilityObserver(_ observer: @escaping () -> Void) {
         visibilityObservers.append(observer)

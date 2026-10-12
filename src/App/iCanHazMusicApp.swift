@@ -95,7 +95,7 @@ private struct AppCommands: Commands {
             .disabled(importer.isBusy || showsQueue || store.activePlaylist.trackCount == 0)
         }
         CommandMenu("Playback") {
-            // The same commands as the buttons of the playback block, in the same order.
+            // The same commands as the buttons of the now playing block, in the same order.
             let stopped = playback.isStopped
             Button("Previous Album") { playback.previousAlbum() }
                 .disabled(stopped)

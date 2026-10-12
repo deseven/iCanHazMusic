@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PlaybackState.shared.isWatched = Self.hasVisibleWindow
     }
 
-    /// Windows that can show the playback block (not the search panel and the like).
+    /// Windows that can show the now playing block (not the search panel and the like).
     private static var hasVisibleWindow: Bool {
         NSApp.windows.contains {
             $0.canBecomeMain && $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)

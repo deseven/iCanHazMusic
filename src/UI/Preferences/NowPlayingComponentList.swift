@@ -48,8 +48,7 @@ struct NowPlayingComponentList: View {
                 .onChanged { dragChanged($0, slots: slots) }
                 .onEnded { _ in dragEnded() }
         )
-        .allowsHitTesting(settings.isEnabled)
-        .opacity(settings.isEnabled ? 1 : 0.5)
+
         .sheet(item: $optionsOf) { component in
             ComponentOptionsSheet(component: component, settings: settings)
         }

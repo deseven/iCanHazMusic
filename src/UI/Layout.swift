@@ -10,9 +10,11 @@ enum Layout {
     static let windowMinWidth = CGFloat(ConfigLimits.windowMinWidth)
     static let windowMinHeight = CGFloat(ConfigLimits.windowMinHeight)
 
-    // Sidebar (playlist selector)
-    static let sidebarMin = CGFloat(ConfigLimits.sidebarMin)
-    static let sidebarMax = CGFloat(ConfigLimits.sidebarMax)
+    // Side panels (the playlist selector and the now playing block, on both sides of the playlist)
+    static let playlistSelectorMinWidth = CGFloat(ConfigLimits.playlistSelectorMinWidth)
+    static let playlistSelectorMaxWidth = CGFloat(ConfigLimits.playlistSelectorMaxWidth)
+    /// How the side panels slide in and out (their toolbar buttons, swapping their sides).
+    static let sidePanelAnimation = Animation.easeInOut(duration: 0.25)
 
     // Playlist column
     static let playlistMinWidth: CGFloat = 280
@@ -53,10 +55,10 @@ enum Layout {
     /// Extra points of rows rendered above/below the visible area of the playlist.
     static let playlistOverscan: CGFloat = 600
 
-    // Playback block (the width includes the padding; the album art fills the rest)
-    static let blockMinWidth = CGFloat(ConfigLimits.blockMinWidth)
-    static let blockMaxWidth = CGFloat(ConfigLimits.blockMaxWidth)
-    static let blockPadding: CGFloat = 16
+    // Now playing block (the width includes the padding; the album art fills the rest)
+    static let nowPlayingMinWidth = CGFloat(ConfigLimits.nowPlayingMinWidth)
+    static let nowPlayingMaxWidth = CGFloat(ConfigLimits.nowPlayingMaxWidth)
+    static let nowPlayingPadding: CGFloat = 16
     /// The least space between the top stack of components and the bottom one (more when the block is taller).
     static let stacksMinGap: CGFloat = 12
 
@@ -130,7 +132,7 @@ enum Layout {
         return searchFieldHeight + 1 + 2 * searchListPadding + CGFloat(rows) * searchRowHeight + legend
     }
 
-    // Divider between playlist and playback block
+    // Divider between playlist and now playing block
     static let dividerLineWidth: CGFloat = 1
     static let dividerHitWidth: CGFloat = 12
 }

@@ -250,9 +250,9 @@ extension AllTests {
             rig.settings.layout.toggle(.seekbar)
             #expect(await waitUntil { rig.service.current == levels(4) })
 
-            rig.settings.isEnabled = false
+            rig.settings.isShown = false
             #expect(rig.service.current == nil && rig.service.state == .idle)
-            rig.settings.isEnabled = true
+            rig.settings.isShown = true
             #expect(await waitUntil { rig.service.current == levels(4) })
             #expect(rig.analyser.calls.count == 1)
         }

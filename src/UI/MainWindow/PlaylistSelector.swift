@@ -3,8 +3,9 @@
 
 import SwiftUI
 
-/// The list of playlists. The one playback runs from is marked with a dot. With the queue turned on, its item comes
-/// first, apart from the playlists by a separator.
+/// The list of playlists (a side panel of `PlayerArea`). The one playback runs from is marked with a dot. With the queue
+/// turned on, its item comes first, apart from the playlists by a separator. The rows are styled like a sidebar's, but
+/// the background is the window's, like the now playing block's.
 struct PlaylistSelector: View {
     private let store = PlaylistStore.shared
     private let playback = PlaybackState.shared
@@ -55,6 +56,7 @@ struct PlaylistSelector: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
                 Button {

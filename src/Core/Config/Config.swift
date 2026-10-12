@@ -46,14 +46,33 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
+        /// The now playing block next to the playlist (what it shows is in `AppConfig.NowPlaying`).
+        struct NowPlaying: Codable, Equatable {
+            /// Off: the block is gone, and nothing that only it needs is done (no album art loaded, no waveform made).
+            var shown = true
+            var width = 270
+
+            init() {}
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                let d = NowPlaying()
+                shown = c.value(.shown, default: d.shown)
+                width = c.value(.width, default: d.width)
+            }
+        }
+
         var window = Window()
         var playlistSelector = PlaylistSelector()
-        var playbackStatusWidth = 270
+        var nowPlaying = NowPlaying()
+        /// The playlist selector (and its toolbar button) is on the right, the now playing block on the left.
+        var swapPlaylistSelectorWithNowPlaying = false
 
         enum CodingKeys: String, CodingKey {
             case window
             case playlistSelector = "playlist_selector"
-            case playbackStatusWidth = "playback_status_width"
+            case nowPlaying = "now_playing"
+            case swapPlaylistSelectorWithNowPlaying = "swap_playlist_selector_with_now_playing"
         }
 
         init() {}
@@ -63,14 +82,16 @@ struct AppConfig: Codable, Equatable {
             let d = UI()
             window = c.value(.window, default: d.window)
             playlistSelector = c.value(.playlistSelector, default: d.playlistSelector)
-            playbackStatusWidth = c.value(.playbackStatusWidth, default: d.playbackStatusWidth)
+            nowPlaying = c.value(.nowPlaying, default: d.nowPlaying)
+            swapPlaylistSelectorWithNowPlaying = c.value(.swapPlaylistSelectorWithNowPlaying,
+                                                         default: d.swapPlaylistSelectorWithNowPlaying)
         }
     }
 
     struct General: Codable, Equatable {
         /// System notifications about playback (the track that starts, the end of the playlist). Off: none is sent.
         var playbackNotifications = true
-        /// Lyrics are shown (the buttons in the playlist and in the playback block, LRCLIB lookups). Off: embedded
+        /// Lyrics are shown (the buttons in the playlist and in the now playing block, LRCLIB lookups). Off: embedded
         /// lyrics are still read from the tags, but nothing is shown and nothing is looked up.
         var lyricsSupport = true
         /// Look for a new version on GitHub (at launch and once a day) and offer to install it. A check started
@@ -78,7 +99,7 @@ struct AppConfig: Codable, Equatable {
         var checkForUpdates = true
         /// Version the user chose "Skip this version" for; empty = none. Only automatic checks respect it.
         var skippedUpdate = ""
-        /// The playback queue exists: its sidebar item, the menu items, the Space key and the markers in the playlist.
+        /// The playback queue exists: its item in the playlist selector, the menu items, the Space key and the markers in the playlist.
         /// Off: none of that, and nothing can be queued (also not from the search window).
         var queueEnabled = true
         /// Closing the main window quits the app. Off: only the window closes, playback and everything else go on.
@@ -215,15 +236,11 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
-        /// The now playing block is shown. Off: it is gone, and nothing that only it needs is done (no album art
-        /// loaded, no waveform made).
-        var enabled = true
         /// Which components the block has and where (`top` and `bottom` in the file).
         var layout = NowPlayingLayout.default
         var componentOptions = ComponentOptions()
 
         enum CodingKeys: String, CodingKey {
-            case enabled
             case top
             case bottom
             case componentOptions = "component_options"
@@ -234,14 +251,13 @@ struct AppConfig: Codable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = NowPlaying()
-            enabled = c.value(.enabled, default: d.enabled)
             layout = NowPlayingLayout(top: c.items(.top), bottom: c.items(.bottom))
             componentOptions = c.value(.componentOptions, default: d.componentOptions)
         }
 
         func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
-            try c.encode(enabled, forKey: .enabled)
+
             try c.encode(layout.top, forKey: .top)
             try c.encode(layout.bottom, forKey: .bottom)
             try c.encode(componentOptions, forKey: .componentOptions)
@@ -468,12 +484,12 @@ struct AppConfig: Codable, Equatable {
             result.ui.window = defaults.ui.window
         }
 
-        if !(ConfigLimits.sidebarMin...ConfigLimits.sidebarMax).contains(ui.playlistSelector.width) {
+        if !(ConfigLimits.playlistSelectorMinWidth...ConfigLimits.playlistSelectorMaxWidth).contains(ui.playlistSelector.width) {
             result.ui.playlistSelector.width = defaults.ui.playlistSelector.width
         }
 
-        if !(ConfigLimits.blockMinWidth...ConfigLimits.blockMaxWidth).contains(ui.playbackStatusWidth) {
-            result.ui.playbackStatusWidth = defaults.ui.playbackStatusWidth
+        if !(ConfigLimits.nowPlayingMinWidth...ConfigLimits.nowPlayingMaxWidth).contains(ui.nowPlaying.width) {
+            result.ui.nowPlaying.width = defaults.ui.nowPlaying.width
         }
 
         if !(ConfigLimits.volumeMin...ConfigLimits.volumeMax).contains(engine.volume) {
