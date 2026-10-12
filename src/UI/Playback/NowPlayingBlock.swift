@@ -217,13 +217,25 @@ private struct PlaybackTime: View {
 }
 
 /// The seek bar, in the style chosen in Preferences. It reads `anchor`, not `position`: that doesn't change while a
-/// track plays, and the bar moves by itself (see `SeekBar`).
+/// track plays, and the bar moves by itself (see `SeekBar`). Right-click offers a quick choice of the style (saved to
+/// the config like the one in Preferences).
 private struct PlaybackSeekbar: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
-    private let seekbar = NowPlayingSettings.shared
+    @Bindable private var seekbar = NowPlayingSettings.shared
 
     var body: some View {
+        bar.contextMenu {
+            Picker("Seek Bar Style", selection: $seekbar.style) {
+                ForEach(SeekbarStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.inline)
+        }
+    }
+
+    @ViewBuilder private var bar: some View {
         switch seekbar.style {
         case .standard:
             SeekBar(anchor: state.anchor, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
