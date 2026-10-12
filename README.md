@@ -1,7 +1,6 @@
 # iCanHazMusic
 A music player for macOS 15.4 or higher. The latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
 
-Main app:  
 ![iCHM screenshot](screenshots/main.png)
 
 More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
