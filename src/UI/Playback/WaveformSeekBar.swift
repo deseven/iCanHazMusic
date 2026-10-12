@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import CoreGraphics
+import AppKit
 import SwiftUI
 
 /// The visual seek bar styles (everything of `SeekbarStyle` but the default one): the track over time, drawn from the
@@ -18,26 +18,26 @@ import SwiftUI
 ///
 /// While the waveform isn't there (being made, or the track can't be analysed) the bars are a dimmed dotted line at
 /// minimum height; the played bars and the line work as usual, so the bar is usable from the first frame.
+///
+/// Like the default bar, it moves by Core Animation run by the system from `anchor` (see `SeekBar`), so playing costs
+/// nothing here. The bar is drawn twice into images (all played, all not played yet; `WaveformImages`) when the waveform,
+/// size or appearance changes; the played one is shown left of the position and the other right of it, and the line is
+/// the position.
 struct WaveformSeekBar: View {
     let style: SeekbarStyle
-    let value: Double
+    let anchor: PositionAnchor
     let total: Double
     /// The position being dragged to, nil when not dragging.
     @Binding var scrubbing: Double?
     let onSeek: (Double) -> Void
 
     private let service = WaveformService.shared
-    @State private var artwork = WaveformArtwork()
 
     var body: some View {
         // Read here, not inside the GeometryReader, so the view is redrawn when the waveform arrives.
         let waveform = service.current
         GeometryReader { geo in
-            let shown = scrubbing ?? value
-            let fraction = total > 0 ? min(max(shown / total, 0), 1) : 0
-            WaveformBars(style: style, waveform: waveform, artwork: artwork, fraction: fraction,
-                         grow: waveform == nil ? 0 : 1)
-                .animation(.easeOut(duration: 0.3), value: waveform != nil)
+            WaveformTrack(style: style, waveform: waveform, anchor: anchor, total: total, scrubbing: scrubbing)
                 .frame(width: geo.size.width, height: geo.size.height)
                 .seekGesture(width: geo.size.width, total: total, scrubbing: $scrubbing, onSeek: onSeek)
         }
@@ -45,236 +45,227 @@ struct WaveformSeekBar: View {
     }
 }
 
-/// What is expensive to make from a waveform and doesn't change while it plays: the spectrogram as an image. Remembers
-/// the last one.
-final class WaveformArtwork {
-    private var waveform: Waveform?
-    private var columns = 0
-    private var image: CGImage?
+private struct WaveformTrack: NSViewRepresentable {
+    let style: SeekbarStyle
+    let waveform: Waveform?
+    let anchor: PositionAnchor
+    let total: Double
+    let scrubbing: Double?
 
-    /// An alpha-only looking RGBA image (white, premultiplied: the colour channels equal the alpha) of `columns` x
-    /// `Waveform.bandCount` pixels, highest band at the top, to be drawn as a template in the accent colour.
-    func spectrogram(of waveform: Waveform, columns: Int) -> CGImage? {
-        if self.waveform == waveform, self.columns == columns { return image }
-        let cells = waveform.spectrogram(columns: columns)
-        let rows = Waveform.bandCount
-        var pixels = [UInt8](repeating: 0, count: columns * rows * 4)
-        for x in 0..<columns {
-            for band in 0..<rows {
-                let intensity = Double(cells[x * rows + band]) / 255
-                // A faint floor keeps the whole strip visible, so quiet passages don't look like holes.
-                let alpha = UInt8(((WaveformBars.spectrogramFloor + (1 - WaveformBars.spectrogramFloor) * intensity) * 255).rounded())
-                let offset = ((rows - 1 - band) * columns + x) * 4
-                pixels[offset] = alpha
-                pixels[offset + 1] = alpha
-                pixels[offset + 2] = alpha
-                pixels[offset + 3] = alpha
-            }
-        }
-        var made: CGImage?
-        pixels.withUnsafeMutableBytes { raw in
-            if let context = CGContext(data: raw.baseAddress, width: columns, height: rows, bitsPerComponent: 8,
-                                       bytesPerRow: columns * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
-                made = context.makeImage()
-            }
-        }
-        self.waveform = waveform
-        self.columns = columns
-        image = made
-        return made
+    func makeNSView(context: Context) -> WaveformTrackView { WaveformTrackView() }
+
+    func updateNSView(_ view: WaveformTrackView, context: Context) {
+        let environment = context.environment
+        view.update(style: style, waveform: waveform, anchor: anchor, total: total, scrubbing: scrubbing,
+                    colorScheme: environment.colorScheme,
+                    accent: Color.accentColor.resolve(in: environment),
+                    primary: Color.primary.resolve(in: environment))
     }
 }
 
-/// The drawing. Animatable in `grow` (0 = every bar at minimum height / the spectrogram invisible, 1 = all there), so
-/// the bars rise when the waveform arrives.
-private struct WaveformBars: View, Animatable {
-    let style: SeekbarStyle
-    let waveform: Waveform?
-    let artwork: WaveformArtwork
-    /// How much of the track is played, 0...1.
-    let fraction: Double
-    var grow: Double
+/// The layers of the bar. The two images are each shown through a mask: the played one through a mask that grows from
+/// the left, the other through one that shrinks towards the right edge, so no pixel is drawn twice (the images are
+/// translucent). While playing, the masks and the line are animated linearly to the end of the track.
+private final class WaveformTrackView: NSView {
+    private let artLayer = CALayer()
+    private let playedLayer = CALayer()
+    private let unplayedLayer = CALayer()
+    private let playedMask = CALayer()
+    private let unplayedMask = CALayer()
+    private let lineLayer = CALayer()
 
-    var animatableData: Double {
-        get { grow }
-        set { grow = newValue }
+    private static let lineWidth: CGFloat = 2.5
+    /// Where the bars start when the waveform arrives, as a share of the height, then they rise.
+    private static let growFrom: CGFloat = 0.04
+    private static let growDuration: CFTimeInterval = 0.3
+
+    private var style = SeekbarStyle.standard
+    private var waveform: Waveform?
+    private var anchor = PositionAnchor.stopped
+    private var total = 0.0
+    private var scrubbing: Double?
+    private var colorScheme = ColorScheme.light
+    private var accent: Color.Resolved?
+    private var primary: Color.Resolved?
+
+    /// What the images in the layers were made for, and what they were made of.
+    private var rendered: WaveformImages.Request?
+    private var renderScheduled = false
+    private let artwork = WaveformArtwork()
+
+    private var appliedSize = CGSize.zero
+    private var appliedState: (PositionAnchor, Double, Double?)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(artLayer)
+        layer?.addSublayer(lineLayer)
+        artLayer.addSublayer(unplayedLayer)
+        artLayer.addSublayer(playedLayer)
+        for image in [playedLayer, unplayedLayer] {
+            image.contentsGravity = .resize
+            image.magnificationFilter = .linear
+        }
+        playedLayer.mask = playedMask
+        unplayedLayer.mask = unplayedMask
+        playedMask.anchorPoint = CGPoint(x: 0, y: 0.5)
+        unplayedMask.anchorPoint = CGPoint(x: 1, y: 0.5)
+        playedMask.backgroundColor = NSColor.black.cgColor
+        unplayedMask.backgroundColor = NSColor.black.cgColor
+        lineLayer.cornerRadius = 0
     }
 
-    // Starting values, to be tuned by eye on real tracks.
-    /// Width of a bar plus the gap after it, at most; the bars share the width evenly.
-    private static let slotWidth: CGFloat = 1.5
-    /// The share of a slot a bar fills.
-    private static let barShare: CGFloat = 2.0 / 3.0
-    /// So silence reads as a dotted line, not as a hole.
-    private static let minBarHeight: CGFloat = 2
-    /// Columns more than this many dB below the loudest one have no bar (just the minimum height).
-    private static let rangeDB = 48.0
-    /// Height = (amplitude relative to the loudest column)^exponent: 1 is linear (most contrast), lower flattens it.
-    /// A dB-linear height made even 12 dB quieter passages 70% tall; at 0.6 they are ~43% (6 dB: 66%, 20 dB: 25%).
-    private static let heightExponent = 0.6
-    /// Peak + RMS: both layers are linear amplitude relative to the track's largest peak, which is how the two relate.
-    private static let peakExponent = 1.0
-    /// Tri-band: height of a layer relative to the loudest column's total.
-    private static let triBandExponent = 0.6
-    /// Opacity of the bars not played yet, as a share of what they have when played.
-    private static let unplayedShare = 0.5
-    /// Opacity of a bar of the RMS and structure styles when played.
-    private static let playedOpacity = 1.0
-    /// The same while there is no waveform (the dotted line).
-    private static let placeholderUnplayedOpacity = 0.25
-    private static let placeholderPlayedOpacity = 0.5
-    /// Peak + RMS: opacity of the peak layer when played (the RMS layer is `playedOpacity`).
-    private static let peakLayerOpacity = 0.35
-    /// Tri-band: opacities of the layers when played; drawn over each other, so they add up (0.30, 0.55, 0.78).
-    private static let triBandOpacities = (all: 0.30, upper: 0.35, high: 0.50)
-    /// Spectrogram: opacity of the quietest cell.
-    static let spectrogramFloor = 0.06
-    /// The position line is in the text colour (`.primary`), which stands out of the accent colour in either appearance.
-    private static let positionLineWidth: CGFloat = 2.5
-    /// Structure: ticks where the sections change.
-    private static let tickWidth: CGFloat = 1.5
-    private static let tickHeight: CGFloat = 4
-    private static let tickOpacity = 0.7
-    /// Structure: the colour of a section is `palette[label % palette.count]` (system colours: they follow the
-    /// appearance); sections that sound alike have the same label.
-    private static let palette: [Color] = [.red, .blue, .yellow, .green, .purple, .pink, .teal, .orange, .indigo, .mint,
-                                           .cyan, .brown]
+    required init?(coder: NSCoder) { fatalError("not used") }
 
-    var body: some View {
-        Canvas { context, size in
-            guard size.width > 0, size.height > 0 else { return }
-            if let waveform, style == .spectrogram {
-                drawSpectrogram(waveform, in: &context, size: size)
+    /// The mouse belongs to the SwiftUI gesture around this view.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func update(style: SeekbarStyle, waveform: Waveform?, anchor: PositionAnchor, total: Double, scrubbing: Double?,
+                colorScheme: ColorScheme, accent: Color.Resolved, primary: Color.Resolved) {
+        self.style = style
+        self.waveform = waveform
+        self.colorScheme = colorScheme
+        self.accent = accent
+        self.primary = primary
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lineLayer.backgroundColor = primary.cgColor
+        CATransaction.commit()
+
+        scheduleRender()
+        if appliedState == nil || appliedState! != (anchor, total, scrubbing) {
+            self.anchor = anchor
+            self.total = total
+            self.scrubbing = scrubbing
+            applyProgress()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        if bounds.size != appliedSize {
+            applyProgress()
+            scheduleRender()
+        }
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        scheduleRender()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleRender()
+    }
+
+    // MARK: Images
+
+    private var request: WaveformImages.Request? {
+        guard let accent, let primary, bounds.width >= 1, bounds.height >= 1 else { return nil }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return WaveformImages.Request(style: style, waveform: waveform, size: bounds.size, scale: scale,
+                                      colorScheme: colorScheme, accent: accent, primary: primary)
+    }
+
+    /// Drawing the images is done on the next turn, not in the middle of a SwiftUI update or an AppKit layout pass.
+    private func scheduleRender() {
+        guard !renderScheduled, request != rendered else { return }
+        renderScheduled = true
+        Task { @MainActor [weak self] in
+            self?.renderScheduled = false
+            self?.renderNow()
+        }
+    }
+
+    private func renderNow() {
+        guard let request, request != rendered,
+              let images = WaveformImages.render(request, artwork: artwork) else { return }
+        let arrived = rendered != nil && rendered?.waveform == nil && request.waveform != nil
+        rendered = request
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (layer, image) in [(playedLayer, images.played), (unplayedLayer, images.unplayed)] {
+            layer.contents = image
+            layer.contentsScale = request.scale
+        }
+        CATransaction.commit()
+
+        if arrived { grow() }
+    }
+
+    /// The bars rise from the dotted line when the waveform arrives.
+    private func grow() {
+        let animation = CABasicAnimation(keyPath: "transform.scale.y")
+        animation.fromValue = Self.growFrom
+        animation.toValue = 1
+        animation.duration = Self.growDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        artLayer.add(animation, forKey: "grow")
+    }
+
+    // MARK: Position
+
+    /// Puts the masks and the line where the position is now and, while it runs, lets them move to the end of the track
+    /// by the time it ends.
+    private func applyProgress() {
+        let size = bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        appliedSize = size
+        appliedState = (anchor, total, scrubbing)
+
+        let width = size.width
+        let height = size.height
+        let half = Self.lineWidth / 2
+        func fraction(of seconds: Double) -> CGFloat {
+            total > 0 ? CGFloat(min(max(seconds / total, 0), 1)) : 0
+        }
+        // The line stays inside the frame at the ends so it isn't cut off.
+        func lineX(_ fraction: CGFloat) -> CGFloat { min(max(width * fraction, half), width - half) }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        artLayer.frame = bounds
+        for layer in [playedLayer, unplayedLayer] { layer.frame = artLayer.bounds }
+        playedMask.removeAllAnimations()
+        unplayedMask.removeAllAnimations()
+        lineLayer.removeAllAnimations()
+        playedMask.position = CGPoint(x: 0, y: height / 2)
+        unplayedMask.position = CGPoint(x: width, y: height / 2)
+        lineLayer.bounds = CGRect(x: 0, y: 0, width: Self.lineWidth, height: height)
+
+        func set(fraction f: CGFloat) {
+            playedMask.bounds = CGRect(x: 0, y: 0, width: width * f, height: height)
+            unplayedMask.bounds = CGRect(x: 0, y: 0, width: width * (1 - f), height: height)
+            lineLayer.position = CGPoint(x: lineX(f), y: height / 2)
+        }
+
+        if let scrubbing {
+            set(fraction: fraction(of: scrubbing))
+        } else {
+            let now = anchor.position(at: ProcessInfo.processInfo.systemUptime)
+            let start = fraction(of: now)
+            if anchor.isRunning, total > 0, now < total {
+                set(fraction: 1)
+                let duration = total - now
+                func animate(_ layer: CALayer, _ keyPath: String, from: CGFloat, to: CGFloat) {
+                    let animation = CABasicAnimation(keyPath: keyPath)
+                    animation.fromValue = from
+                    animation.toValue = to
+                    animation.duration = duration
+                    animation.timingFunction = CAMediaTimingFunction(name: .linear)
+                    layer.add(animation, forKey: "progress")
+                }
+                animate(playedMask, "bounds.size.width", from: width * start, to: width)
+                animate(unplayedMask, "bounds.size.width", from: width * (1 - start), to: 0)
+                animate(lineLayer, "position.x", from: lineX(start), to: lineX(1))
             } else {
-                drawBars(in: &context, size: size)
-            }
-
-            // The current position, kept inside the frame at the ends so it isn't cut off.
-            let x = size.width * CGFloat(fraction)
-            let half = Self.positionLineWidth / 2
-            let center = min(max(x, half), size.width - half)
-            context.fill(Path(CGRect(x: center - half, y: 0, width: Self.positionLineWidth, height: size.height)),
-                         with: .color(.primary))
-        }
-    }
-
-    // MARK: Bars
-
-    private struct Geometry {
-        let size: CGSize
-        let count: Int
-        let slot: CGFloat
-        let barWidth: CGFloat
-        let playedCount: Int
-
-        func rect(_ index: Int, height: CGFloat) -> CGRect {
-            CGRect(x: CGFloat(index) * slot + (slot - barWidth) / 2, y: (size.height - height) / 2,
-                   width: barWidth, height: height)
-        }
-    }
-
-    private func geometry(_ size: CGSize) -> Geometry {
-        let count = max(1, Int(size.width / Self.slotWidth))
-        let slot = size.width / CGFloat(count)
-        return Geometry(size: size, count: count, slot: slot, barWidth: slot * Self.barShare,
-                        playedCount: Int((fraction * Double(count)).rounded()))
-    }
-
-    /// One bar: `height` is clamped up to the minimum; `opacity` is the played one, the unplayed ones get their share.
-    private func fillBar(_ context: inout GraphicsContext, _ g: Geometry, _ index: Int, height: CGFloat,
-                         color: Color, opacity: Double) {
-        let shown = max(Self.minBarHeight, height)
-        let rect = g.rect(index, height: shown)
-        let alpha = index < g.playedCount ? opacity : opacity * Self.unplayedShare
-        context.fill(Path(roundedRect: rect, cornerRadius: min(rect.width, shown) / 2), with: .color(color.opacity(alpha)))
-    }
-
-    private func drawBars(in context: inout GraphicsContext, size: CGSize) {
-        let g = geometry(size)
-        let accent = Color.accentColor
-        let grow = CGFloat(grow)
-
-        guard let waveform else {
-            // The dotted line: played ones a little brighter, like the real bars.
-            for i in 0..<g.count {
-                let alpha = i < g.playedCount ? Self.placeholderPlayedOpacity : Self.placeholderUnplayedOpacity
-                let rect = g.rect(i, height: Self.minBarHeight)
-                context.fill(Path(roundedRect: rect, cornerRadius: rect.height / 2), with: .color(accent.opacity(alpha)))
-            }
-            return
-        }
-
-        switch style {
-        case .standard, .waveformRMS, .spectrogram:
-            let heights = waveform.bars(g.count, rangeDB: Self.rangeDB, exponent: Self.heightExponent)
-            for i in 0..<g.count {
-                fillBar(&context, g, i, height: CGFloat(heights[i]) * size.height * grow, color: accent, opacity: Self.playedOpacity)
-            }
-
-        case .waveformPeakRMS:
-            let layers = waveform.peakBars(g.count, exponent: Self.peakExponent)
-            for i in 0..<g.count {
-                fillBar(&context, g, i, height: CGFloat(layers.peak[i]) * size.height * grow, color: accent,
-                        opacity: Self.peakLayerOpacity)
-                fillBar(&context, g, i, height: CGFloat(layers.rms[i]) * size.height * grow, color: accent,
-                        opacity: Self.playedOpacity)
-            }
-
-        case .waveformTriBand:
-            let layers = waveform.triBandBars(g.count, exponent: Self.triBandExponent)
-            for i in 0..<g.count {
-                fillBar(&context, g, i, height: CGFloat(layers.all[i]) * size.height * grow, color: accent,
-                        opacity: Self.triBandOpacities.all)
-                // The inner layers have no minimum: where they are empty there is nothing to show.
-                let upper = CGFloat(layers.upper[i]) * size.height * grow
-                if upper > Self.minBarHeight {
-                    fillBar(&context, g, i, height: upper, color: accent, opacity: Self.triBandOpacities.upper)
-                }
-                let high = CGFloat(layers.high[i]) * size.height * grow
-                if high > Self.minBarHeight {
-                    fillBar(&context, g, i, height: high, color: accent, opacity: Self.triBandOpacities.high)
-                }
-            }
-
-        case .waveformStructure:
-            let heights = waveform.bars(g.count, rangeDB: Self.rangeDB, exponent: Self.heightExponent)
-            let labels = waveform.segmentLabels(g.count)
-            for i in 0..<g.count {
-                fillBar(&context, g, i, height: CGFloat(heights[i]) * size.height * grow,
-                        color: Self.palette[labels[i] % Self.palette.count], opacity: Self.playedOpacity)
-            }
-            let tick = Color.primary.opacity(Self.tickOpacity * grow)
-            for boundary in waveform.boundaryFractions {
-                let x = min(max(size.width * CGFloat(boundary), Self.tickWidth / 2), size.width - Self.tickWidth / 2)
-                for y in [0, size.height - Self.tickHeight] {
-                    context.fill(Path(CGRect(x: x - Self.tickWidth / 2, y: y, width: Self.tickWidth, height: Self.tickHeight)),
-                                 with: .color(tick))
-                }
+                set(fraction: start)
             }
         }
-    }
-
-    // MARK: Spectrogram
-
-    private func drawSpectrogram(_ waveform: Waveform, in context: inout GraphicsContext, size: CGSize) {
-        let columns = max(1, Int(size.width))
-        guard let cgImage = artwork.spectrogram(of: waveform, columns: columns) else { return }
-        var resolved = context.resolve(Image(decorative: cgImage, scale: 1).interpolation(.high))
-        resolved.shading = .color(.accentColor)
-        let frame = CGRect(origin: .zero, size: size)
-        let split = size.width * CGFloat(fraction)
-
-        // Played part at full opacity, the rest at its share; each clipped to its side of the position.
-        context.drawLayer { layer in
-            layer.clip(to: Path(CGRect(x: 0, y: 0, width: split, height: size.height)))
-            layer.opacity = Self.playedOpacity * grow
-            layer.draw(resolved, in: frame)
-        }
-        context.drawLayer { layer in
-            layer.clip(to: Path(CGRect(x: split, y: 0, width: size.width - split, height: size.height)))
-            layer.opacity = Self.playedOpacity * Self.unplayedShare * grow
-            layer.draw(resolved, in: frame)
-        }
+        CATransaction.commit()
     }
 }

@@ -25,8 +25,10 @@ extension AllTests {
             let layout = NowPlayingLayout.default
             #expect(names(layout.top) == ["album_art", "title", "subtitle", "duration", "seekbar", "details"])
             #expect(names(layout.bottom) == ["controls", "volume"])
-            #expect(layout.top.allSatisfy(\.isVisible) && layout.bottom.allSatisfy(\.isVisible))
-            #expect(layout.visibleTop.count == 6 && layout.visibleBottom.count == 2)
+            // Everything is shown but the duration (it costs CPU every second).
+            #expect((layout.top + layout.bottom).allSatisfy { $0.isVisible == ($0.component != .duration) })
+            #expect(layout.visibleTop == [.albumArt, .title, .subtitle, .seekbar, .details])
+            #expect(layout.visibleBottom == [.controls, .volume])
             #expect(AppConfig().nowPlaying.layout == layout)
             #expect(AppConfig().nowPlaying.enabled)
         }

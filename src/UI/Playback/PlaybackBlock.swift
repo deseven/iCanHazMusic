@@ -195,26 +195,20 @@ private extension View {
     }
 }
 
-/// The time label. It reads the position itself, so only this view is re-evaluated when it ticks (reading it in
-/// `PlaybackBlock.body` re-evaluates the whole block, which measurably costs CPU).
+/// The time label. It must not read the position here: the label follows it by itself (see `TimeLabel`), so the
+/// once-a-second changes don't touch SwiftUI at all (they measurably cost CPU there).
 private struct PlaybackTime: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
 
     var body: some View {
-        Text("\(format(scrubbing ?? state.position)) / \(format(state.duration))")
-            .font(.body.monospacedDigit())
-            .lineLimit(1)
+        TimeLabel(state: state, scrubbing: scrubbing)
             .frame(maxWidth: .infinity)
-    }
-
-    private func format(_ seconds: Double) -> String {
-        let s = Int(max(seconds, 0))
-        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
-/// The seek bar, in the style chosen in Preferences. Reads the position itself, like `PlaybackTime`.
+/// The seek bar, in the style chosen in Preferences. It reads `anchor`, not `position`: that doesn't change while a
+/// track plays, and the bar moves by itself (see `SeekBar`).
 private struct PlaybackSeekbar: View {
     let state: PlaybackState
     @Binding var scrubbing: Double?
@@ -223,9 +217,9 @@ private struct PlaybackSeekbar: View {
     var body: some View {
         switch seekbar.style {
         case .standard:
-            SeekBar(value: state.position, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
+            SeekBar(anchor: state.anchor, total: state.duration, scrubbing: $scrubbing) { state.seek(to: $0) }
         case .waveformRMS, .waveformPeakRMS, .waveformTriBand, .waveformStructure, .spectrogram:
-            WaveformSeekBar(style: seekbar.style, value: state.position, total: state.duration,
+            WaveformSeekBar(style: seekbar.style, anchor: state.anchor, total: state.duration,
                             scrubbing: $scrubbing) { state.seek(to: $0) }
         }
     }

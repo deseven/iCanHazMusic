@@ -59,10 +59,24 @@ final class PlaybackState {
         var foreign: Bool { playlist != nil }
     }
 
-    private(set) var status: Status = .stopped
+    private(set) var status: Status = .stopped {
+        didSet {
+            guard status != oldValue else { return }
+            // Pausing/resuming while nobody looks: the position still has to be right for whoever asks later
+            // (the system's Now Playing), and no tick publishes it then.
+            let continuing = oldValue != .stopped && status != .stopped
+            if continuing { publishPosition(engine.position) }
+            anchor = PositionAnchor(position: continuing ? Self.seconds(engine.position) : 0, isRunning: status == .playing)
+        }
+    }
     private(set) var info: TrackInfo?
-    /// Seconds into the current track.
-    private(set) var position: Double = 0
+    /// Seconds into the current track. Moves in whole seconds (see `positionStep`).
+    private(set) var position: Double = 0 {
+        didSet { alignAnchor(to: position) }
+    }
+    /// The position as something that moves by itself while playing, for views that show it continuously: unlike
+    /// `position` it only changes on pause, resume, seek, a new track, or when it has drifted from the engine.
+    private(set) var anchor = PositionAnchor.stopped
     /// Seconds. 0 while stopped or unknown.
     private(set) var duration: Double = 0
     /// Original album art cut to a square. The only one kept in memory; nil while loading or if there is none.
@@ -212,13 +226,16 @@ final class PlaybackState {
         return time.isFinite ? max(time, 0) : 0
     }
 
-    /// While a window of the app has the key focus the position is refreshed (and published) `smoothTickInterval`
-    /// apart instead of once per `positionStep`, so the seek bar moves smoothly. Set by the UI (`AppDelegate`);
-    /// it is only worth the redraws while somebody looks at the app.
-    @ObservationIgnored var smoothUpdates = false
-
-    /// 20 updates a second.
-    static let smoothTickInterval = Duration.milliseconds(50)
+    /// Whether a window of the app is on screen. Set by the UI (`AppDelegate`). While none is, `position` is not
+    /// published by the ticks at all (every change re-renders the views reading it, and nobody sees them); playback
+    /// itself (track changes, listeners) goes on. It is brought up to date when a window shows up again.
+    @ObservationIgnored var isWatched = true {
+        didSet {
+            guard isWatched, !oldValue, status != .stopped else { return }
+            publishPosition(engine.position)
+            alignAnchor(to: Self.seconds(engine.position))
+        }
+    }
 
     // MARK: Internals
 
@@ -788,7 +805,30 @@ final class PlaybackState {
         guard time.isFinite, time >= 0 else { return }
         if time > 0 { failures = 0 }
         progress?.observe(position: time)
-        let step = smoothUpdates ? 0 : positionStep
+        guard isWatched else { return }
+        publishPosition(time)
+        alignAnchor(to: time)
+    }
+
+    /// How far the position may be from where the anchor extrapolates before the anchor is replaced.
+    private static let anchorTolerance = 0.5
+
+    /// Keeps `anchor` true to `time`: replaced when it was made for another state of playback or has drifted off.
+    private func alignAnchor(to time: Double) {
+        let running = status == .playing
+        if anchor.isRunning == running,
+           abs(anchor.position(at: ProcessInfo.processInfo.systemUptime) - time) <= Self.anchorTolerance { return }
+        anchor = PositionAnchor(position: time, isRunning: running)
+    }
+
+    private static func seconds(_ time: Double) -> Double {
+        time.isFinite ? max(time, 0) : 0
+    }
+
+    /// Sets `position` if it moved into another multiple of `positionStep` seconds (any change with a step of 0).
+    private func publishPosition(_ time: Double) {
+        guard time.isFinite, time >= 0 else { return }
+        let step = positionStep
         let moved = step > 0
             ? (time / step).rounded(.down) != (position / step).rounded(.down)
             : abs(time - position) > 0.01
@@ -817,7 +857,7 @@ final class PlaybackState {
         guard tickInterval != nil, tickTask == nil else { return }
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let interval = self?.currentTickInterval else { return }
+                guard let interval = self?.tickInterval else { return }
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled, let self else { return }
                 self.tick()
@@ -825,11 +865,6 @@ final class PlaybackState {
         }
     }
 
-    /// `tickInterval`, or the shorter `smoothTickInterval` while `smoothUpdates` is on (`nil` ticks never).
-    private var currentTickInterval: Duration? {
-        guard let tickInterval else { return nil }
-        return smoothUpdates ? min(tickInterval, Self.smoothTickInterval) : tickInterval
-    }
 
     private func stopTicking() {
         tickTask?.cancel()

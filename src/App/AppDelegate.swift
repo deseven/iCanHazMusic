@@ -21,19 +21,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await MigrationActions.finishAfterLaunch() }
     }
 
-    /// The playback position is published 20x a second while one of our windows has the key focus (smooth seek bar),
-    /// else once a second to save redraws.
+    /// The playback position is published (once per second) only while one of our windows is on screen; with the
+    /// window closed, minimized, hidden or fully covered nothing is redrawn.
     private func observeWindowFocus() {
         let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+            NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification, NSWindow.didChangeOcclusionStateNotification,
+        ]
+        for name in names {
             center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                // `NSApp.keyWindow` isn't settled yet while a window is resigning; look again on the next turn.
+                // A closing window still counts as visible while the notification is delivered; look again on the next turn.
                 Task { @MainActor in
-                    PlaybackState.shared.smoothUpdates = NSApp.keyWindow != nil
+                    PlaybackState.shared.isWatched = Self.hasVisibleWindow
                 }
             }
         }
-        PlaybackState.shared.smoothUpdates = NSApp.keyWindow != nil
+        PlaybackState.shared.isWatched = Self.hasVisibleWindow
+    }
+
+    /// Windows that can show the playback block (not the search panel and the like).
+    private static var hasVisibleWindow: Bool {
+        NSApp.windows.contains {
+            $0.canBecomeMain && $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible)
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

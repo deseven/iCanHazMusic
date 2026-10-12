@@ -45,6 +45,10 @@ enum NowPlayingComponent: String, Codable, CaseIterable, Identifiable, Sendable 
         }
     }
 
+    /// Whether it is shown when nothing says otherwise. The duration isn't: the time changing every second is the most
+    /// expensive thing the window does while a track plays (a redraw and a commit per second, see `TimeLabel`).
+    var isVisibleByDefault: Bool { self != .duration }
+
     /// Where it is when nothing says otherwise (and where a component the config doesn't mention is put).
     var defaultSection: NowPlayingSection {
         switch self {
@@ -103,15 +107,15 @@ struct NowPlayingLayout: Equatable, Sendable {
     static let `default` = NowPlayingLayout(top: [], bottom: [])
 
     /// A repaired layout: a component that comes twice stays where it is first (top stack first), and one that is
-    /// not there at all is added, visible, at the end of its default stack.
+    /// not there at all is added, shown unless it is hidden by default, at the end of its default stack.
     init(top: [NowPlayingItem], bottom: [NowPlayingItem]) {
         var seen = Set<NowPlayingComponent>()
         var top = top.filter { seen.insert($0.component).inserted }
         var bottom = bottom.filter { seen.insert($0.component).inserted }
         for component in NowPlayingComponent.allCases where !seen.contains(component) {
             switch component.defaultSection {
-            case .top: top.append(NowPlayingItem(component))
-            case .bottom: bottom.append(NowPlayingItem(component))
+            case .top: top.append(NowPlayingItem(component, isVisible: component.isVisibleByDefault))
+            case .bottom: bottom.append(NowPlayingItem(component, isVisible: component.isVisibleByDefault))
             }
         }
         self.top = top
