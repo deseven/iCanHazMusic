@@ -111,7 +111,7 @@ private extension NowPlayingLayout.Slot {
 }
 
 extension View {
-    /// The look of the lists of `NowPlayingComponentList` and `PlaybackControlList`: a bordered box with rounded corners.
+    /// The look of the lists of `NowPlayingComponentList` and `ToggleItemList`: a bordered box with rounded corners.
     func componentListBox() -> some View {
         background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))

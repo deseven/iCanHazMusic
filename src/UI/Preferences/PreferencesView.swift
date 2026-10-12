@@ -4,7 +4,7 @@
 import SwiftUI
 
 /// Preferences window with vertical tabs. Opened from the app menu (⌘,).
-/// Every control writes straight through to the setting's owner (`PlaybackState`, `PlaylistStore`), which
+/// Every control writes straight through to the setting's owner (`PlaybackState`, `PlaylistStore`, ...), which
 /// applies it and keeps it in the config.
 struct PreferencesView: View {
     @State private var selectedTab: Tab = .general
@@ -535,18 +535,75 @@ private struct SearchTab: View {
 }
 
 private struct PlaylistTab: View {
-    @Bindable private var store = PlaylistStore.shared
+    @Bindable private var settings = PlaylistSettings.shared
+    /// Whose columns the list shows.
+    @State private var columnsMode = PlaylistMode.album
 
     var body: some View {
         TabPage {
             PrefRow(
-                title: "Display Album Art",
-                description: "Show the album art in the album blocks of playlists grouped by albums. The art is "
-                    + "still cached when adding files, so turning this back on shows it right away."
+                title: "Album Header Style",
+                description: "How the album blocks of playlists grouped by albums look: the album art with the "
+                    + "artist, album and tags next to it (on the left or mirrored to the right), or a single line "
+                    + "without the art. The art is still cached when adding files, so switching back to a style "
+                    + "with it shows it right away."
             ) {
-                Toggle("", isOn: $store.displayAlbumArt)
+                Picker("", selection: $settings.albumHeaderStyle) {
+                    ForEach(AlbumHeaderStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
+
+            PrefRow(
+                title: "Playlist Entries Scale",
+                description: "Changes the size of the track rows (their text and columns), between "
+                    + "\(ConfigLimits.playlistEntriesScaleMin)% and \(ConfigLimits.playlistEntriesScaleMax)%. "
+                    + "The album blocks keep their size.",
+                accessory: {
+                    Button("Reset to Default") { settings.entriesScale = ConfigLimits.playlistEntriesScaleDefault }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .disabled(settings.entriesScale == ConfigLimits.playlistEntriesScaleDefault)
+                }
+            ) {
+                HStack(spacing: 8) {
+                    Slider(value: Binding(get: { Double(settings.entriesScale) },
+                                          set: { settings.entriesScale = Int($0.rounded()) }),
+                           in: Double(ConfigLimits.playlistEntriesScaleMin)...Double(ConfigLimits.playlistEntriesScaleMax),
+                           step: 1)
+                    Text("\(settings.entriesScale)%")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+
+            PrefRow(
+                title: "Columns",
+                description: "The columns of the track rows of playlists grouped by albums (Album Mode) and of flat "
+                    + "playlists (Flat Mode). Drag to reorder, click the eye to show or hide one. Details are the "
+                    + "lyrics button and the codec.",
+                accessory: {
+                    Button("Reset Ordering & Visibility") { settings.resetColumns(columnsMode) }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .disabled(settings[columns: columnsMode].isDefault)
+                }
+            ) {
+                VStack(spacing: 8) {
+                    Picker("", selection: $columnsMode) {
+                        ForEach(PlaylistMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .pickerStyle(.segmented)
+                    PlaylistColumnList(settings: settings, mode: columnsMode)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
     }

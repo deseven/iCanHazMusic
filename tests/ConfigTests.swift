@@ -310,14 +310,16 @@ extension AllTests {
             }
         }
 
-        @Test("the playlist section is read leniently, with art on by default")
+        @Test("the playlist section is read leniently, with the album art on the left by default")
         func playlistSection() throws {
             let defaults = AppConfig().playlist
-            #expect(defaults.displayAlbumArt)
+            #expect(defaults.albumHeaderStyle == .albumArt)
 
-            let config = try decode(#"{"playlist": {"display_album_art": false}}"#)
-            #expect(!config.playlist.displayAlbumArt)
-            #expect(try decode(#"{"playlist": {"display_album_art": "no"}}"#).playlist == defaults)
+            #expect(try decode(#"{"playlist": {"album_header_style": "no_album_art"}}"#).playlist.albumHeaderStyle
+                == .noAlbumArt)
+            #expect(try decode(#"{"playlist": {"album_header_style": "album_art_right"}}"#).playlist.albumHeaderStyle
+                == .albumArtRight)
+            #expect(try decode(#"{"playlist": {"album_header_style": "fancy"}}"#).playlist == defaults)
             #expect(try decode(#"{"playlist": 5}"#).playlist == defaults)
         }
 
@@ -405,10 +407,10 @@ extension AllTests {
             for count in [-1, 3, 33, 64] {
                 var config = AppConfig()
                 config.engine.tagParsingConcurrency = count
-                config.playlist.displayAlbumArt = false
+                config.playlist.albumHeaderStyle = .noAlbumArt
                 let result = config.validated()
                 #expect(result.engine.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
-                #expect(!result.playlist.displayAlbumArt)
+                #expect(result.playlist.albumHeaderStyle == .noAlbumArt)
             }
         }
 

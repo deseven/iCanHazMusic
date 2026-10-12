@@ -46,7 +46,8 @@ struct VirtualPlaylistView: View {
     @Binding var revealRow: Int?
     let playingRow: Int?
     let cursorFollowsPlayback: Bool
-    let showAlbumArt: Bool
+    /// The columns and the size of the track rows, and the style of the album blocks.
+    let style: TrackRowStyle
     let onActivate: (Int) -> Void
     /// The name of the playlist shown (queue entries refer to tracks by it).
     let playlistName: String
@@ -72,9 +73,13 @@ struct VirtualPlaylistView: View {
 
     private static let contentSpace = "playlistContent"
 
+    /// Album headers with the art are taller.
+    private var showAlbumArt: Bool { style.showsAlbumArt }
+
     init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
-         playingRow: Int?, cursorFollowsPlayback: Bool, showAlbumArt: Bool, playlistName: String = "",
-         queue: [QueueEntry]? = nil, showsQueuePlaylists: Bool = false, onActivate: @escaping (Int) -> Void) {
+         playingRow: Int?, cursorFollowsPlayback: Bool, style: TrackRowStyle,
+         playlistName: String = "", queue: [QueueEntry]? = nil, showsQueuePlaylists: Bool = false,
+         onActivate: @escaping (Int) -> Void) {
         self.playlistName = playlistName
         self.queue = queue
         self.showsQueuePlaylists = showsQueuePlaylists
@@ -84,9 +89,10 @@ struct VirtualPlaylistView: View {
         self._revealRow = revealRow
         self.playingRow = playingRow
         self.cursorFollowsPlayback = cursorFollowsPlayback
-        self.showAlbumArt = showAlbumArt
+        self.style = style
         self.onActivate = onActivate
-        let layout = PlaylistLayout(playlist: playlist, showAlbumArt: showAlbumArt)
+        let layout = PlaylistLayout(playlist: playlist, showAlbumArt: style.showsAlbumArt,
+                                    trackHeight: style.rowHeight)
         self.layout = layout
         self._window = State(initialValue: layout.rowRange(minY: 0, maxY: 800,
                                                            overscan: Layout.playlistOverscan))
@@ -148,6 +154,11 @@ struct VirtualPlaylistView: View {
             window = layout.rowRange(minY: viewport.rect.minY, maxY: max(viewport.rect.maxY, 800),
                                      overscan: Layout.playlistOverscan)
         }
+        .onChange(of: style.rowHeight) { _, _ in
+            // Same for the height of the track rows.
+            window = layout.rowRange(minY: viewport.rect.minY, maxY: max(viewport.rect.maxY, 800),
+                                     overscan: Layout.playlistOverscan)
+        }
         .onChange(of: playingRow) { _, row in
             guard drag == nil, cursorFollowsPlayback, let row, playlist.rows.indices.contains(row) else { return }
             selection = [row]
@@ -175,7 +186,7 @@ struct VirtualPlaylistView: View {
         let row = d?.kind == .album ? playlist.headerRow[i] : i
         let shift = d?.shift(of: i) ?? 0
         PlaylistRowView(playlist: playlist, index: row, isSelected: selection.contains(row),
-                        isPlaying: row == playingRow, showAlbumArt: showAlbumArt,
+                        isPlaying: row == playingRow, style: style,
                         queuePosition: queuePosition(at: row), queued: queuedRow(at: row))
             .contentShape(Rectangle())
             .onTapGesture {
@@ -197,7 +208,7 @@ struct VirtualPlaylistView: View {
         let row = d.kind == .album ? playlist.headerRow[d.from] : d.from
         return DraggedItemOverlay(position: dragPosition,
                                   content: PlaylistRowView(playlist: playlist, index: row, isSelected: true,
-                                                           isPlaying: row == playingRow, showAlbumArt: showAlbumArt,
+                                                           isPlaying: row == playingRow, style: style,
                                                            queuePosition: queuePosition(at: row)))
     }
 
@@ -525,7 +536,7 @@ struct VirtualPlaylistView: View {
             // A flat playlist's tracks can go anywhere, those of an album stay in it.
             let range = playlist.isFlat ? 0..<playlist.rows.count : playlist.trackRows[item.albumIndex]
             guard let id = playlist.track(for: item)?.id else { return false }
-            new = ReorderDrag(kind: .track, from: row, range: range, itemHeight: Layout.trackRowHeight,
+            new = ReorderDrag(kind: .track, from: row, range: range, itemHeight: style.rowHeight,
                               top: layout.rowOffsets[range.lowerBound], grab: startY - rowTop, movedID: id,
                               collapsed: nil, target: row)
         }
@@ -616,7 +627,8 @@ struct VirtualPlaylistView: View {
         // The store has the new order already, this view value still the old one (SwiftUI catches up on its next
         // update): the new content is described here, so that it all changes at once.
         let new = store.activePlaylist
-        endDrag(landing: d.target, playlist: new, layout: PlaylistLayout(playlist: new, showAlbumArt: showAlbumArt))
+        endDrag(landing: d.target, playlist: new,
+                layout: PlaylistLayout(playlist: new, showAlbumArt: showAlbumArt, trackHeight: style.rowHeight))
     }
 
     private func cancelDrag() {

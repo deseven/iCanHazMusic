@@ -9,6 +9,7 @@ import SwiftUI
 struct QueueView: View {
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
+    private let settings = PlaylistSettings.shared
 
     @State private var selection: Set<Int> = []
     @State private var cursor: Int?
@@ -18,7 +19,7 @@ struct QueueView: View {
         let shown = Self.rows(of: playback.queue.entries, in: store)
         VirtualPlaylistView(playlist: Self.playlist(of: shown), selection: $selection, cursor: $cursor,
                             revealRow: $revealRow, playingRow: nil, cursorFollowsPlayback: false,
-                            showAlbumArt: false, queue: shown.map(\.entry),
+                            style: TrackRowStyle(settings), queue: shown.map(\.entry),
                             showsQueuePlaylists: store.names.count > 1) { _ in }
             .background(Color(nsColor: .textBackgroundColor))
             .overlay {

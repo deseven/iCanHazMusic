@@ -17,10 +17,10 @@ struct PlaylistLayout {
         showAlbumArt ? Layout.albumHeaderRowHeight : Layout.albumHeaderRowHeightWithoutArt
     }
 
-    /// `showAlbumArt`: see `headerHeight`.
-    init(playlist: Playlist, showAlbumArt: Bool) {
+    /// `showAlbumArt`: see `headerHeight`; `trackHeight`: the height of a track row (`TrackRowStyle.rowHeight`).
+    init(playlist: Playlist, showAlbumArt: Bool, trackHeight: CGFloat = Layout.trackRowHeight) {
         let headerHeight = Self.headerHeight(showAlbumArt: showAlbumArt)
-        self.init(heights: playlist.rows.map { $0.isHeader ? headerHeight : Layout.trackRowHeight })
+        self.init(heights: playlist.rows.map { $0.isHeader ? headerHeight : trackHeight })
     }
 
     /// Rows of the given heights, top to bottom.

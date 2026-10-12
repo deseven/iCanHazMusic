@@ -12,12 +12,13 @@ struct PlaylistView: View {
     @Binding var revealRow: Int?
     private let store = PlaylistStore.shared
     private let playback = PlaybackState.shared
+    private let settings = PlaylistSettings.shared
 
     var body: some View {
         PlaylistContentView(playlist: store.activePlaylist, selection: $selection, cursor: $cursor,
                             revealRow: $revealRow, playingRow: playback.playingRow,
                             cursorFollowsPlayback: playback.cursorFollowsPlayback,
-                            showAlbumArt: store.displayAlbumArt, name: store.activeName)
+                            style: TrackRowStyle(settings), name: store.activeName)
             .overlay {
                 if !store.isLoading && store.activePlaylist.trackCount == 0 { EmptyPlaylistPlaceholder() }
             }
@@ -94,13 +95,13 @@ private struct PlaylistContentView: View {
     @Binding var revealRow: Int?
     let playingRow: Int?
     let cursorFollowsPlayback: Bool
-    let showAlbumArt: Bool
+    let style: TrackRowStyle
     let name: String
 
     var body: some View {
         VirtualPlaylistView(playlist: playlist, selection: $selection, cursor: $cursor, revealRow: $revealRow,
                             playingRow: playingRow, cursorFollowsPlayback: cursorFollowsPlayback,
-                            showAlbumArt: showAlbumArt, playlistName: name) { row in
+                            style: style, playlistName: name) { row in
             PlaybackState.shared.play(row: row)
         }
         .background(Color(nsColor: .textBackgroundColor))

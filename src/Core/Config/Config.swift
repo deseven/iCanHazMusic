@@ -249,11 +249,20 @@ struct AppConfig: Codable, Equatable {
     }
 
     struct Playlist: Codable, Equatable {
-        /// Show the album art in the album blocks of grouped playlists (it is cached either way).
-        var displayAlbumArt = true
+        /// How the album blocks of grouped playlists look, with or without the album art (it is cached either way).
+        var albumHeaderStyle = AlbumHeaderStyle.default
+        /// Size of the track rows (text and columns), in percent of the usual size.
+        var entriesScale = ConfigLimits.playlistEntriesScaleDefault
+        /// The columns of the track rows of playlists grouped by albums.
+        var albumColumns = PlaylistColumnsLayout.default(.album)
+        /// The columns of the track rows of flat playlists.
+        var flatColumns = PlaylistColumnsLayout.default(.flat)
 
         enum CodingKeys: String, CodingKey {
-            case displayAlbumArt = "display_album_art"
+            case albumHeaderStyle = "album_header_style"
+            case entriesScale = "entries_scale"
+            case albumColumns = "album_columns"
+            case flatColumns = "flat_columns"
         }
 
         init() {}
@@ -261,7 +270,10 @@ struct AppConfig: Codable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Playlist()
-            displayAlbumArt = c.value(.displayAlbumArt, default: d.displayAlbumArt)
+            albumHeaderStyle = c.value(.albumHeaderStyle, default: d.albumHeaderStyle)
+            entriesScale = c.value(.entriesScale, default: d.entriesScale)
+            albumColumns = c.columns(.albumColumns, mode: .album)
+            flatColumns = c.columns(.flatColumns, mode: .flat)
         }
     }
 
@@ -489,6 +501,9 @@ struct AppConfig: Codable, Equatable {
         if !scaleRange.contains(nowPlaying.componentOptions.subtitleScale) {
             result.nowPlaying.componentOptions.subtitleScale = defaults.nowPlaying.componentOptions.subtitleScale
         }
+        if !(ConfigLimits.playlistEntriesScaleMin...ConfigLimits.playlistEntriesScaleMax).contains(playlist.entriesScale) {
+            result.playlist.entriesScale = defaults.playlist.entriesScale
+        }
 
         // A hotkey that isn't valid, or that an earlier action has already, is none. The others are written in
         // their canonical form.
@@ -526,6 +541,13 @@ private extension KeyedDecodingContainer {
     func items(_ key: Key) -> [NowPlayingItem] {
         let entries = (try? decodeIfPresent([LossyItem].self, forKey: key)) ?? []
         return entries.compactMap(\.item)
+    }
+
+    /// The playlist columns of `mode`; the entries that can't be read are left out (`PlaylistColumnsLayout` puts back
+    /// what is missing).
+    func columns(_ key: Key, mode: PlaylistMode) -> PlaylistColumnsLayout {
+        let entries = (try? decodeIfPresent([Lossy<PlaylistColumnItem>].self, forKey: key)) ?? []
+        return PlaylistColumnsLayout(mode: mode, items: entries.compactMap(\.value))
     }
 }
 

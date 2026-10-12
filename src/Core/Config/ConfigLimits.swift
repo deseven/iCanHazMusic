@@ -31,6 +31,11 @@ enum ConfigLimits {
     static let componentTextScaleMax = 200
     static let componentTextScaleDefault = 100
 
+    // Size of the track rows of playlists (and of the queue): text and columns, in percent of the usual size.
+    static let playlistEntriesScaleMin = 70
+    static let playlistEntriesScaleMax = 200
+    static let playlistEntriesScaleDefault = 100
+
     // Read-ahead buffer of the playback engine, in seconds.
     static let readAheadDefault = 5
     static let readAheadOptions = [2, readAheadDefault, 15, 30, 60]

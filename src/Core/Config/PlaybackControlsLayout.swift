@@ -124,7 +124,7 @@ struct PlaybackControlsLayout: Codable, Equatable, Sendable {
 }
 
 /// Decodes a list entry without failing the whole list when the entry is not one that can be read.
-private struct Lossy<Value: Decodable>: Decodable {
+struct Lossy<Value: Decodable>: Decodable {
     let value: Value?
 
     init(from decoder: Decoder) throws {

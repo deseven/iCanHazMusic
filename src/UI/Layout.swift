@@ -17,25 +17,37 @@ enum Layout {
     // Playlist column
     static let playlistMinWidth: CGFloat = 280
     static let albumHeaderRowHeight: CGFloat = 68
-    /// Album header when the album art is turned off: just the three lines of text.
-    static let albumHeaderRowHeightWithoutArt: CGFloat = 52
+    /// Album header when the album art is turned off: one line of text and tags.
+    static let albumHeaderRowHeightWithoutArt: CGFloat = 30
+    /// How far the tags of a one-line album header are raised above the baseline of the album name (12 pt): their
+    /// smaller text (caption) sitting on the same baseline looks too low. Half the difference of the cap heights
+    /// puts the middles of both texts on one line.
+    static let albumTagBaselineLift: CGFloat = {
+        let caption = NSFont.preferredFont(forTextStyle: .caption1).pointSize
+        return (NSFont.systemFont(ofSize: 12).capHeight
+            - NSFont.systemFont(ofSize: caption, weight: .medium).capHeight) / 2
+    }()
+    // Track rows at their usual size (`TrackRowStyle` scales all of these; its `durationWidth` is the duration column).
     static let trackRowHeight: CGFloat = 20
-    /// First column of a track row: holds the play symbol of the playing track.
-    static let trackStatusColumnWidth: CGFloat = 22
-    /// The track number column (fits three digits), right-aligned text so the status symbol can sit right next to it.
-    static let trackNumberColumnWidth: CGFloat = 30
-    /// What the number column lost against its former width of 44; added to the status column in rows with a number,
-    /// so the title keeps its place.
-    static let trackNumberSlack: CGFloat = 44 - trackNumberColumnWidth
-    /// Column of a track row (right of the title) that holds the lyrics symbol.
-    static let trackLyricsColumnWidth: CGFloat = 24
     /// Font size of the track rows.
     static let trackRowFontSize: CGFloat = 12
-    /// Column of a track row that holds the duration: as wide as the longest text it may show (`x:xx:xx`).
-    static let trackDurationColumnWidth: CGFloat = {
-        let font = NSFont.monospacedDigitSystemFont(ofSize: trackRowFontSize, weight: .regular)
-        return ceil(("0:00:00" as NSString).size(withAttributes: [.font: font]).width) + 2
-    }()
+    /// Space left and right of the columns of a track row (the album blocks have the same).
+    static let trackRowPadding: CGFloat = 8
+    /// Space between two columns of a track row.
+    static let trackColumnGap: CGFloat = 8
+    /// The status column: holds the play symbol of the playing track (or the place of a queued one), right-aligned so
+    /// it sits next to a track number that follows it.
+    static let trackStatusColumnWidth: CGFloat = 22
+    static let trackPlaySymbolSize: CGFloat = 9
+    /// The track number column (fits three digits), right-aligned.
+    static let trackNumberColumnWidth: CGFloat = 30
+    /// The part of the details column that holds the lyrics symbol (kept free in rows without lyrics).
+    static let trackLyricsWidth: CGFloat = 24
+    static let trackLyricsSymbolSize: CGFloat = 11
+    /// The part of the details column that holds the codec.
+    static let trackCodecWidth: CGFloat = 110
+    /// The place column of the queue's rows.
+    static let queueNumberColumnWidth: CGFloat = 44
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
     static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
     /// Extra points of rows rendered above/below the visible area of the playlist.

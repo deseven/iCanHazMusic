@@ -404,18 +404,15 @@ extension AllTests {
         @Test("the playlist settings are read from the config and written back when changed")
         func playlistSettings() async throws {
             let env = try await makeEnv()
-            #expect(env.store.displayAlbumArt)
             #expect(env.store.tagParsingConcurrency == ConfigLimits.tagParsingConcurrencyAuto)
             #expect(env.store.effectiveTagParsingConcurrency == TagReader.defaultConcurrency)
 
-            env.store.displayAlbumArt = false
             env.store.tagParsingConcurrency = 8
-            #expect(!env.config.config.playlist.displayAlbumArt)
             #expect(env.config.config.engine.tagParsingConcurrency == 8)
             #expect(env.store.effectiveTagParsingConcurrency == 8)
 
             let restarted = PlaylistStore(paths: env.paths, configStore: env.config)
-            #expect(!restarted.displayAlbumArt)
+
             #expect(restarted.tagParsingConcurrency == 8)
         }
 
