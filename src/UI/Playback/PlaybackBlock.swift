@@ -72,12 +72,13 @@ struct PlaybackBlock: View {
         case .title:
             measured(component) {
                 Text(line(state.info.map { TextTemplate.render(settings.titleTemplate, values: $0.templateValues) }))
-                    .font(.headline)
+                    .font(Self.scaled(.headline, weight: .bold, percent: settings.titleScale))
                     .centeredLine()
             }
         case .subtitle:
             measured(component) {
                 Text(line(state.info.map { TextTemplate.render(settings.subtitleTemplate, values: $0.templateValues) }))
+                    .font(Self.scaled(.body, weight: .regular, percent: settings.subtitleScale))
                     .foregroundStyle(.secondary)
                     .centeredLine()
             }
@@ -99,6 +100,13 @@ struct PlaybackBlock: View {
         case .volume:
             measured(component) { volume }
         }
+    }
+
+    /// `style` with its size scaled by `percent`; the weight stays the style's own (`weight` is what `style` has).
+    private static func scaled(_ style: Font.TextStyle, weight: Font.Weight, percent: Int) -> Font {
+        guard percent != ConfigLimits.componentTextScaleDefault else { return .system(style, weight: weight) }
+        let base = NSFont.preferredFont(forTextStyle: style == .headline ? .headline : .body).pointSize
+        return .system(size: base * CGFloat(percent) / 100, weight: weight)
     }
 
     private func measured<Content: View>(_ component: NowPlayingComponent,

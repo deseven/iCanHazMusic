@@ -106,6 +106,22 @@ final class NowPlayingSettings {
         }
     }
 
+    /// Font size of the Title in percent of the usual size. Persisted in the config. Not logged: a slider drags through it.
+    var titleScale: Int {
+        didSet {
+            guard titleScale != oldValue else { return }
+            configStore?.update { $0.nowPlaying.componentOptions.titleScale = titleScale }
+        }
+    }
+
+    /// Font size of the Subtitle in percent of the usual size. Persisted in the config.
+    var subtitleScale: Int {
+        didSet {
+            guard subtitleScale != oldValue else { return }
+            configStore?.update { $0.nowPlaying.componentOptions.subtitleScale = subtitleScale }
+        }
+    }
+
     /// The buttons of the Playback Controls, in order, shown or hidden. Persisted in the config.
     var controls: PlaybackControlsLayout {
         didSet {
@@ -129,6 +145,8 @@ final class NowPlayingSettings {
         style = config.componentOptions.seekbarStyle
         titleTemplate = config.componentOptions.title
         subtitleTemplate = config.componentOptions.subtitle
+        titleScale = config.componentOptions.titleScale
+        subtitleScale = config.componentOptions.subtitleScale
         controls = config.componentOptions.controls
     }
 

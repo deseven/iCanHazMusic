@@ -185,6 +185,10 @@ struct AppConfig: Codable, Equatable {
             var title = ComponentOptions.defaultTitle
             /// What the Subtitle shows (`TextTemplate`).
             var subtitle = ComponentOptions.defaultSubtitle
+            /// Font size of the Title, in percent of the usual size.
+            var titleScale = ConfigLimits.componentTextScaleDefault
+            /// Font size of the Subtitle, in percent of the usual size.
+            var subtitleScale = ConfigLimits.componentTextScaleDefault
             /// Which buttons the Playback Controls have, and where.
             var controls = PlaybackControlsLayout.default
 
@@ -192,6 +196,8 @@ struct AppConfig: Codable, Equatable {
                 case seekbarStyle = "seekbar_style"
                 case title
                 case subtitle
+                case titleScale = "title_scale"
+                case subtitleScale = "subtitle_scale"
                 case controls
             }
 
@@ -203,6 +209,8 @@ struct AppConfig: Codable, Equatable {
                 seekbarStyle = c.value(.seekbarStyle, default: d.seekbarStyle)
                 title = c.value(.title, default: d.title)
                 subtitle = c.value(.subtitle, default: d.subtitle)
+                titleScale = c.value(.titleScale, default: d.titleScale)
+                subtitleScale = c.value(.subtitleScale, default: d.subtitleScale)
                 controls = c.value(.controls, default: d.controls)
             }
         }
@@ -473,6 +481,13 @@ struct AppConfig: Codable, Equatable {
         }
         if nowPlaying.componentOptions.subtitle.count > ConfigLimits.componentTextMaxLength {
             result.nowPlaying.componentOptions.subtitle = defaults.nowPlaying.componentOptions.subtitle
+        }
+        let scaleRange = ConfigLimits.componentTextScaleMin...ConfigLimits.componentTextScaleMax
+        if !scaleRange.contains(nowPlaying.componentOptions.titleScale) {
+            result.nowPlaying.componentOptions.titleScale = defaults.nowPlaying.componentOptions.titleScale
+        }
+        if !scaleRange.contains(nowPlaying.componentOptions.subtitleScale) {
+            result.nowPlaying.componentOptions.subtitleScale = defaults.nowPlaying.componentOptions.subtitleScale
         }
 
         // A hotkey that isn't valid, or that an earlier action has already, is none. The others are written in

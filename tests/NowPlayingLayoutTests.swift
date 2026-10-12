@@ -165,6 +165,36 @@ extension AllTests {
             #expect(validated.subtitle == long.nowPlaying.componentOptions.subtitle)
         }
 
+        @Test("text scales default to 100 %, are kept in range and persisted")
+        func textScales() throws {
+            let defaults = AppConfig().nowPlaying.componentOptions
+            #expect(defaults.titleScale == 100 && defaults.subtitleScale == 100)
+
+            var config = try decode("""
+            {"now_playing": {"component_options": {"title_scale": 150, "subtitle_scale": "big"}}}
+            """)
+            #expect(config.nowPlaying.componentOptions.titleScale == 150)
+            #expect(config.nowPlaying.componentOptions.subtitleScale == 100)
+
+            config.nowPlaying.componentOptions.titleScale = ConfigLimits.componentTextScaleMin
+            config.nowPlaying.componentOptions.subtitleScale = ConfigLimits.componentTextScaleMax
+            #expect(config.validated().nowPlaying.componentOptions.titleScale == 70)
+            #expect(config.validated().nowPlaying.componentOptions.subtitleScale == 200)
+            config.nowPlaying.componentOptions.titleScale = 69
+            config.nowPlaying.componentOptions.subtitleScale = 201
+            let validated = config.validated().nowPlaying.componentOptions
+            #expect(validated.titleScale == 100 && validated.subtitleScale == 100)
+
+            let dir = try TempDir()
+            let store = ConfigStore(paths: AppPaths(workDir: dir.path("work")), saveDelay: .seconds(60))
+            let settings = NowPlayingSettings(configStore: store)
+            settings.titleScale = 120
+            settings.subtitleScale = 80
+            #expect(store.config.nowPlaying.componentOptions.titleScale == 120)
+            let restarted = NowPlayingSettings(configStore: store)
+            #expect(restarted.titleScale == 120 && restarted.subtitleScale == 80)
+        }
+
         @Test("variables are replaced, `\\{` is a literal brace, unknown names are left as written")
         func templateSyntax() {
             let values: [TemplateVariable: String] = [.artist: "A", .title: "T", .album: "Al", .year: "1999", .track: "7"]

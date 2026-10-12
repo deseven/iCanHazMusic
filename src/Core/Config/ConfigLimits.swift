@@ -26,6 +26,11 @@ enum ConfigLimits {
     // Text templates of the now playing components (Title, Subtitle), in characters.
     static let componentTextMaxLength = 200
 
+    // Font size of the Title and the Subtitle, in percent of the usual size.
+    static let componentTextScaleMin = 70
+    static let componentTextScaleMax = 200
+    static let componentTextScaleDefault = 100
+
     // Read-ahead buffer of the playback engine, in seconds.
     static let readAheadDefault = 5
     static let readAheadOptions = [2, readAheadDefault, 15, 30, 60]

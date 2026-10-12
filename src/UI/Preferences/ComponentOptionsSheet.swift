@@ -67,10 +67,12 @@ struct ComponentOptionsSheet: View {
             }
         case .title:
             TemplateOptions(title: "Text", description: Self.textHint, text: $settings.titleTemplate,
-                            defaultText: AppConfig.NowPlaying.ComponentOptions.defaultTitle)
+                            defaultText: AppConfig.NowPlaying.ComponentOptions.defaultTitle,
+                            scale: $settings.titleScale)
         case .subtitle:
             TemplateOptions(title: "Text", description: Self.textHint, text: $settings.subtitleTemplate,
-                            defaultText: AppConfig.NowPlaying.ComponentOptions.defaultSubtitle)
+                            defaultText: AppConfig.NowPlaying.ComponentOptions.defaultSubtitle,
+                            scale: $settings.subtitleScale)
         default:
             EmptyView()
         }
@@ -84,11 +86,17 @@ private struct TemplateOptions: View {
     let description: String
     @Binding var text: String
     let defaultText: String
+    /// Font size in percent (`ConfigLimits.componentTextScaleMin...Max`).
+    @Binding var scale: Int
 
     var body: some View {
         let field = Binding(
             get: { text },
             set: { text = String($0.prefix(ConfigLimits.componentTextMaxLength)) }
+        )
+        let slider = Binding(
+            get: { Double(scale) },
+            set: { scale = Int($0.rounded()) }
         )
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -112,6 +120,28 @@ private struct TemplateOptions: View {
                 }
             }
             Text(description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text("Scale")
+                Spacer()
+                Button("Reset to Default") { scale = ConfigLimits.componentTextScaleDefault }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .disabled(scale == ConfigLimits.componentTextScaleDefault)
+            }
+            .padding(.top, 10)
+            HStack(spacing: 8) {
+                Slider(value: slider,
+                       in: Double(ConfigLimits.componentTextScaleMin)...Double(ConfigLimits.componentTextScaleMax),
+                       step: 1)
+                Text("\(scale)%")
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+            }
+            Text("Changes the size of the text only, between \(ConfigLimits.componentTextScaleMin)% and "
+                + "\(ConfigLimits.componentTextScaleMax)%.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
