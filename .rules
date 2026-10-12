@@ -43,6 +43,7 @@ UI and logic are split (still one SwiftPM target, so no `public` needed). **UI m
 **Updates**
 - Only stable GitHub releases with an `ichm.zip` asset count; the version is read from the release title (`iCHM 0.4.0`, else the tag), so keep releasing that way.
 - The installer requires the new app to satisfy the running app's designated requirement. `NSApp.terminate` is silently ignored while a sheet is attached to a window, so dismiss the update sheet before quitting.
+- **Never call `NSApp.terminate` from a `Task`/async main-actor code**: with playback running `applicationShouldTerminate` answers `.terminateLater` and replies from a `Task`, which can't run while AppKit waits inside a main-queue job (the app hangs). Defer it to the run loop: `NSApp.perform(#selector(NSApplication.terminate(_:)), with: nil, afterDelay: 0)`.
 
 **Playlists and tracks**
 - Tracks have IDs (`TrackID`: positive, unique within a playlist, stable through regrouping/removal/tag reloads, never reused, `next_id`). The same file added twice = two IDs. **Refer to tracks by ID** wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.
