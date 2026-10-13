@@ -107,6 +107,7 @@ struct VirtualPlaylistView: View {
         // left here (plain references, not observed: no re-render).
         let _ = keys.handler = { event in handleKey(event) }
         let _ = reorder.tick = { tickDrag() }
+        let _ = scrollBox.onChange = { scrollViewChanged() }
         ScrollView {
             VStack(spacing: 0) {
                 Color.clear.frame(height: active.rowOffsets[shown.lowerBound])
@@ -127,12 +128,6 @@ struct VirtualPlaylistView: View {
             .background(ScrollViewFinder(box: scrollBox))
         }
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: Range<Int>.self) { [active] geo in
-            active.rowRange(minY: geo.visibleRect.minY, maxY: geo.visibleRect.maxY,
-                            overscan: Layout.playlistOverscan)
-        } action: { _, newWindow in
-            window = newWindow   // only fires when the row window actually changes
-        }
         .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, rect in
             viewport.rect = rect // plain reference, no re-render
         }
@@ -166,11 +161,13 @@ struct VirtualPlaylistView: View {
             cursor = row
             reveal(row, deferred: true)
         }
-        .onChange(of: revealRow) { _, _ in showRevealedRow() }
+        .onChange(of: revealRow) { _, _ in
+            scrollBox.scheduleChange()   // see `showRevealedRow`
+        }
 
         .onAppear {
             installEventMonitor()
-            showRevealedRow()
+            scrollBox.scheduleChange()
         }
         .onDisappear {
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
@@ -212,28 +209,31 @@ struct VirtualPlaylistView: View {
                                                            queuePosition: queuePosition(at: row)))
     }
 
+    /// The scroll position or the content's height changed (see `ScrollBox.onChange`), or a reveal was asked for:
+    /// the rendered rows follow where the clip view really is, and a pending reveal is done if it can be now.
+    private func scrollViewChanged() {
+        refreshWindow(using: drag?.collapsed ?? layout)
+        showRevealedRow()
+    }
+
     /// The parent asked for a row to be shown (a playlist was opened, see `PlayerArea`): scroll to it, in the middle
-    /// of the view. The scroll view may not have been found yet if the playlist is shown for the first time, so
-    /// this tries a few more times.
+    /// of the view. That can only be done once the scroll view is known and AppKit has given its document the height
+    /// of this playlist: SwiftUI knows the new height a moment before the `NSView` gets it, and a scroll made in
+    /// between is clamped to the old height (which left a long playlist at its top now and then). So this runs when
+    /// the request comes and on every change of the scroll view (`scrollViewChanged`), the document's height
+    /// included, and does nothing until it can be done. `revealRow` is reset once it is, which the parent takes as
+    /// "the view is ready" (it has a safety net for a reveal that never happens).
     private func showRevealedRow() {
         guard let row = revealRow else { return }
         guard playlist.rows.indices.contains(row) else {
             revealRow = nil
             return
         }
+        guard let document = scrollBox.scrollView?.documentView,
+              document.frame.height + 0.5 >= layout.totalHeight else { return }
+        guard scrollToReveal(row, centered: true) else { return }
         anchor = row
-        scrollToCenter(row, attempts: 5)
-    }
-
-    /// `revealRow` is reset when the scroll is done (or given up), which the parent takes as "the view is ready".
-    private func scrollToCenter(_ row: Int, attempts: Int) {
-        DispatchQueue.main.async {
-            if !scrollToReveal(row, centered: true), attempts > 1 {
-                scrollToCenter(row, attempts: attempts - 1)
-            } else if revealRow == row {
-                revealRow = nil
-            }
-        }
+        revealRow = nil
     }
 
     // MARK: Context menu
@@ -474,12 +474,11 @@ struct VirtualPlaylistView: View {
         }
         origin = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
 
-        // Rows have to exist where we're going, whether or not SwiftUI has caught up with the scroll by then.
-        let height = clip.bounds.height
-        window = layout.rowRange(minY: layout.rowOffsets[i] - height, maxY: layout.rowOffsets[i + 1] + height,
-                                 overscan: Layout.playlistOverscan)
         clip.scroll(to: origin)
         scrollView.reflectScrolledClipView(clip)
+        // Rows have to exist where the clip view is now (not where it was asked to go, in case that was clamped)
+        // before SwiftUI draws, whether or not it has caught up with the scroll by then.
+        refreshWindow(using: layout)
         return true
     }
 
@@ -710,30 +709,99 @@ private final class ViewportBox {
     var rect: CGRect = .zero
 }
 
-/// The `NSScrollView` behind the playlist's `ScrollView`, and a view that has the content's frame (the origin
-/// row offsets are measured from).
+/// The `NSScrollView` behind the playlist's `ScrollView`, a view that has the content's frame (the origin row
+/// offsets are measured from), and the observation of both.
+///
+/// The AppKit views are the source of truth for what is visible: SwiftUI's scroll geometry lags behind them, and
+/// `onScrollGeometryChange` only reports changes of its own last value, so a row window set from anything else was
+/// never corrected if the scroll ended where SwiftUI last saw it.
 private final class ScrollBox {
-    weak var scrollView: NSScrollView?
+    private(set) weak var scrollView: NSScrollView?
     weak var anchor: NSView?
+    /// Called after the clip view's bounds (the scroll position) or the document's frame (the content's size)
+    /// changed, whoever changed them: the user, this view, SwiftUI's layout, AppKit constraining the scroll position.
+    /// Also once the scroll view is found, and on `scheduleChange`. Set by the latest `body` (this outlives the view
+    /// struct).
+    var onChange: (() -> Void)?
+    private var observers: [NSObjectProtocol] = []
+    private var changeScheduled = false
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    func attach(_ scrollView: NSScrollView) {
+        guard scrollView !== self.scrollView else { return }
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        self.scrollView = scrollView
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        observe(NSView.boundsDidChangeNotification, of: clip)
+        if let document = scrollView.documentView {
+            document.postsFrameChangedNotifications = true
+            observe(NSView.frameDidChangeNotification, of: document)
+        }
+        scheduleChange()   // something may be waiting for the scroll view (a reveal)
+    }
+
+    /// `onChange` runs on the next run-loop turn, once however many changes came in this one: AppKit posts these
+    /// in the middle of SwiftUI's layout too (it sets the document's frame), where the view's state must not be
+    /// changed. The overscan covers what the user scrolls in the meantime; the view's own scrolls refresh the row
+    /// window right away.
+    func scheduleChange() {
+        guard !changeScheduled else { return }
+        changeScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            changeScheduled = false
+            onChange?()
+        }
+    }
+
+    private func observe(_ name: Notification.Name, of view: NSView) {
+        observers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: nil) {
+            [weak self] _ in
+            self?.scheduleChange()
+        })
+    }
 }
 
-/// Placed in the scrolled content (as its background): finds the enclosing `NSScrollView` once it is in the
-/// window.
+/// Placed in the scrolled content (as its background): hands the enclosing `NSScrollView` to the box as soon as it
+/// is inside one.
 private struct ScrollViewFinder: NSViewRepresentable {
     let box: ScrollBox
 
-    private final class FlippedView: NSView {
+    final class AnchorView: NSView {
+        var box: ScrollBox?
         override var isFlipped: Bool { true }   // y grows downwards, like the row offsets
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            attachScrollView()
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            attachScrollView()
+        }
+
+        func attachScrollView() {
+            guard window != nil, let scrollView = enclosingScrollView else { return }
+            box?.attach(scrollView)
+        }
     }
 
-    func makeNSView(context: Context) -> NSView {
-        FlippedView()
+    func makeNSView(context: Context) -> AnchorView {
+        let view = AnchorView()
+        view.box = box
+        return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(_ view: AnchorView, context: Context) {
         box.anchor = view
-        guard box.scrollView == nil else { return }
-        DispatchQueue.main.async { box.scrollView = view.enclosingScrollView }
+        view.box = box
+        view.attachScrollView()
     }
 }
 
