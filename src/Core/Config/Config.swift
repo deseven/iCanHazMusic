@@ -104,6 +104,9 @@ struct AppConfig: Codable, Equatable {
         var queueEnabled = true
         /// Closing the main window quits the app. Off: only the window closes, playback and everything else go on.
         var closeQuits = false
+        /// What plays is picked up at the next launch: the track, the position in it, playing or paused (kept in
+        /// `Playback.state`). Off: nothing of it is kept, the app starts silent.
+        var restorePlaybackState = true
 
         enum CodingKeys: String, CodingKey {
             case playbackNotifications = "playback_notifications"
@@ -112,6 +115,7 @@ struct AppConfig: Codable, Equatable {
             case skippedUpdate = "skipped_update"
             case queueEnabled = "queue_enabled"
             case closeQuits = "close_quits"
+            case restorePlaybackState = "restore_playback_state"
         }
 
         init() {}
@@ -125,10 +129,42 @@ struct AppConfig: Codable, Equatable {
             skippedUpdate = c.value(.skippedUpdate, default: d.skippedUpdate)
             queueEnabled = c.value(.queueEnabled, default: d.queueEnabled)
             closeQuits = c.value(.closeQuits, default: d.closeQuits)
+            restorePlaybackState = c.value(.restorePlaybackState, default: d.restorePlaybackState)
         }
     }
 
     struct Playback: Codable, Equatable {
+        /// Where playback stood, for `General.restorePlaybackState`: the track that plays (or is paused) and the
+        /// position in it. Written while something plays and cleared when playback stops; the one exception is the
+        /// app quitting, which leaves it for the next launch.
+        struct SavedState: Codable, Equatable {
+            /// Name of the playlist playback ran from (not necessarily the active one).
+            var playlist: String
+            var trackID: TrackID
+            /// Seconds into the track (into its part for a CUE track).
+            var position: Double
+            var paused: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case playlist
+                case trackID = "track_id"
+                case position
+                case paused
+            }
+
+            init(playlist: String, trackID: TrackID, position: Double, paused: Bool) {
+                self.playlist = playlist
+                self.trackID = trackID
+                self.position = position
+                self.paused = paused
+            }
+
+            /// Names a playlist and a track, at a place that exists.
+            var isValid: Bool {
+                !playlist.isEmpty && trackID > 0 && position.isFinite && position >= 0
+            }
+        }
+
         /// The selection moves to the track that starts playing.
         var cursorFollowsPlayback = true
         /// The track under the cursor plays next, instead of the one after the current track.
@@ -139,6 +175,8 @@ struct AppConfig: Codable, Equatable {
         var atPlaylistEnd = PlaylistEnd.default
         /// Playback stops when the queue has been played through, instead of going on in the playlist.
         var stopAtQueueEnd = false
+        /// Nothing plays: `nil`.
+        var state: SavedState?
 
         enum CodingKeys: String, CodingKey {
             case cursorFollowsPlayback = "cursor_follows_playback"
@@ -146,6 +184,7 @@ struct AppConfig: Codable, Equatable {
             case order
             case atPlaylistEnd = "at_playlist_end"
             case stopAtQueueEnd = "stop_at_queue_end"
+            case state
         }
 
         init() {}
@@ -158,6 +197,7 @@ struct AppConfig: Codable, Equatable {
             order = c.value(.order, default: d.order)
             atPlaylistEnd = c.value(.atPlaylistEnd, default: d.atPlaylistEnd)
             stopAtQueueEnd = c.value(.stopAtQueueEnd, default: d.stopAtQueueEnd)
+            state = try? c.decodeIfPresent(SavedState.self, forKey: .state)
         }
     }
 
@@ -536,6 +576,10 @@ struct AppConfig: Codable, Equatable {
         // A session without a user name (or the other way round) is half of a connection: not connected.
         if !integrations.lastfm.isConnected {
             result.integrations.lastfm = defaults.integrations.lastfm
+        }
+
+        if let state = playback.state, !state.isValid {
+            result.playback.state = defaults.playback.state
         }
 
         if activePlaylist.isEmpty {

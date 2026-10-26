@@ -65,6 +65,36 @@ Pausing only pauses the player node; the device engine keeps running, which keep
 `pauseReleaseDelay` (60 s) the engine lets go of the output (`releaseIdleOutput`): player, decoders and device engine
 are stopped, the position and the next track are kept, and `resume` restarts from there with a freshly started output.
 
+## Restoring playback at launch
+
+`playback.state` in `config.json` (`{playlist, track_id, position, paused}`) is what the last run left; it lives in the
+config and not in the playlist files (which are rewritten whole on every save, and are about content, not about what
+happens to be playing). Written by `PlaybackState.saveState`, so it is always true to within ~10 s, and exact after a
+pause, a seek or a quit; every stop clears it, except the one at quit (`stopAndWait` keeps it).
+
+- `restorePlayback()` (called from `AppDelegate`) reads the playlist the track is in on demand
+  (`PlaylistStore.readPlaylist`, so it needn't wait for the preload of all the others), finds the track by ID and calls
+  `begin(_:resume:)`, which hands the engine `start(source, at: position, playing: !paused)`.
+- A paused restore loads the file (the duration shows, the track is announced to the listeners) and arms the usual
+  `pauseReleaseDelay`, so the output is not held for a track nobody resumes.
+- Position and length of a CUE track are relative to the part, as everywhere; the engine adds the part's start.
+- A track that can't be opened stops playback instead of moving to the next one: the usual skip-on is for an album
+  that has a bad file, here the likely cause is a network share that isn't mounted yet, and everything after it is on
+  the same share.
+
+### Scrobbling across a restart
+
+The config doesn't (and shouldn't) hold how much of the track was listened to. So:
+
+- Quitting is not the end of the track: no `trackDidEnd` (`endProgress(report: false)`), otherwise Last.fm would get
+  the scrobble at quit and a second one after the restore.
+- A restored track is a `PlayProgress(resumedAt:)`. Picked up at >= 50% of its length (`LastFMService.scrobbleThreshold`)
+  it counts as listened to up to that position (`listened(ofDuration:)` = what was heard since + the position); earlier
+  it counts from 0. Either way the listening done after the restore adds to it, and it's capped at the track length.
+- The track's `startedAt` (the time Last.fm gets with the scrobble) is back-dated by the position.
+- The restored track is announced to the listeners when its audio starts (also when it is paused), like any other:
+  Last.fm's "now playing" is sent, lyrics and the waveform are loaded.
+
 ## Diagnosing hangs
 
 - `SlowCallLog`: every CoreAudio call the engine makes on the main thread (`AVAudioEngine.start/stop/prepare`, the

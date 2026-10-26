@@ -137,6 +137,66 @@ extension AllTests {
             #expect(!WindowSettings().closeQuits)
         }
 
+        @Test("restoring the playback state is on by default, read leniently")
+        func restorePlaybackStateSetting() throws {
+            #expect(AppConfig().general.restorePlaybackState)
+            #expect(!(try decode(#"{"general": {"restore_playback_state": false}}"#).general.restorePlaybackState))
+            #expect(try decode(#"{"general": {"restore_playback_state": "no"}}"#).general.restorePlaybackState)
+            let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppConfig())) as? [String: Any]
+            let general = try #require(json?["general"] as? [String: Any])
+            #expect(general["restore_playback_state"] as? Bool == true)
+        }
+
+        @Test("the saved playback state is read from playback.state, and left out while there is none")
+        func savedPlaybackState() throws {
+            #expect(AppConfig().playback.state == nil)
+            let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(AppConfig())) as? [String: Any]
+            #expect((json?["playback"] as? [String: Any])?["state"] == nil)
+
+            let config = try decode("""
+            {"playback": {"cursor_follows_playback": false,
+                          "state": {"playlist": "rock", "track_id": 42, "position": 123.5, "paused": true}}}
+            """)
+            let state = AppConfig.Playback.SavedState(playlist: "rock", trackID: 42, position: 123.5, paused: true)
+            #expect(config.playback.state == state)
+            #expect(!config.playback.cursorFollowsPlayback)
+            let data = try JSONEncoder().encode(config)
+            #expect(try JSONDecoder().decode(AppConfig.self, from: data) == config)
+
+            // A state that is missing a part, or has one of the wrong type, is none; the rest of the section stays.
+            let broken = [#"{"playlist": "rock", "track_id": 42, "position": 1}"#,
+                          #"{"playlist": "rock", "track_id": "42", "position": 1, "paused": false}"#,
+                          #""rock""#]
+            for state in broken {
+                let decoded = try decode(#"{"playback": {"cursor_follows_playback": false, "state": "# + state + "}}")
+                #expect(decoded.playback.state == nil)
+                #expect(!decoded.playback.cursorFollowsPlayback)
+            }
+        }
+
+        @Test("a saved playback state that names no playlist or track, or no place in it, is dropped on load")
+        func savedPlaybackStateValidation() throws {
+            func validated(_ state: AppConfig.Playback.SavedState) -> AppConfig.Playback.SavedState? {
+                var config = AppConfig()
+                config.playback.state = state
+                return config.validated().playback.state
+            }
+            let good = AppConfig.Playback.SavedState(playlist: "main", trackID: 1, position: 0, paused: false)
+            #expect(validated(good) == good)
+            var bad = good
+            bad.playlist = ""
+            #expect(validated(bad) == nil)
+            bad = good
+            bad.trackID = 0
+            #expect(validated(bad) == nil)
+            bad = good
+            bad.position = -1
+            #expect(validated(bad) == nil)
+            bad = good
+            bad.position = .infinity
+            #expect(validated(bad) == nil)
+        }
+
         @Test("swapping the playlist selector with now playing is read from the config and kept in it")
         func swapsSidesSetting() throws {
             let dir = try TempDir()

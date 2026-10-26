@@ -182,6 +182,7 @@ private struct GeneralTab: View {
     @Bindable private var lyrics = LyricsService.shared
     @Bindable private var updates = UpdateService.shared
     @Bindable private var queue = PlaybackState.shared.queue
+    @Bindable private var playback = PlaybackState.shared
     @Bindable private var windowSettings = WindowSettings.shared
 
     var body: some View {
@@ -192,6 +193,16 @@ private struct GeneralTab: View {
                     + "keeps the music playing in the background; click the Dock icon to bring the window back."
             ) {
                 Toggle("", isOn: $windowSettings.closeQuits)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            PrefRow(
+                title: "Restore Playback State",
+                description: "When \(AppConstants.appName) starts, go on with what was playing when it was quit: the same "
+                    + "track, from the same position, playing or paused as it was."
+            ) {
+                Toggle("", isOn: $playback.restoresState)
                     .labelsHidden()
                     .toggleStyle(.switch)
             }

@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeWindowFocus()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
         Task { await MigrationActions.finishAfterLaunch() }
+        Task { await PlaybackState.shared.restorePlayback() }
     }
 
     /// The playback position is published (once per second) only while one of our windows is on screen; with the

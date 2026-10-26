@@ -277,11 +277,14 @@ final class PlaybackEngine {
     // MARK: - Commands
 
     /// Plays `source` from `seconds` (into the track), replacing whatever plays now. `next` is queued behind it.
+    /// With `playing` off the track is loaded and paused, as if `pause()` had been called right after it started:
+    /// the output is let go of after `pauseReleaseDelay` if it isn't resumed by then.
     func start(_ source: PlaybackSource, at seconds: Double = 0, next: PlaybackSource? = nil, playing: Bool = true) {
         wantsPlaying = playing
         pendingStop = false
         nextSource = next
         pendingRestart = Restart(source: source, seconds: max(0, seconds))
+        if !playing { armIdleRelease() }
         fadeOutThenCommit()
     }
 

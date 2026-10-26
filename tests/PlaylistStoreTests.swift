@@ -520,6 +520,31 @@ extension AllTests {
             #expect(store.activePlaylist.trackCount == 0)
         }
 
+        // MARK: Reading on demand
+
+        @Test("readPlaylist waits for the active playlist and reads one the preload hasn't reached")
+        func readPlaylistOnDemand() async throws {
+            let env = try await makeEnv(playlists: [
+                "one": try playlistJSON(Make.entries(dir: "A", album: "A", count: 3)),
+                "two": try playlistJSON(Make.entries(dir: "B", album: "B", count: 2)),
+            ], active: "one", wait: false)
+            #expect(env.store.isLoading)
+            #expect(env.store.playlist(named: "two") == nil)
+
+            let two = await env.store.readPlaylist(named: "TWO")          // not the active one, not read yet
+            #expect(two?.trackCount == 2)
+            #expect(env.store.playlist(named: "two")?.trackCount == 2)    // in memory now
+
+            let one = await env.store.readPlaylist(named: "one")          // the active one: waits for its load
+            #expect(one?.trackCount == 3)
+            #expect(!env.store.isLoading)
+            #expect(env.store.activePlaylist === one)
+
+            #expect(await env.store.readPlaylist(named: "nope") == nil)
+            await settle(env.store)
+            #expect(await env.store.readPlaylist(named: "two") === env.store.playlist(named: "two"))
+        }
+
         // MARK: Last played
 
         @Test("setLastPlayed records the track of the playing playlist and stores it in the file")

@@ -2,131 +2,79 @@
 A native macOS music player (SwiftUI + AppKit, Swift package, no third-party dependencies).
 Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 
-This file is a map and a list of invariants, not documentation of every file: read the code (doc comments are there) for details.
+This file is a map plus the few invariants that are easy to break. Everything else is in the code (doc comments are there): read it rather than relying on this file.
 
 ## Layout
 | Path | What |
 |---|---|
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
 | `tests/` | Swift Testing suite, see [Tests](#tests). |
-| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (what the macOS tag APIs do, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, how the engine works, API quirks), `lyrics.md` (lyrics sources, LRCLIB API notes), `cue.md` (how CUE sheets are read, stored and played, and why). |
+| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (macOS tag APIs, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, engine internals, state restore), `lyrics.md` (lyrics sources, LRCLIB), `cue.md` (how CUE sheets are read, stored and played). |
 | `build.sh` | Builds the `.app` bundle in `dist/`. |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
 
-### `src/`
-UI and logic are split (still one SwiftPM target, so no `public` needed). **UI may depend on Core, never the other way round.** One view per file.
+`src/` has three parts: `App/` (entry point, `AppDelegate`, `AppTermination`), `Core/` (logic, grouped by feature: `Config`, `Playlists`, `Import`, `Tags`, `Playback`, `Integrations`, ...) and `UI/` (views and AppKit glue, grouped the same way). One view per file.
 
-- `App/` – `@main` entry, `AppDelegate` (on quit it stops playback first so the fade-out avoids a pop: `PlaybackState.stopAndWait()`), `AppTermination` (the only way the app quits itself), Dock menu.
-- `Core/` – Logic. **Foundation only (plus UI-less system frameworks such as CryptoKit, Carbon, AudioToolbox): never import SwiftUI/AppKit.** Things that need AppKit (opening URLs, alerts) are handed in by the UI as closures.
-  - `Config/` – `ConfigStore` (`config.json`), `ConfigLimits` (validation limits), and the small settings owners (`WindowSettings`: close quits, whether the playlist selector is shown, swapping it with now playing; `NowPlayingSettings` with `SeekbarStyle`; `NowPlayingLayout` is the model of the Now Playing block's components; `PlaylistSettings` with `AlbumHeaderStyle` and `PlaylistColumnsLayout`, the track row columns per `PlaylistMode`, which the UI turns into a `TrackRowStyle`).
-  - `Playlists/` – `PlaylistStore` (the playlist list; **every playlist is kept in memory**, because search needs them all; the active one loads first, the rest preload in the background; changes go through `commit` and are saved in the background), the immutable `Playlist` row model, `AlbumBuilder` (flat entries -> albums by directory + album tag, `AlbumKey`), `TrackEntry`/`PlaylistFile` (stored format), `PlaylistExchange` (m3u8/m3u/pls import/export).
-  - `Import/` – `AudioFileGatherer` (walk, dedupe, natural sort, `.cue` handling) and `ImportSession` (gather -> read tags -> build albums, progress, abort, `reload`). Every audio file is read once, even if many CUE tracks come from it.
-  - `Tags/` – tag reading via AudioToolbox/AVFoundation, art detection, embedded lyrics (`dev-docs/tag-parsing.md`).
-  - `Artwork/` – per-album art: pick source, extract once, shrink to a square thumbnail, cache in `CoverStore`.
-  - `Cue/` – CUE sheet parser/resolver and `CueTrack` (`dev-docs/cue.md`). Nothing is guessed: file names are taken as written. Only a sheet that really *cuts* a file is trusted over the file's own tags.
-  - `Playback/` – `PlaybackEngine` (gapless, one `AVAudioPlayerNode`, offline rendering for tests), `TrackDecoder`, `PlaybackState` (playlist logic on top of the engine; what the now playing block shows), `PlaybackOrder`, `PlaybackQueue`, `PlaybackListener` (told when tracks start/end; Last.fm, lyrics and notifications are listeners), `AudioOutputDevices`, `ResampleQuality`, and `Waveform/` (data for the visual seek bar styles: one analysis pass makes one record for all styles, cached in SQLite).
-  - `Integrations/` – `HTTPTransport` and the services: `LastFM/`, `LRCLIB/`. **Every network request is built with `URLRequest(appURL:timeout:)`** (sets `User-Agent: iCanHazMusic/{version}`).
-  - `Lyrics/` – lyrics model/LRC parser, `LyricsStore`, `LyricsService.shared`.
-  - `Notifications/` – system notifications about playback.
-  - `Updates/` – self update from GitHub releases.
-  - `Search/` – fuzzy search over all playlists (`SearchSettings`, `SearchText`/`FuzzyMatcher`, `PlaylistSearch`).
-  - `Hotkeys/` – global hotkeys through Carbon (own `HotkeyModifiers`, since AppKit is off limits here).
-  - `Migration/` – migration from the previous (PureBasic) version, which used the same working directory.
-  - `Diagnostics/` – `SlowCallLog` (the engine times its CoreAudio calls on the main thread, logs those > 0.5 s), `MainThreadWatchdog` (logs UI hangs >= 2 s; started by `AppDelegate`). Both rate-limited: report, then only count for 60 s.
-  - `Log.swift`, `Constants.swift` (`AppPaths`, `AppConstants`), `StableHash.swift`.
-- `UI/` – Views and AppKit glue, grouped like Core (`MainWindow/`, `Playlist/`, `Playback/`, `Queue/`, `Lyrics/`, `Search/`, `Preferences/`, `Hotkeys/`, `Updates/`, `Import/`, `Dialogs/`, `Window/`, `About/`, `Migration/`), plus `Layout.swift`.
+- Main entry points: `ConfigStore` (settings), `PlaylistStore` (all playlists, kept in memory), `ImportSession` (files -> tags -> albums), `PlaybackEngine` (audio) and `PlaybackState` (playlist logic on top of the engine), `PlaybackListener` (Last.fm, lyrics, notifications and the waveform follow playback through it).
 
-### Invariants worth knowing before you change things
-**Credentials and secrets**
-- Last.fm credentials are **not in the sources**: `build.sh` takes `ICHM_LASTFM_API_KEY`/`ICHM_LASTFM_API_SECRET` from `.env`, XORs them with `LastFMCredentials.obfuscationKey` (`build.sh` reads that key from that line of `LastFMAPI.swift`, keep its format) and writes them into the bundle's `Info.plist`. Without them (plain `swift build`) the integration is unavailable. Never put them into sources or tests (tests use dummy ones).
-- Notifications and self-update need a **signed bundle**: `build.sh` signs with `ICHM_SIGNING_IDENTITY` (ad-hoc without it). `UNUserNotificationCenter.current()` throws for a non-`.app` executable.
-
-**Updates**
-- Only stable GitHub releases with an `ichm.zip` asset count; the version is read from the release title (`iCHM 0.4.0`, else the tag), so keep releasing that way.
-- The installer requires the new app to satisfy the running app's designated requirement. `NSApp.terminate` is silently ignored while a sheet is attached to a window, so dismiss the update sheet before quitting.
-- **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: called from a `Task`/async main-actor code, `terminate` hangs the app while something plays (`applicationShouldTerminate` answers `.terminateLater` and replies from a `Task`, which can't run while AppKit waits inside a main-queue job). This shipped in 1.0.0-hf and 1.1.0.
-- The installer script doesn't trust the app to quit: after `UpdateInstaller.QuitTimeouts` (20 s) it sends SIGTERM, then SIGKILL, recognising the app by pid + start time. A self-update bug can't be fixed by a self-update, so keep that safety net.
+## Worth knowing before you change things
+**General**
+- Last.fm credentials are **not in the sources**: `build.sh` takes them from `.env` and writes them (obfuscated) into the bundle's `Info.plist`. `build.sh` reads `LastFMCredentials.obfuscationKey` from its line in `LastFMAPI.swift`, keep that format. Never put credentials into sources or tests.
+- Notifications and self-update need a **signed bundle** (`ICHM_SIGNING_IDENTITY`; ad-hoc without it). Plain `swift build` gives an unbundled executable where they are unavailable.
+- **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: from async main-actor code it hangs the app while something plays. It's also ignored while a sheet is attached, so dismiss sheets first.
 
 **Playlists and tracks**
-- Tracks have IDs (`TrackID`: positive, unique within a playlist, stable through regrouping/removal/tag reloads, never reused, `next_id`). The same file added twice = two IDs. **Refer to tracks by ID** wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.
-- A **CUE track** has the pseudo path `/path/album.cue:N` plus a `cue` object (`CueSlice`); the two always come together. `url` = the audio file, `directory` = the sheet's directory, `Track.source` (`PlaybackSource`) = what the engine plays. Position/length/seek are relative to the part; compare sources, never URLs. Export skips CUE tracks.
-- Edits that replace the active content (`remove`, `applyTags`, `setFlat`, `updateTrack`, moves) go through `PlaylistStore` and tell `PlaybackState.playlistWasReplaced`, so the playing track is found again by ID. Moves are applied synchronously.
-- Playlist import takes only paths (tags in the file are ignored and re-read). Dropping playlist files together with audio files ignores the playlist files; File > Add never imports playlists.
+- Refer to tracks by `TrackID` wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.
+- A CUE track has the pseudo path `/path/album.cue:N` and a `cue` object, always together. Compare playback sources, never URLs (`dev-docs/cue.md`).
+- Edits that replace the active content go through `PlaylistStore` and tell `PlaybackState.playlistWasReplaced`, so the playing track is found again by ID.
 
 **Playback**
-- Playback uses `AVAudioEngine`, **not `AVPlayer`** (`dev-docs/playback.md`).
-- The output device is only looked at when the output starts (`bindOutputDevice`); a device that is gone falls back to the system default, and going back to "follow default" replaces the `AVAudioEngine` (only with the engine stopped).
-- The play queue is runtime-only. `nextTarget` takes the queue first; anything else that starts playback by hand (`play`, previous, next album, random, `stop()`) drops it, internal stops (`halt()`) keep it. Shuffles never repeat the track/album that just played; previous track/album always go by playlist order.
-- Tracks without tags (`PlayedTrack.hasTags`) are never looked up on LRCLIB or sent to Last.fm.
-- **A track counts as started only when its audio does**: the UI shows it at once, but the listeners (Last.fm, LRCLIB, notifications, waveform), the `playback: started` log line and `trackDidEnd` wait for the engine's `.started` event (first chunk of the current track scheduled; a gapless transition is audible already). A file that can't be played is never announced. The seek bar's anchor only runs while `PlaybackEngine.isAudible`.
-- **A file that doesn't answer (network share gone) must never stall the feeder**: `TrackDecoder.next()` returns at once when the decoder is cancelled, and gives up after `PlaybackEngine.decoderTimeout` (10 s; `.failed` if nothing was delivered, else the track ends there). Tests simulate such a file with a named pipe (`tests/Support/HungFile.swift`).
-- Failures in a row (`PlaybackState.failures`, reset when a track starts or the user starts one): at `maxConsecutiveFailures` (10) playback gives up and `onGiveUp` shows a sheet. If only the tracks after a playing one fail, that one plays to its end first. A failed current track doesn't stop/start the output (`teardown(keepOutput:)` + `stopOutputIfIdle`).
-- After `PlaybackEngine.pauseReleaseDelay` (60 s) of pause the output is released (`releaseIdleOutput`: player, decoders and device engine stopped, position kept, `isActive` stays true); `resume` restarts from there. A running output keeps the Mac from idle sleep.
-- `PlaybackListener`s get the time actually listened to (forward seeks and pauses don't count); Last.fm scrobbles at >= 50% listened and a track >= 30 s.
-- `PlaybackState.smoothUpdates` (set by `AppDelegate` while a window is key) switches position updates from 1 Hz to 20 Hz.
+- `AVAudioEngine`, **not `AVPlayer`** (`dev-docs/playback.md`).
+- **A track counts as started only when its audio does** (the engine's `.started` event): listeners, logs and `trackDidEnd` wait for it, a file that can't be played is never announced.
+- **A file that doesn't answer (network share gone) must never stall the feeder** or the main thread.
+- Tracks without tags are never looked up on LRCLIB or sent to Last.fm.
+- `AppKit` callbacks from the system (media keys, `MPRemoteCommandCenter`) arrive on their own queue: build their closures in `nonisolated` helpers (isolated closures trap).
 
-**Last.fm / LRCLIB**
-- Last.fm errors are classified in `LastFMError.Kind` (`authentication` -> disconnect, `temporary` -> retry with backoff, `rejected` -> drop the call); the queue is in memory only.
-- LRCLIB is off by default; a record matches only on exactly the same artist + title (case/blank space ignored) and a duration within 10%. The queue keeps only the lookup in progress and the newest one, and respects `Retry-After`.
-- Embedded lyrics are written to the `LyricsStore` by `ImportSession` while reading tags; LRCLIB results never replace what is there.
-
-**Waveform**
-- Analysis runs only while a visual seek bar style is selected **and the seek bar is shown** (`NowPlayingSettings.needsWaveform`) and only for the playing track; the result is stored only if complete; **the app never prunes `waveforms.sqlite`**. `Waveform.formatVersion` must be bumped when the encoding or layout changes. Everything the UI draws is derived from the record by pure, tested functions in `Waveform.swift`. Analysis frame starts sit on one grid for the whole file so the result doesn't depend on the worker count.
-- In `WaveformSeekBar` each bar is filled separately (one merged path makes the rasteriser smear shapes between bars).
-
-**Now Playing block**
-- Its components (album art, title, subtitle, duration, seekbar, details, controls, volume) are two ordered stacks, `top` and `bottom` (`now_playing.top/bottom`: `[{id, visible}]`; the bottom one is pinned to the bottom edge). Whether the block is shown (its toolbar button) and its width are `ui.now_playing.shown/width`. The options of components (the gear in Preferences, `ComponentOptionsSheet`) all live in `now_playing.component_options` (`seekbar_style`, `title`, `subtitle`, `controls`). `controls` is the list of buttons of Playback Controls (`PlaybackControlsLayout`: `[{id, visible}]`, every button once, repaired on load; the random track/album ones are hidden by default), edited in the sheet with `PlaybackControlList`, which shares its rows with `NowPlayingComponentList`. Title and Subtitle are `TextTemplate`s: `{artist}`, `{title}`, `{album}`, `{year}`, `{track}`, `\{` for a literal brace; brackets left empty by a missing value (`{album} ({year})` without a year) are dropped. `NowPlayingLayout` keeps every component in exactly one stack, once; a config that says otherwise is repaired on load. Preferences edit it as one list (`NowPlayingComponentList`: top rows, the `Bottom` divider row, bottom rows; dragging across the divider changes stack) using the geometry of `ReorderDrag`.
-- **What is hidden is not done:** `NowPlayingSettings.showsArt` gates loading the playing art (`PlaybackState`), the cover of notifications and thus the system's Now Playing art; `needsWaveform` gates the waveform. Whoever acts on those registers with `addVisibilityObserver`. With the block hidden (`isShown`), `PlayerArea` shows only the playlist.
-- Side panels: the playlist selector and the now playing block are both custom `SidePanel`s in `PlayerArea` (no `NavigationSplitView`/inspector, on purpose: same look, same slide animation `Layout.sidePanelAnimation`, same `SplitDivider`). By default the selector is on the left, now playing on the right; `ui.swap_playlist_selector_with_now_playing` (Preferences > UI, `WindowSettings.swapsSides`) swaps them. Each has its toolbar button on its side (`.navigation` = left, `.primaryAction` = right). Shown/width: `ui.playlist_selector.shown/width` (`WindowSettings.showsPlaylistSelector`) and `ui.now_playing.shown/width` (`NowPlayingSettings.isShown`). `PlayerArea` fits the selector first, the block takes what is left.
-- Sizing: `NowPlayingBlock` measures every component but the art and reports the least height of the rest (gaps included, via `Layout.componentGap`); `PlayerArea` limits the width by that only while the art is shown.
+**Config and caches**
+- Change settings only through `ConfigStore.shared.update { ... }`; limits for validation live in `ConfigLimits.swift`.
+- Every network request is built with `URLRequest(appURL:timeout:)` (sets the `User-Agent`).
+- Bump `Waveform.formatVersion` when the waveform encoding or layout changes. The app never prunes `waveforms.sqlite`.
 
 **UI**
-- Dialogs are `NSAlert` sheets (see Rules).
-- Keyboard: one local `NSEvent` monitor in `VirtualPlaylistView` handles the keys of the visible playlist/queue for the whole main window, whatever has focus. No `focusable`/`@FocusState` on purpose (focus was lost whenever the playlist selector was clicked). The monitor outlives the view struct, so it calls the handler the latest `body` stored in `KeyHandlerBox`; **never capture view values in it**.
-- Drag reordering in `VirtualPlaylistView` + `PlaylistReorder.swift` is a `DragGesture` on the whole content (not on rows) and collapses the playlist to headers while dragging an album. The scroll handling (not covered by tests) is fiddly: read the comments before changing it.
-- `MainWindowOpener.shared.show()` brings the main window forward and reopens it if closed; use it wherever the window is needed (panels, "go to", update offers).
-- Notifications: every message uses the same request identifier (only the latest is shown) and there is no delegate on purpose (no banner while the app is in front).
-- The search window is a non-activating floating `NSPanel` (works the same from ⌘F and the global hotkey); Return/click plays without bringing the main window forward, ⌥Return = go to, ⇧Return = enqueue.
-- Search: playlists match by whole name only, albums by artist + title, tracks by artist + title + album; with "search by album name" off the album name isn't searched for tracks either.
-- `AppKit` callbacks from the system (media keys, `MPRemoteCommandCenter`) arrive on their own queue: build their closures in `nonisolated` helpers (isolated closures trap).
+- **UI may depend on Core, never the other way round.** Core is Foundation only (plus UI-less system frameworks such as CryptoKit, Carbon, AudioToolbox): never import SwiftUI/AppKit there. Whatever needs AppKit (opening URLs, alerts) is handed to Core as a closure.
+- **What is hidden is not done:** a hidden Now Playing component (or the whole block) must not cost work (art loading, waveform analysis). Whoever acts on that registers with `addVisibilityObserver`.
+- The playlist selector and the Now Playing block are custom `SidePanel`s in `PlayerArea`, not `NavigationSplitView`/inspector, on purpose.
+- Keyboard handling is one local `NSEvent` monitor in `VirtualPlaylistView`, no `focusable`/`@FocusState` on purpose. The monitor outlives the view struct: **never capture view values in it**.
+- Drag reordering and scrolling in `VirtualPlaylistView` are fiddly and not covered by tests: read the comments before changing them.
 - `MigrationActions.askAtLaunch()` runs before any singleton touches the working directory; `NSApp` doesn't exist yet there, use `NSApplication.shared`.
 
 ## Runtime data
-Everything lives in `~/Library/Application Support/iCanHazMusic` (`AppPaths`). Pass `--workdir /some/dir` (or `--workdir=/some/dir`) to use another directory.
-- `app.log` – log of the current run (copy of stdout); on every start the earlier ones are shifted to `app.log.1` (previous run) ... `app.log.4` (`Log.keptOldLogs`).
-- `config.json` – read once at startup, written on every change (debounced ~250 ms, flushed on quit). Missing/invalid values are reset to defaults and written back. Keys, defaults and valid values are in `Config.swift` / `ConfigLimits.swift`; the sections are `ui.*`, `general.*`, `engine.*`, `playlist.*`, `playback.*`, `now_playing.*`, `search.*`, `hotkeys.*`, `integrations.*`.
-- `.cache/covers.sqlite`, `.cache/lyrics.sqlite`, `.cache/waveforms.sqlite` – caches, safe to delete (covers are rebuilt on import, LRCLIB lyrics on the next play, embedded lyrics with Reload Tag(s), waveforms on the next play).
-- `playlists/{name}.json` – one file per playlist (`main.json` is created if there are none). Format: `{"version": 1, "is_flat": false, "next_id": N, "last_played"?: id, "tracks": [{id, path, artist, album, title, trackNumber?, year?, duration?, codec, cue?}, ...]}`, a flat array in playlist order (albums are rebuilt on load, art isn't stored). A file that can't be parsed is moved to `{name}.json.broken` and replaced by an empty playlist.
+Everything lives in `~/Library/Application Support/iCanHazMusic` (`AppPaths`). Pass `--workdir /some/dir` to use another directory.
+- `app.log` (current run; earlier ones are rotated), `config.json` (keys and defaults in `Config.swift`), `playlists/{name}.json` (one file per playlist), `.cache/*.sqlite` (covers, lyrics, waveforms; safe to delete).
 
 This is the user's real dev data. When testing, prefer seeding/inspecting the files over deleting them, and leave the directory in a sane state afterwards.
 
 ## Building and running
-- Full dev build + launch: `./build.sh` (clean build, signed if `ICHM_SIGNING_IDENTITY` is set in `.env`, then **runs the app in the foreground** with `--workdir ~/Library/Application Support/iCanHazMusic-dev`, so the real data stays untouched; `dev-release`/`release` use the regular directory). It blocks until the app quits: don't use it from an agent, the user normally runs it.
+- Full dev build + launch: `./build.sh` (clean build, then **runs the app in the foreground** with `--workdir ~/Library/Application Support/iCanHazMusic-dev`, so the real data stays untouched). It blocks until the app quits: don't use it from an agent, the user normally runs it.
 - Compile check only: `swift build -c debug --arch arm64`.
-- Fast typecheck without SwiftPM: `swiftc -typecheck -parse-as-library -target arm64-apple-macos15.4 $(find src -name '*.swift')` (`src/` is nested, so list files with `find`).
+- Fast typecheck without SwiftPM: `swiftc -typecheck -parse-as-library -target arm64-apple-macos15.4 $(find src -name '*.swift')`.
 - Tests only: `./build.sh test` (generates the fixtures, then `swift test`). `dev-release` and `release` run the same steps and abort on failure; plain `./build.sh` skips them.
 - Scratch experiments go to `tmp/` (git-ignored; never use `dist/`, `build.sh` wipes it); delete them afterwards.
 
 ## Tests
 `swift test` runs the Swift Testing suite in `tests/` (`@testable import iCanHazMusic`). All suites are nested in `AllTests` and run serialized on the main actor; mark new suites `@MainActor @Suite(...)` inside `extension AllTests`.
 
-- Audio/image fixtures are generated, not committed: run `./tests/prepare-fixtures.sh` once (needs `ffmpeg`). Output goes to `tests/fixtures/generated/` (git-ignored). Add new fixtures to the script and document them there.
-- Tests never touch the real working directory: stores and services take their locations/dependencies as parameters (`ConfigStore(paths:)`, `PlaylistStore(paths:configStore:)`, `CoverStore(url:...)`, `LyricsStore(url:)`, `HTTPTransport` stubs, ...), tests use `TempDir` (`tests/Support/Fixtures.swift`). **Don't touch `.shared` singletons from tests.**
-- Playback tests run the engine **offline** (`PlaybackEngine(output: .offline(sampleRate:))`, driven by `EngineRig` in `tests/Support`) and compare samples with generated ramp/tone fixtures. `PlaybackState(store:engine:tickInterval:)`: use `tickInterval: nil` and call `tick()` yourself. Mind the default volume of 0.7 when comparing samples.
+- Audio/image fixtures are generated, not committed: run `./tests/prepare-fixtures.sh` once (needs `ffmpeg`). Add new fixtures to that script and document them there.
+- Tests never touch the real working directory: stores and services take their locations/dependencies as parameters, tests use `TempDir` (`tests/Support/Fixtures.swift`). **Don't touch `.shared` singletons from tests.**
+- Playback tests run the engine **offline** (`PlaybackEngine(output: .offline(sampleRate:))`, driven by `EngineRig` in `tests/Support`); `PlaybackState(store:engine:tickInterval:)` with `tickInterval: nil` and a manual `tick()`.
 - Not covered: the real output device and the SwiftUI/AppKit layer.
-
-### Quirks worth knowing
 - A **crash** in the test process (failed `precondition`, force-unwrapped nil, ObjC exception) looks like a **hang** of `swift test`: the backtracer symbolicates for minutes. Run with `SWIFT_BACKTRACE=enable=no` to fail fast, and wrap long runs in `timeout`. Test helpers should report problems with `#expect`/return values, not trap.
 
-- SwiftUI re-places the window after the view is attached, so `WindowPersistence` applies the saved frame twice (immediately and on the next run-loop turn) and starts observing changes only after that. The saved size is the whole frame (title bar included), not the content size.
-- Killing the app with SIGKILL (e.g. a command timeout) can lose the last ≤250 ms of config changes; SIGTERM is fine.
-
 ## Rules & Conventions
-- Keep config validation limits in `ConfigLimits.swift` (config values outside them are reset to defaults) and layout constants in `Layout.swift`; `Layout` derives shared values from `ConfigLimits`.
-- Change settings only through `ConfigStore.shared.update { ... }`; don't write `config.json` elsewhere.
+- Keep config validation limits in `ConfigLimits.swift` (values outside them are reset to defaults) and layout constants in `Layout.swift`.
 - Playlist name rules and file operations live in `PlaylistStore`; UI flows (prompt, confirm, error) in `PlaylistActions`.
-- Use `Log.info` / `Log.error` (timestamp + `[iCHM]` prefix, stdout and `app.log`) rather than bare `print`.
+- Use `Log.info` / `Log.error` (timestamp + `[iCHM]` prefix, stdout and `app.log`) rather than bare `print`. Log whatever seems important but not overly noisy.
 - Dialogs are `NSAlert` sheets on the main window (`Dialogs`), not SwiftUI alerts.
-- Log whatever seems important but not overly noisy.
 - There should be no compilation warnings. If you see one, fix it even if it's not from the recent changes.
 - Prefer the included tools for reading, writing and editing the files.
+- Update `.rules` only with high-level information, quirks and things that are useful to know before digging into the project, no need to add here every little thing that could be easily inferred from the code and its comments.

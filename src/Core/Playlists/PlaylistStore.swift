@@ -164,6 +164,22 @@ final class PlaylistStore {
         loaded[Self.key(name)]
     }
 
+    /// The content of a playlist, once it is in memory: waits for the active one to be read, and reads any other one
+    /// that the background preload hasn't got to yet. `nil` if there is no such playlist (any more).
+    func readPlaylist(named name: String) async -> Playlist? {
+        guard let match = existingName(matching: name) else { return nil }
+        let key = Self.key(match)
+        if loaded[key] == nil, isLoading, key == Self.key(activeName) { await loadTask?.value }
+        if let ready = loaded[key] { return ready }
+
+        await flushWrites()
+        let url = fileURL(match)
+        let started = Date()
+        let result = await Task.detached(priority: .userInitiated) { PlaylistFile.load(from: url) }.value
+        guard names.contains(match) else { return nil }   // deleted or renamed meanwhile
+        return adopt(result, name: match, started: started)
+    }
+
     /// The playlists that are in memory, in the order of `names`.
     var loadedPlaylists: [(name: String, playlist: Playlist)] {
         names.compactMap { name in loaded[Self.key(name)].map { (name, $0) } }

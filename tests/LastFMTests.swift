@@ -737,6 +737,33 @@ extension AllTests {
             progress.observe(position: 10.5)
             #expect(abs(progress.played - 2.75) < 1e-9)
         }
+
+        @Test("a track picked up at half of its length or later counts as listened to up to there, an earlier one from scratch")
+        func resumed() {
+            let length = 100.0
+
+            var late = PlayProgress(track: LastFMTestData.track(), resumedAt: 60)
+            #expect(late.listened(ofDuration: length) == 60)            // nothing heard since: the part before counts
+            late.observe(position: 60.5)
+            late.observe(position: 61)                                   // the counting goes on from where it was picked up
+            #expect(abs(late.played - 1) < 1e-9)
+            #expect(abs(late.listened(ofDuration: length) - 61) < 1e-9)
+            #expect(late.listened(ofDuration: 0) == late.played)         // a length that isn't known: no credit
+
+            let half = PlayProgress(track: LastFMTestData.track(), resumedAt: 50)
+            #expect(half.listened(ofDuration: length) == 50)             // exactly half is enough, like for a scrobble
+
+            var early = PlayProgress(track: LastFMTestData.track(), resumedAt: 49)
+            #expect(early.listened(ofDuration: length) == 0)
+            early.observe(position: 49.5)
+            early.observe(position: 50)
+            #expect(abs(early.listened(ofDuration: length) - 1) < 1e-9)
+
+            // Never more than the track has.
+            var end = PlayProgress(track: LastFMTestData.track(), resumedAt: 99)
+            for step in 1...6 { end.observe(position: 99 + Double(step) * 0.25) }
+            #expect(end.listened(ofDuration: length) == length)
+        }
     }
 }
 

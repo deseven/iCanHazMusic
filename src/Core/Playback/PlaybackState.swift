@@ -18,8 +18,9 @@ import Observation
 /// playlist that is in (playback moves over to it when it starts). When it runs out, playback goes on by the playback
 /// order in the playlist of the last queued track, or stops (`PlaybackQueue.stopAtEnd`). Whatever the user does that
 /// starts something else (a track by hand, previous/next album, a random track or album, stop) drops the queue.
-/// The state is purely transitional:
-/// it knows the position `(album, track)` in that playlist and a copy of what to display, nothing is persisted.
+/// The state is purely transitional: it knows the position `(album, track)` in that playlist and a copy of what to
+/// display. The one thing that is kept is where playback stands (`AppConfig.Playback.SavedState`: the track and the
+/// position in it, playing or paused), so that `restorePlayback` can pick it up at the next launch.
 @MainActor
 @Observable
 final class PlaybackState {
@@ -171,6 +172,17 @@ final class PlaybackState {
         }
     }
 
+    /// Where playback stands is kept, and `restorePlayback` picks it up at launch ("Restore Playback State", config
+    /// `general.restore_playback_state`, on by default). Turning it off forgets what was kept. Persisted in the config.
+    var restoresState = AppConfig.General().restorePlaybackState {
+        didSet {
+            guard restoresState != oldValue else { return }
+            configStore?.update { $0.general.restorePlaybackState = restoresState }
+            Log.info("restore playback state: \(restoresState ? "on" : "off")")
+            saveState()
+        }
+    }
+
     /// The row (of the active playlist) the user last clicked or moved to, set by the playlist view. Moving it
     /// onto the playing track (which is what `cursorFollowsPlayback` does) is not a request to jump anywhere.
     var cursorRow: Int? {
@@ -273,7 +285,24 @@ final class PlaybackState {
         let track: PlayedTrack
         let source: PlaybackSource
         let logLine: String
+        /// Where in the track it was picked up after a restart of the app (see `restorePlayback`); 0 for a start.
+        let resumedAt: Double
+        let isRestore: Bool
     }
+
+    /// A track picked up where the last run left it, see `restorePlayback`.
+    private struct Resume {
+        let seconds: Double
+        let paused: Bool
+    }
+
+    /// Seconds of playback between two writes of the position to the config while a track plays (replaced by tests).
+    @ObservationIgnored var stateSaveInterval = 10.0
+    /// The position (seconds) that was last written to the config as where playback stands.
+    @ObservationIgnored private var savedPosition = 0.0
+    /// The app is quitting with something playing: the track is put aside for the next launch instead of being left
+    /// (see `stopAndWait`).
+    @ObservationIgnored private var isQuitting = false
     /// The current track was taken from the queue: when nothing is left in it, "Stop at queue end" applies. A track
     /// started in any other way (and dropping the queue) ends that.
     @ObservationIgnored private var playingFromQueue = false
@@ -301,8 +330,8 @@ final class PlaybackState {
     /// (the UI shows whole seconds, and every change re-renders the views reading it, which costs ~1.5% CPU at
     /// 4 updates a second); 0 publishes every change.
     /// `configStore`: where `cursorFollowsPlayback`, `playbackFollowsCursor`, `resampleQuality`, `readAhead`, `outputDevice`,
-    /// `volume`, `order` and `atPlaylistEnd` are read from and kept; `nil` uses
-    /// the defaults and persists nothing.
+    /// `volume`, `order`, `atPlaylistEnd` and `restoresState` are read from and kept (and where playback's state is
+    /// saved to); `nil` uses the defaults and persists nothing.
     /// `listeners`: told about every track that starts and ends (held weakly).
     /// `queue`: the playback queue; by default a new one that keeps its settings in `configStore`.
     /// `nowPlaying`: the album art is only loaded while it is shown there; `nil` = always.
@@ -328,6 +357,9 @@ final class PlaybackState {
             readAhead = settings.readAhead
             outputDevice = settings.outputDevice
             volume = settings.volume
+        }
+        if let settings = configStore?.config.general {
+            restoresState = settings.restorePlaybackState
         }
         engine.volume = Float(volume)
         engine.resampleQuality = resampleQuality
@@ -384,10 +416,12 @@ final class PlaybackState {
             engine.pause()
             status = .paused
             Log.info("playback: paused at \(Self.clock(engine.position))")
+            saveState()
         case .paused:
             engine.resume()
             status = .playing
             Log.info("playback: resumed at \(Self.clock(engine.position))")
+            saveState()
         case .stopped:
             break
         }
@@ -450,7 +484,7 @@ final class PlaybackState {
     /// is gone, the playlist playing was deleted, the output failed).
     func halt() {
         playingFromQueue = false
-        endProgress()
+        endProgress(report: !isQuitting)
         pendingStart = nil
         giveUpMessage = nil
         if status != .stopped { Log.info("playback: stopped") }
@@ -466,13 +500,21 @@ final class PlaybackState {
         position = 0
         duration = 0
         store.playbackEnded()
+        if !isQuitting { saveState() }   // nothing plays: nothing to restore
     }
 
     /// `stop()`, returning once the output has faded out and stopped. For quitting: the process ending in the middle
     /// of the sound pops.
+    ///
+    /// Where the track was is kept for the next launch (see `restorePlayback`), which then goes on with it. So the
+    /// track isn't left: the listeners hear nothing of its end, a scrobble is made once it really is over, and counted
+    /// from the position it is picked up at.
     func stopAndWait() async {
+        syncWithEngine()
         guard status != .stopped else { return }
+        isQuitting = saveState()
         stop()
+        isQuitting = false
         await engine.waitForFade()
     }
 
@@ -593,6 +635,7 @@ final class PlaybackState {
         position = target
         Log.info("playback: seek to \(Self.clock(target)) of \(Self.clock(duration))")
         engine.seek(to: target)
+        saveState(position: target)
     }
 
     /// What plays after the current track may have changed: the playing playlist got more tracks (they are only
@@ -666,6 +709,48 @@ final class PlaybackState {
         queue.isEnabled && queue.stopAtEnd && playingFromQueue
     }
 
+    // MARK: - Saved state
+
+    /// Writes where playback stands to the config (`AppConfig.Playback.SavedState`): the playing track, the position in
+    /// it (`seconds`; the engine's by default), playing or paused. With nothing playing, or with `restoresState` off,
+    /// what was kept is forgotten instead. Returns whether a state was kept.
+    @discardableResult
+    private func saveState(position seconds: Double? = nil) -> Bool {
+        guard let configStore else { return false }
+        guard restoresState, status != .stopped, let pos = currentPos, let name = store.playingName,
+              let id = track(at: pos, in: store.playingPlaylist)?.id else {
+            configStore.update { $0.playback.state = nil }
+            return false
+        }
+        let time = seconds ?? engine.position
+        // Not a number JSON can hold, or not a position at all: the start of the track is the safe answer.
+        let position = time.isFinite ? (max(time, 0) * 1000).rounded() / 1000 : 0
+        savedPosition = position
+        let state = AppConfig.Playback.SavedState(playlist: name, trackID: id, position: position, paused: status == .paused)
+        configStore.update { $0.playback.state = state }
+        return true
+    }
+
+    /// Picks up where the last run left off, if `restoresState` is on and a track played (or was paused) when the app
+    /// was quit: that track, from the position it was at, playing or paused as it was. For the launch: it waits for
+    /// the playlist of the track to be read.
+    ///
+    /// Whatever the user does meanwhile (starting a track, pressing stop) wins. A playlist or track that is gone is
+    /// forgotten; one that can't be played leaves playback stopped (see `handle`). The queue is not touched.
+    func restorePlayback() async {
+        guard restoresState, status == .stopped, let configStore,
+              let saved = configStore.config.playback.state else { return }
+        let playlist = await store.readPlaylist(named: saved.playlist)
+        // Stop forgets the state, as does turning the setting off.
+        guard status == .stopped, configStore.config.playback.state == saved else { return }
+        guard let playlist, let pos = playlist.position(of: saved.trackID), track(at: pos, in: playlist) != nil else {
+            Log.info("playback: nothing to restore, the track is not in playlist \"\(saved.playlist)\" any more")
+            configStore.update { $0.playback.state = nil }
+            return
+        }
+        begin(Target(pos: pos, playlist: saved.playlist), resume: Resume(seconds: saved.position, paused: saved.paused))
+    }
+
     // MARK: - Engine queue
 
     private func begin(at pos: Position) {
@@ -676,7 +761,8 @@ final class PlaybackState {
     /// than the playing one (`playlist`) moves playback over to that playlist. A queued track leaves the queue.
     /// `afterFailure`: playback moves on by itself because the track before couldn't be played (which goes on counting
     /// the failures in a row); anything else starts counting from scratch.
-    private func begin(_ target: Target, afterFailure: Bool = false) {
+    /// `resume`: the track is picked up there, and paused or not (`restorePlayback`), instead of started.
+    private func begin(_ target: Target, afterFailure: Bool = false, resume: Resume? = nil) {
         if !afterFailure { failures = 0 }
         giveUpMessage = nil
         var target = target
@@ -705,10 +791,10 @@ final class PlaybackState {
         shuffleNext = nil
         nextPos = nextTarget(after: pos)
         nextSource = nextPos.flatMap { self.track(at: $0.pos, in: self.playlist(of: $0)) }?.source
-        engine.start(track.source, next: nextSource)
+        engine.start(track.source, at: resume?.seconds ?? 0, next: nextSource, playing: resume?.paused != true)
 
-        status = .playing
-        trackDidChange(how: "started")
+        status = resume?.paused == true ? .paused : .playing
+        trackDidChange(how: resume == nil ? "started" : "restored", resume: resume)
         startTicking()
     }
 
@@ -765,6 +851,13 @@ final class PlaybackState {
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
         case .failed(let source, let wasCurrent, let message):
+            if wasCurrent, let pending = pendingStart, pending.isRestore, pending.source == source {
+                // The track of the last run can't be played (a share that isn't there yet, a file that is gone): music
+                // isn't started from the tracks after it, which would only fail one after the other.
+                Log.error("playback: can't restore, staying stopped (\(source.url.path): \(message))")
+                halt()
+                return
+            }
             failures += 1
             if failures >= Self.maxConsecutiveFailures {
                 giveUp(lastFailed: source, message: message, stopNow: wasCurrent)
@@ -853,6 +946,9 @@ final class PlaybackState {
         let time = engine.position
         guard time.isFinite, time >= 0 else { return }
         progress?.observe(position: time)
+        if restoresState, status == .playing, abs(time - savedPosition) >= stateSaveInterval {
+            saveState(position: time)
+        }
         guard isWatched else { return }
         publishPosition(time)
         alignAnchor(to: time)
@@ -928,8 +1024,8 @@ final class PlaybackState {
     // MARK: - Current track
 
     /// Fills in everything shown about the (new) current track. The listeners are told when its audio starts: at once
-    /// if `audible`, else on `PlaybackEngine.Event.started`.
-    private func trackDidChange(how: String, audible: Bool = false) {
+    /// if `audible`, else on `PlaybackEngine.Event.started`. `resume`: the track was picked up in the middle.
+    private func trackDidChange(how: String, audible: Bool = false, resume: Resume? = nil) {
         endProgress()
         pendingStart = nil
         // The request is served
@@ -942,15 +1038,19 @@ final class PlaybackState {
         fileInfoChecked = false
         info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
                          year: album.year, number: track.number, codec: track.codec)
-        position = 0
+        let resumedAt = resume?.seconds ?? 0
+        position = resumedAt
         duration = track.duration ?? 0
         loadArtworkIfNeeded(for: album, playing: pos.track)
+        saveState(position: resumedAt)
 
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
                                  duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue)
-        let logLine = "playback: \(how): \(track.artist) – \(track.title) [\(album.title)], "
+        let logLine = "playback: \(how)\(resume.map { " at \(Self.clock($0.seconds))\($0.paused ? ", paused" : "")" } ?? ""): "
+            + "\(track.artist) – \(track.title) [\(album.title)], "
             + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingName ?? "")\", \(track.path)"
-        pendingStart = PendingStart(track: played, source: track.source, logLine: logLine)
+        pendingStart = PendingStart(track: played, source: track.source, logLine: logLine,
+                                    resumedAt: resumedAt, isRestore: resume != nil)
         if audible { announceStart() }
     }
 
@@ -960,21 +1060,26 @@ final class PlaybackState {
         pendingStart = nil
         failures = 0
         var played = pending.track
-        played.startedAt = Date()
+        // A track picked up in the middle started that long ago.
+        played.startedAt = Date().addingTimeInterval(-pending.resumedAt)
         Log.info(pending.logLine)
-        progress = PlayProgress(track: played)
+        progress = PlayProgress(track: played, resumedAt: pending.resumedAt)
         for listener in listeners { listener.value?.trackDidStart(played) }
     }
 
     /// The current track is left (another one starts, or playback stops): the listener hears how far it got.
     /// Runs before `duration` is replaced, so it is still the one of the track that ends.
-    private func endProgress() {
+    /// `report` off: the listeners aren't told, the track is only put aside (see `stopAndWait`).
+    private func endProgress(report: Bool = true) {
         guard let finished = progress else { return }
         progress = nil
         var track = finished.track
         if duration > 0 { track.duration = duration }
-        Log.info("playback: left \(track.artist) – \(track.title), listened to \(Self.clock(finished.played)) of \(Self.clock(track.duration))")
-        for listener in listeners { listener.value?.trackDidEnd(track, playedSeconds: finished.played) }
+        let listened = finished.listened(ofDuration: track.duration)
+        Log.info("playback: left \(track.artist) – \(track.title), listened to \(Self.clock(listened)) of \(Self.clock(track.duration))"
+            + (report ? "" : ", to be picked up at the next launch"))
+        guard report else { return }
+        for listener in listeners { listener.value?.trackDidEnd(track, playedSeconds: listened) }
     }
 
     /// `3:05` for log messages.

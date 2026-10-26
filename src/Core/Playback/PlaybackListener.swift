@@ -63,16 +63,31 @@ struct PlayProgress {
     static let maxStep: TimeInterval = 1.5
 
     let track: PlayedTrack
+    /// Where the track was picked up after the app was restarted (0: from its start). What was before that was
+    /// listened to by an earlier run, which is not known any more, see `listened(ofDuration:)`.
+    let resumedAt: TimeInterval
+    /// Listening done since the track started or was picked up.
     private(set) var played: TimeInterval = 0
-    private var lastPosition: TimeInterval = 0
+    private var lastPosition: TimeInterval
 
-    init(track: PlayedTrack) {
+    init(track: PlayedTrack, resumedAt: TimeInterval = 0) {
         self.track = track
+        self.resumedAt = resumedAt
+        lastPosition = resumedAt
     }
 
     mutating func observe(position: TimeInterval) {
         let step = position - lastPosition
         lastPosition = position
         if step > 0, step <= Self.maxStep { played += step }
+    }
+
+    /// What counts as listened to, for a track `duration` seconds long. A track that was picked up at the share of
+    /// its length that Last.fm scrobbles at, or later, is taken to have been listened to up to there (the run before
+    /// can't say, and the position is all that was kept); a track picked up earlier counts from scratch.
+    @MainActor
+    func listened(ofDuration duration: TimeInterval) -> TimeInterval {
+        guard duration > 0, resumedAt >= duration * LastFMService.scrobbleThreshold else { return played }
+        return min(played + resumedAt, duration)
     }
 }
