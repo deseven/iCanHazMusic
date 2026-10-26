@@ -168,6 +168,106 @@ extension AllTests {
             #expect(rig.deviation(of: .a, from: 44100, at: 3 * Self.slice, count: 3 * Self.slice) == 0)
         }
 
+        // MARK: Releasing the output during a long pause
+
+        @Test("a released pause keeps the position, and resuming continues with the very next sample")
+        func releasedPause() async throws {
+            let rig = try await playing(next: .b)
+            rig.engine.pause()
+            try await rig.render(4 * Self.slice)
+            let position = rig.engine.position
+            let paused = Int((position * 44100).rounded())
+
+            rig.engine.releaseIdleOutput()
+            #expect(rig.engine.isActive)
+            #expect(rig.engine.position == position)
+            #expect(rig.engine.duration == RampFile.a.duration)
+            #expect(rig.engine.hasCurrentAudio && !rig.engine.isAudible)
+            try await rig.render(4 * Self.slice)
+            #expect(isSilent(rig.out, in: (rig.frame - 4 * Self.slice)..<rig.frame))
+
+            let at = rig.frame
+            rig.engine.resume()
+            try await rig.render(6 * Self.slice)
+            let settled = at + rig.fadeInFrames
+            #expect(rig.deviation(of: .a, from: paused + rig.fadeInFrames, at: settled, count: 6 * Self.slice - rig.fadeInFrames) == 0)
+            #expect(abs(rig.engine.position * 44100 - Double(paused + 6 * Self.slice)) < 1)
+
+            // The next track was kept: it follows gaplessly.
+            let end = at + RampFile.a.frames - paused
+            try await rig.render(RampFile.a.frames + 2000)
+            #expect(rig.events == ["advanced"])
+            #expect(rig.deviation(of: .b, from: 0, at: end, count: 2000) == 0)
+        }
+
+        @Test("seeking while released only moves the position; stop and start work as usual")
+        func releasedSeekStop() async throws {
+            let rig = try await playing()
+            rig.engine.pause()
+            try await rig.render(4 * Self.slice)
+            rig.engine.releaseIdleOutput()
+            rig.engine.seek(to: 2)
+            #expect(rig.engine.position == 2)
+            try await rig.render(2 * Self.slice)
+            #expect(isSilent(rig.out, in: (rig.frame - 2 * Self.slice)..<rig.frame))
+            #expect(!rig.engine.wantsPlaying)
+
+            let at = rig.frame
+            rig.engine.resume()
+            try await rig.render(4 * Self.slice)
+            #expect(rig.deviation(of: .a, from: 88200 + rig.fadeInFrames, at: at + rig.fadeInFrames,
+                                  count: 4 * Self.slice - rig.fadeInFrames) == 0)
+
+            rig.engine.pause()
+            try await rig.render(2 * Self.slice)
+            rig.engine.releaseIdleOutput()
+            rig.engine.stop()
+            #expect(!rig.engine.isActive && rig.engine.position == 0)
+
+            rig.engine.pause()
+            rig.engine.releaseIdleOutput()                     // nothing to release
+            rig.engine.start(try RampFile.b.url())
+            let start = rig.frame
+            try await rig.render(4 * Self.slice)
+            #expect(rig.deviation(of: .b, from: rig.fadeInFrames, at: start + rig.fadeInFrames,
+                                  count: 4 * Self.slice - rig.fadeInFrames) == 0)
+        }
+
+        @Test("the output is only released while paused")
+        func releaseOnlyPaused() async throws {
+            let rig = try await playing()
+            rig.engine.releaseIdleOutput()
+            let at = rig.frame
+            try await rig.render(4 * Self.slice)
+            #expect(rig.deviation(of: .a, from: at, at: at, count: 4 * Self.slice) == 0)
+            #expect(rig.engine.isAudible)
+        }
+
+        // MARK: Started
+
+        @Test("`started` comes when a track's first audio is scheduled, for every restart, not for gapless transitions")
+        func startedEvents() async throws {
+            let rig = EngineRig()
+            rig.engine.start(try RampFile.a.url(), next: try RampFile.b.url())
+            #expect(!rig.engine.hasCurrentAudio && !rig.engine.isAudible)
+            #expect(rig.started.isEmpty)
+            try await rig.render(2 * Self.slice)
+            #expect(rig.started == ["a.flac"])
+            #expect(rig.engine.hasCurrentAudio && rig.engine.isAudible)
+
+            rig.engine.seek(to: 1)
+            try await rig.render(4 * Self.slice)
+            #expect(rig.started == ["a.flac", "a.flac"])
+
+            try await rig.render(RampFile.a.frames)               // into b, gaplessly
+            #expect(rig.events == ["advanced"])
+            #expect(rig.started == ["a.flac", "a.flac"])
+
+            rig.engine.pause()
+            try await rig.render(2 * Self.slice)
+            #expect(!rig.engine.isAudible)
+        }
+
         @Test("pause, resume and stop on an idle engine are harmless")
         func idleCommands() async throws {
             let rig = EngineRig()

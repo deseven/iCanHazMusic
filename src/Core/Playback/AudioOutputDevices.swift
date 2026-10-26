@@ -48,6 +48,23 @@ enum AudioOutputDevices {
         return device
     }
 
+    /// The system's default output device, if there is one.
+    static func defaultOutput() -> AudioOutputDevice? {
+        var address = propertyAddress(kAudioHardwarePropertyDefaultOutputDevice)
+        var device = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
+              device != AudioDeviceID(kAudioObjectUnknown),
+              let uid = string(device, kAudioDevicePropertyDeviceUID), let name = string(device, kAudioObjectPropertyName)
+        else { return nil }
+        return AudioOutputDevice(uid: uid, name: name)
+    }
+
+    /// The name of the connected device with this UID.
+    static func name(ofUID uid: String) -> String? {
+        deviceID(forUID: uid).flatMap { string($0, kAudioObjectPropertyName) }
+    }
+
     // MARK: - Properties
 
     private static func propertyAddress(_ selector: AudioObjectPropertySelector,

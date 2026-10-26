@@ -173,6 +173,74 @@ extension AllTests {
             #expect(rig.deviation(of: .a, from: 0, at: RampFile.b.frames, count: heard) == 0)
         }
 
+        // MARK: Files that don't answer
+
+        @Test("a track started while the feeder waits for a file that doesn't answer plays at once")
+        func startOverHungFile() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let rig = EngineRig()
+            rig.engine.decoderTimeout = 60
+            rig.engine.start(hung.url)
+            let feeding = Task { await rig.engine.settle() }     // stuck in opening the file
+            try await Task.sleep(for: .milliseconds(100))
+
+            let started = Date()
+            rig.engine.start(try RampFile.a.url())
+            await feeding.value                                 // released by the restart, not by the file
+            #expect(Date().timeIntervalSince(started) < 5)
+            try await rig.render(4 * Self.slice)
+            #expect(rig.deviation(of: .a, from: 0, at: 0, count: 4 * Self.slice) == 0)
+            #expect(rig.events.isEmpty)
+            hung.release()
+        }
+
+        @Test("a current track whose file doesn't answer fails after the timeout")
+        func hungCurrent() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let rig = EngineRig()
+            rig.engine.decoderTimeout = 0.3
+            rig.engine.start(hung.url)
+            try await rig.render(4 * Self.slice)
+            #expect(rig.events == ["failed:hung.flac:current"])
+            #expect(rig.started.isEmpty)
+            #expect(!rig.engine.isActive)
+            hung.release()
+        }
+
+        @Test("a next track whose file doesn't answer fails after the timeout; the current one plays out")
+        func hungNext() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let rig = EngineRig()
+            rig.engine.decoderTimeout = 0.3
+            rig.engine.start(try RampFile.a.url(), next: hung.url)
+            try await rig.render(RampFile.a.frames + 3000)
+            #expect(rig.events == ["failed:hung.flac:next", "finished"])
+            #expect(rig.deviation(of: .a, from: 0, at: 0, count: RampFile.a.frames) == 0)
+            hung.release()
+        }
+
+        @Test("replacing a next track that doesn't answer queues the new one, gaplessly")
+        func replaceHungNext() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let rig = EngineRig()
+            rig.engine.decoderTimeout = 60
+            rig.engine.start(try RampFile.a.url(), next: hung.url)
+            let feeding = Task { await rig.engine.settle() }     // decodes a, then gets stuck on the next one
+            try await Task.sleep(for: .milliseconds(300))
+
+            rig.engine.setNext(try RampFile.c.url())
+            await feeding.value
+            try await rig.render(RampFile.a.frames + RampFile.c.frames + 2000)
+            #expect(rig.events == ["advanced", "finished"])
+            #expect(rig.deviation(of: .a, from: 0, at: 0, count: RampFile.a.frames) == 0)
+            #expect(rig.deviation(of: .c, from: 0, at: RampFile.a.frames, count: RampFile.c.frames) == 0)
+            hung.release()
+        }
+
         // MARK: Misc
 
         @Test("the engine can be used again after any failure")

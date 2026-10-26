@@ -15,7 +15,10 @@ final class EngineRig {
     let engine: PlaybackEngine
     let rate: Double
     private(set) var out: [[Float]] = [[], []]
+    /// Every event but `started`, which is kept in `started` (it comes with every start, seek and restart).
     private(set) var events: [String] = []
+    /// File names of the `started` events.
+    private(set) var started: [String] = []
     /// Called for every event, after it was recorded.
     var react: ((PlaybackEngine.Event) -> Void)?
 
@@ -29,11 +32,16 @@ final class EngineRig {
     }
 
     func record(_ event: PlaybackEngine.Event) {
-        events.append(Self.describe(event))
+        if case .started(let source) = event {
+            started.append(source.url.lastPathComponent)
+        } else {
+            events.append(Self.describe(event))
+        }
     }
 
     static func describe(_ event: PlaybackEngine.Event) -> String {
         switch event {
+        case .started(let source): "started:\(source.url.lastPathComponent)"
         case .advanced: "advanced"
         case .finished: "finished"
         case .failed(let source, let wasCurrent, _): "failed:\(source.url.lastPathComponent):\(wasCurrent ? "current" : "next")"

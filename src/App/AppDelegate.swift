@@ -10,7 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // via LaunchServices, the app isn't brought to front on its own and its window opens
         // behind the launching app.
         NSApp.activate()
+        MainThreadWatchdog.shared.start()
+        observeSleep()
         LastFMService.shared.onConnectionLost = { LastFMActions.connectionLost($0) }
+        PlaybackState.shared.onGiveUp = { PlaybackActions.gaveUp($0) }
         UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
         UpdateService.shared.start()
         HotkeyService.shared.onSearch = { SearchPanel.shared.toggle() }
@@ -39,6 +42,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         PlaybackState.shared.isWatched = Self.hasVisibleWindow
+    }
+
+    /// Sleep and wake go into the log: what goes wrong with devices and network shares often starts there.
+    private func observeSleep() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+            Log.info("system: going to sleep")
+        }
+        center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            Log.info("system: woke up")
+        }
     }
 
     /// Windows that can show the now playing block (not the search panel and the like).

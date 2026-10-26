@@ -22,6 +22,10 @@ import Foundation
 ///   next time a buffer is scheduled and subtracted from the position.
 /// - Pausing, seeking and stopping fade the output out first and act `fadeDuration` later, and playback starts
 ///   with a fade-in, so none of them clicks. Changing the queue replaces the player's content (`restart`).
+/// - A file that doesn't answer (a network share that went away) never holds up the feeder: a decoder that is dropped
+///   releases its wait at once, and one that doesn't deliver within `decoderTimeout` fails (or ends its track there).
+/// - After `pauseReleaseDelay` of pause the output is let go of (`releaseIdleOutput`): a running output keeps the Mac
+///   from sleeping and holds the device; resuming starts it again from the same position.
 ///
 /// Everything here runs on the main actor; decoding happens on the decoders' queues.
 @MainActor
@@ -34,6 +38,9 @@ final class PlaybackEngine {
     }
 
     enum Event {
+        /// The current track's first audio has been decoded and handed to the player (after a start, a seek or any
+        /// other restart): its file can be played.
+        case started(source: PlaybackSource)
         /// The playhead crossed into the queued next track, which is the current one now.
         case advanced
         /// The queue ran out, playback ended.
@@ -49,6 +56,8 @@ final class PlaybackEngine {
 
     /// Time the output takes to fade out before pausing/seeking/stopping.
     static let fadeDuration: Double = 0.03
+    /// Seconds of pause after which the output is let go of (`releaseIdleOutput`).
+    static let pauseReleaseDelay: Double = 60
     /// Frames rendered at once by `renderOffline` (the engine's maximum).
     nonisolated static let renderSlice = 1024
 
@@ -65,6 +74,10 @@ final class PlaybackEngine {
     /// Seconds of audio the feeder keeps scheduled ahead of the playhead, which is also the time the next track's
     /// file has to open in. Takes effect at once.
     var lookahead: Double
+
+    /// Seconds a file gets to deliver the next piece of audio (opening it included). One that doesn't answer in time
+    /// is given up: it fails if nothing of it was played yet, else its track ends there.
+    var decoderTimeout: Double = 10
 
     /// UID of the output device (`AudioOutputDevices`); empty = the system's default, followed when it changes. It is
     /// looked up only when the output is started, and a device that isn't there then is dropped for the system default
@@ -132,6 +145,18 @@ final class PlaybackEngine {
     private var pendingStop = false
     private(set) var wantsPlaying = false
 
+    /// The paused track after the output was let go of (`releaseIdleOutput`): where to continue on `resume`, and
+    /// what was known about the file.
+    private struct Parked {
+        var restart: Restart
+        var duration: Double?
+        var codec: String?
+    }
+    private var parked: Parked?
+    private var idleTask: Task<Void, Never>?
+    /// Reports CoreAudio calls that block the main thread for long (a device in a bad state).
+    private let slowCalls = SlowCallLog()
+
     /// The player's timeline: total frames scheduled since it was last stopped (plus starvation).
     private var scheduledEnd: Int64 = 0
     /// The timeline position while the node isn't running (paused or not started).
@@ -195,32 +220,51 @@ final class PlaybackEngine {
     // MARK: - State
 
     /// Something is loaded (playing, paused or still starting).
-    var isActive: Bool { !pendingStop && (pendingRestart != nil || !slots.isEmpty) }
+    var isActive: Bool { !pendingStop && (pendingRestart != nil || parked != nil || !slots.isEmpty) }
 
     /// Seconds into the current track.
     var position: Double {
         if pendingStop { return 0 }
         if let seconds = pendingRestart?.seconds { return seconds }
+        if let parked { return parked.restart.seconds ?? 0 }
         guard let slot = slots.first else { return 0 }
         guard slot.hasScheduled else { return slot.startSeconds }
         let frames = max(0, currentFrame() - slot.startFrame - slot.gapFrames)
-        var seconds = slot.startSeconds + Double(frames) / sampleRate
-        if slot.decodeFinished {
-            seconds = min(seconds, slot.startSeconds + Double(slot.scheduledFrames) / sampleRate)
-        }
+        // Never past what was scheduled: if decoding falls behind, the player's timeline runs on in silence.
+        let seconds = min(slot.startSeconds + Double(frames) / sampleRate,
+                          slot.startSeconds + Double(slot.scheduledFrames) / sampleRate)
         if case .device = output, engine.isRunning { lastPosition = (slot, seconds) }
         return seconds
     }
 
+    /// The current track's audio is coming out: it plays, and isn't starting, seeking, waiting for a file that is
+    /// late (nothing decoded in time) or released. While this is false the position doesn't move.
+    var isAudible: Bool {
+        guard wantsPlaying, !pendingStop, pendingRestart == nil, parked == nil,
+              let slot = slots.first, slot.hasScheduled else { return false }
+        return currentFrame() < scheduledEnd
+    }
+
+    /// Audio of the current track has been handed to the player (see `Event.started`).
+    var hasCurrentAudio: Bool {
+        pendingRestart == nil && !pendingStop && (parked != nil || slots.first?.hasScheduled == true)
+    }
+
     /// Exact length of the current track in seconds, once its file has been opened.
     var duration: Double? {
-        pendingRestart == nil && !pendingStop ? slots.first?.duration : nil
+        guard pendingRestart == nil, !pendingStop else { return nil }
+        if let parked { return parked.duration }
+        return slots.first?.duration
     }
 
     /// What the current track's file turned out to be, once it has been opened.
     var currentFile: (source: PlaybackSource, duration: Double, codec: String)? {
-        guard pendingRestart == nil, !pendingStop, let slot = slots.first,
-              let duration = slot.duration, let codec = slot.codec else { return nil }
+        guard pendingRestart == nil, !pendingStop else { return nil }
+        if let parked {
+            guard let duration = parked.duration, let codec = parked.codec else { return nil }
+            return (parked.restart.source, duration, codec)
+        }
+        guard let slot = slots.first, let duration = slot.duration, let codec = slot.codec else { return nil }
         return (slot.source, duration, codec)
     }
 
@@ -250,11 +294,20 @@ final class PlaybackEngine {
         guard wantsPlaying else { return }
         wantsPlaying = false
         if node.isPlaying { fadeOutThenCommit() }
+        armIdleRelease()
     }
 
     func resume() {
         guard !wantsPlaying, isActive else { return }
         wantsPlaying = true
+        idleTask?.cancel()
+        idleTask = nil
+        if let parked, pendingRestart == nil {
+            // The output was let go of during the pause: start it again where the track was left.
+            pendingRestart = parked.restart
+            commit()
+            return
+        }
         if fadeInFlight {
             // Changed our mind while fading out: turn around, unless a restart is waiting for the fade to finish
             // (it then starts playing by itself).
@@ -279,10 +332,14 @@ final class PlaybackEngine {
 
     /// Moves the current track to `seconds` (at most its last frame).
     func seek(to seconds: Double) {
-        guard !pendingStop, let source = pendingRestart?.source ?? slots.first?.source else { return }
+        guard !pendingStop, let source = pendingRestart?.source ?? slots.first?.source ?? parked?.restart.source else { return }
         var target = max(0, seconds)
-        if pendingRestart == nil, let length = slots.first?.duration {
+        if pendingRestart == nil, let length = parked?.duration ?? slots.first?.duration {
             target = min(target, max(0, length - 1 / sampleRate))
+        }
+        if parked != nil, pendingRestart == nil {
+            parked?.restart.seconds = target   // stays released until it is resumed
+            return
         }
         pendingRestart = Restart(source: source, seconds: target)
         fadeOutThenCommit()
@@ -365,18 +422,19 @@ final class PlaybackEngine {
             }
         } else if node.isPlaying {
             frozenFrame = currentFrame()
-            node.pause()
+            slowCalls.measure("AVAudioPlayerNode.pause") { node.pause() }
         }
     }
 
     private func performRestart(_ restart: Restart) {
+        parked = nil
         guard prepareOutput() else {
             teardown()
             onEvent?(.deviceError("can't start the audio output"))
             return
         }
         let seconds = restart.seconds ?? position
-        node.stop()
+        slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
         cancelSlots()
         scheduledEnd = 0
         frozenFrame = 0
@@ -396,25 +454,72 @@ final class PlaybackEngine {
         lastPosition = nil
     }
 
-    /// Back to idle: nothing queued, nothing playing.
-    private func teardown() {
+    /// Back to idle: nothing queued, nothing playing. `keepOutput`: the output keeps running, for whoever is told
+    /// about it to start the next track without stopping and starting the device in between (`stopOutputIfIdle`).
+    private func teardown(keepOutput: Bool = false) {
         fadeTask?.cancel()
         boundaryTask?.cancel()
         feedTask?.cancel()
+        idleTask?.cancel()
         fadeTask = nil
         boundaryTask = nil
         feedTask = nil
+        idleTask = nil
         fadeInFlight = false
         fadeFramesRemaining = 0
-        node.stop()
+        slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
         cancelSlots()
         scheduledEnd = 0
         frozenFrame = 0
         pendingRestart = nil
+        parked = nil
         wantsPlaying = false
+        if !keepOutput { stopOutput() }
+    }
+
+    private func stopOutput() {
+        guard case .device = output, engine.isRunning else { return }
+        slowCalls.measure("AVAudioEngine.stop") { engine.stop() }
+        Log.info("audio output: stopped")
+    }
+
+    /// After `teardown(keepOutput: true)` and the event about it: stops the output unless something was started.
+    private func stopOutputIfIdle() {
+        if !isActive { stopOutput() }
+    }
+
+    // MARK: - Releasing the output during a long pause
+
+    private func armIdleRelease() {
+        idleTask?.cancel()
+        idleTask = nil
+        guard case .device = output else { return }
+        idleTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.pauseReleaseDelay))
+            guard !Task.isCancelled else { return }
+            self?.releaseIdleOutput()
+        }
+    }
+
+    /// Lets go of the output while paused: the player and the decoders are dropped and the device engine is stopped
+    /// (which lets the Mac sleep and the device rest); the position is kept, `resume` starts from there with a
+    /// fresh output. Does nothing unless paused. Called `pauseReleaseDelay` after a pause; offline (tests) only by hand.
+    func releaseIdleOutput() {
+        idleTask = nil
+        guard !wantsPlaying, !pendingStop, pendingRestart == nil, parked == nil, !fadeInFlight,
+              let slot = slots.first else { return }
+        parked = Parked(restart: Restart(source: slot.source, seconds: position), duration: slot.duration, codec: slot.codec)
+        feedTask?.cancel()
+        boundaryTask?.cancel()
+        feedTask = nil
+        boundaryTask = nil
+        slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
+        cancelSlots()
+        scheduledEnd = 0
+        frozenFrame = 0
         if case .device = output, engine.isRunning {
-            engine.stop()
-            Log.info("audio output: stopped")
+            slowCalls.measure("AVAudioEngine.stop") { engine.stop() }
+            Log.info("audio output: released after \(Int(Self.pauseReleaseDelay)) s of pause")
         }
     }
 
@@ -425,16 +530,21 @@ final class PlaybackEngine {
         guard case .device = output else { return engine.isRunning }
         if engine.isRunning { return true }
 
-        bindOutputDevice()
-        let hardware = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        slowCalls.measure("binding the output device") { bindOutputDevice() }
+        let hardware = slowCalls.measure("AVAudioOutputNode.outputFormat") { engine.outputNode.outputFormat(forBus: 0).sampleRate }
         sampleRate = hardware > 0 ? hardware : 44100
         format = Self.makeFormat(sampleRate: sampleRate)
-        engine.disconnectNodeOutput(node)
-        engine.connect(node, to: engine.mainMixerNode, format: format)
-        engine.prepare()
+        slowCalls.measure("AVAudioEngine.connect") {
+            engine.disconnectNodeOutput(node)
+            engine.connect(node, to: engine.mainMixerNode, format: format)
+        }
+        slowCalls.measure("AVAudioEngine.prepare") { engine.prepare() }
         do {
-            try engine.start()
-            Log.info("audio output: started at \(Int(sampleRate)) Hz")
+            try slowCalls.measure("AVAudioEngine.start") { try engine.start() }
+            let device = slowCalls.measure("looking up the output device") {
+                boundDeviceUID.isEmpty ? AudioOutputDevices.defaultOutput()?.name : AudioOutputDevices.name(ofUID: boundDeviceUID)
+            }
+            Log.info("audio output: started at \(Int(sampleRate)) Hz on \(device.map { "\"\($0)\"" } ?? "an unknown device")")
             return true
         } catch {
             Log.error("audio engine: \(error.localizedDescription)")
@@ -470,7 +580,7 @@ final class PlaybackEngine {
     }
 
     private func replaceEngine() {
-        node.stop()
+        slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
         engine.detach(node)
         engine = AVAudioEngine()
         node = AVAudioPlayerNode()
@@ -493,8 +603,8 @@ final class PlaybackEngine {
 
         fadeTask?.cancel()
         fadeInFlight = false
-        engine.stop()
-        node.stop()
+        slowCalls.measure("AVAudioEngine.stop") { engine.stop() }
+        slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
         faded = false
         node.volume = 1
         pendingRestart = Restart(source: source, seconds: seconds)
@@ -503,11 +613,13 @@ final class PlaybackEngine {
 
     private func playNode() {
         guard engine.isRunning else { return }
+        idleTask?.cancel()
+        idleTask = nil
         if faded {
             node.volume = 1   // the mixer ramps this, which is the fade-in
             faded = false
         }
-        node.play()
+        slowCalls.measure("AVAudioPlayerNode.play") { node.play() }
         armBoundaryTimer()
     }
 
@@ -515,11 +627,13 @@ final class PlaybackEngine {
 
     /// The player's timeline position in frames (see `scheduledEnd`).
     private func currentFrame() -> Int64 {
-        if node.isPlaying, let time = node.lastRenderTime, time.isSampleTimeValid,
-           let player = node.playerTime(forNodeTime: time), player.isSampleTimeValid {
-            return max(0, player.sampleTime)
+        slowCalls.measure("AVAudioPlayerNode.playerTime") {
+            if node.isPlaying, let time = node.lastRenderTime, time.isSampleTimeValid,
+               let player = node.playerTime(forNodeTime: time), player.isSampleTimeValid {
+                return max(0, player.sampleTime)
+            }
+            return frozenFrame
         }
-        return frozenFrame
     }
 
     // MARK: - Feeding
@@ -557,7 +671,7 @@ final class PlaybackEngine {
         guard Double(scheduledEnd - currentFrame()) < lookahead * sampleRate else { return false }
 
         slot.isDecoding = true
-        let result = await slot.decoder.next()
+        let result = await slot.decoder.next(timeout: decoderTimeout)
         slot.isDecoding = false
         // Dropped (restart, stop, new next track) while decoding.
         guard slots.contains(where: { $0 === slot }) else { return true }
@@ -566,8 +680,10 @@ final class PlaybackEngine {
         case .chunk(let chunk):
             slot.duration = slot.source.length(inFileOf: chunk.fileDuration)
             slot.codec = chunk.codec
+            let first = !slot.hasScheduled
             schedule(chunk.buffer, in: slot)
             startPlaybackIfReady()
+            if first, slots.first === slot { onEvent?(.started(source: slot.source)) }
         case .finished(let warning):
             slot.decodeFinished = true
             if slot.scheduledFrames == 0 {
@@ -619,11 +735,12 @@ final class PlaybackEngine {
         slot.decoder.cancel()
         Log.error("can't play \(slot.source.url.path): \(message)")
         if wasCurrent {
-            teardown()
+            teardown(keepOutput: true)
         } else {
             nextSource = nil
         }
         onEvent?(.failed(source: slot.source, wasCurrent: wasCurrent, message: message))
+        if wasCurrent { stopOutputIfIdle() }
     }
 
     // MARK: - Track boundaries
@@ -639,8 +756,9 @@ final class PlaybackEngine {
                 armBoundaryTimer()
                 onEvent?(.advanced)
             } else if nextSource == nil {
-                teardown()
+                teardown(keepOutput: true)
                 onEvent?(.finished)
+                stopOutputIfIdle()
                 return
             } else {
                 return   // the next track's decoder has just been asked for; it is only late

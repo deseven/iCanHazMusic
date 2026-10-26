@@ -21,6 +21,10 @@ import Foundation
 ///   playing its last frame.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
+/// - Whoever waits in `next()` is never held up by a file that doesn't respond: `cancel()` releases the wait at once,
+///   and a call that gets no answer within its `timeout` gives up (`.failed` if nothing was delivered yet, else
+///   `.finished` with a warning, i.e. the track ends there). The blocked read itself can't be interrupted: it
+///   finishes in the background whenever the system lets it, and its result is dropped.
 final class TrackDecoder: @unchecked Sendable {
     /// One piece of audio, ready to be scheduled on the player node.
     struct Chunk: @unchecked Sendable {
@@ -55,8 +59,13 @@ final class TrackDecoder: @unchecked Sendable {
     private let resampleQuality: ResampleQuality
     private let queue = DispatchQueue(label: "wtf.d7.icanhazmusic.decoder", qos: .userInitiated)
 
-    private let cancelLock = NSLock()
+    /// Guards `cancelled`, `waiting` and `delivered`, which are touched from the caller, the queue and timers.
+    private let stateLock = NSLock()
     private var cancelled = false
+    /// The `next()` call in progress.
+    private var waiting: Waiter?
+    /// Some audio has been handed out.
+    private var delivered = false
 
     // Only touched on `queue` from here on.
     private var opened = false
@@ -86,23 +95,98 @@ final class TrackDecoder: @unchecked Sendable {
         self.resampleQuality = resampleQuality
     }
 
-    /// Abandons the decoder: the work in progress finishes, nothing new is started.
+    /// Abandons the decoder: a `next()` call that is waiting returns `.finished` at once, nothing new is started (the
+    /// blocking work in progress, if any, finishes in the background).
     func cancel() {
-        cancelLock.lock()
+        stateLock.lock()
         cancelled = true
-        cancelLock.unlock()
+        let waiter = waiting
+        waiting = nil
+        stateLock.unlock()
+        waiter?.resume(.finished(warning: nil))
     }
 
     private var isCancelled: Bool {
-        cancelLock.lock()
-        defer { cancelLock.unlock() }
+        stateLock.lock()
+        defer { stateLock.unlock() }
         return cancelled
     }
 
     /// The next chunk of audio. Calls are meant to be made one after the other, not concurrently.
-    func next() async -> Result {
+    /// `timeout`: seconds to wait for the file at most; after that the decoder gives up for good (see above).
+    func next(timeout: Double? = nil) async -> Result {
         await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.produce()) }
+            let waiter = Waiter(continuation)
+            stateLock.lock()
+            guard !cancelled else {
+                stateLock.unlock()
+                waiter.resume(.finished(warning: nil))
+                return
+            }
+            waiting = waiter
+            stateLock.unlock()
+
+            if let timeout {
+                let timer = DispatchWorkItem { [weak self] in self?.timedOut(waiter, after: timeout) }
+                if waiter.arm(timer) {
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: timer)
+                }
+            }
+            queue.async {
+                let result = self.produce()
+                self.stateLock.lock()
+                if case .chunk = result { self.delivered = true }
+                if self.waiting === waiter { self.waiting = nil }
+                self.stateLock.unlock()
+                waiter.resume(result)
+            }
+        }
+    }
+
+    /// The call `waiter` stands for got no answer in time: the file is given up.
+    private func timedOut(_ waiter: Waiter, after seconds: Double) {
+        stateLock.lock()
+        guard waiting === waiter else {
+            stateLock.unlock()
+            return
+        }
+        waiting = nil
+        cancelled = true
+        let hadAudio = delivered
+        stateLock.unlock()
+
+        let wait = "no answer from the file in \(Int(seconds.rounded())) s"
+        waiter.resume(hadAudio
+            ? .finished(warning: "\(wait), the track ends here (network share or drive unavailable?)")
+            : .failed("\(wait) (network share or drive unavailable?)"))
+    }
+
+    /// Resumes the continuation of a `next()` call exactly once: with the result, on `cancel()` or on the timeout.
+    private final class Waiter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Result, Never>?
+        private var timer: DispatchWorkItem?
+
+        init(_ continuation: CheckedContinuation<Result, Never>) { self.continuation = continuation }
+
+        /// Keeps the timeout to cancel it on `resume`. False if that has happened already (the timer isn't needed).
+        func arm(_ timer: DispatchWorkItem) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard continuation != nil else { return false }
+            self.timer = timer
+            return true
+        }
+
+        func resume(_ result: Result) {
+            lock.lock()
+            let continuation = self.continuation
+            self.continuation = nil
+            let timer = self.timer
+            self.timer = nil
+            lock.unlock()
+            timer?.cancel()
+            continuation?.resume(returning: result)
         }
     }
 

@@ -10,8 +10,8 @@ struct PlayedTrack: Equatable, Sendable {
     let album: String
     /// Seconds; 0 if unknown.
     var duration: TimeInterval
-    /// When the track started playing.
-    let startedAt: Date
+    /// When the track started playing (its audio, not the command).
+    var startedAt: Date
     /// `AlbumKey` of the track's album, which is what its cover is cached under (`CoverStore`); nil if unknown.
     var coverKey: String? = nil
     /// The file that plays; nil if unknown.
@@ -31,7 +31,9 @@ struct PlayedTrack: Equatable, Sendable {
 }
 
 /// Told by `PlaybackState` when a track starts and when it is left, however that happens (the next track, the user
-/// picking another one, stop, the end of the playlist).
+/// picking another one, stop, the end of the playlist). A track "starts" when its audio does (the file was opened and
+/// decoded), not when it is picked: one that can't be played (a file that is gone, a share that doesn't answer) is
+/// never announced, and neither is its end.
 @MainActor
 protocol PlaybackListener: AnyObject {
     func trackDidStart(_ track: PlayedTrack)

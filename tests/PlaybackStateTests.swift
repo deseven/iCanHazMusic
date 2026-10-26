@@ -213,6 +213,8 @@ extension AllTests {
             ], listener: listener)
             let before = Date()
             env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(listener.events.isEmpty)                               // not before its audio starts
+            try await env.run(Self.slice)
 
             #expect(listener.events == [.started("A1")])
             let first = try #require(listener.started.first)
@@ -241,6 +243,8 @@ extension AllTests {
             env.state.play(albumIndex: 0, trackIndex: 0)
             try await listen(env, seconds: 1)
             env.state.nextTrack()
+            #expect(listener.events == [.started("A1"), .ended("A1")])
+            try await env.run(4 * Self.slice)                  // the fade-out, then A2's audio
             #expect(listener.events == [.started("A1"), .ended("A1"), .started("A2")])
             #expect(abs(listener.ended[0].played - 1) < 0.15)
 
@@ -603,8 +607,8 @@ extension AllTests {
             let listener = RecordingListener()
             let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)], listener: listener)
             env.state.play(albumIndex: 0, trackIndex: 0)
-            #expect(listener.started.first?.coverKey != nil)
             try await env.run(4 * Self.slice)
+            #expect(listener.started.first?.coverKey != nil)
             #expect(env.state.status == .stopped)
             #expect(listener.events == [.started("Only"), .ended("Only")])
             #expect(listener.playlistsEnded == ["main"])
@@ -1326,6 +1330,83 @@ extension AllTests {
             #expect(env.rig.deviation(of: .tiny, from: 0, at: 0, count: RampFile.tiny.frames) == 0)
         }
 
+        @Test("a track whose file doesn't answer is skipped after the timeout, and never announced")
+        func skipHung() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                Make.entry(hung.url.path, artist: "Artist X", album: "X", title: "Hung", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ], listener: listener)
+            env.engine.decoderTimeout = 0.3
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(env.state.info?.title == "Hung")              // shown at once
+            #expect(!env.state.anchor.isRunning)                 // but not moving: nothing plays yet
+            try await env.run(4 * Self.slice)
+
+            #expect(env.rig.events == ["failed:hung.flac:current"])
+            #expect(env.state.status == .playing)
+            #expect(env.state.info?.title == "A2")
+            #expect(listener.events == [.started("A2")])
+            hung.release()
+        }
+
+        @Test("after 10 tracks in a row that can't be played, playback stops and says so")
+        func giveUp() async throws {
+            let entries = (1...14).map { entryMissing(title: "G\($0)", album: "X", track: $0) }
+            let env = try await makeEnv(entries)
+            var messages: [String] = []
+            env.state.onGiveUp = { messages.append($0) }
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(8 * Self.slice)
+
+            #expect(env.state.status == .stopped)
+            #expect(env.rig.events.filter { $0.hasPrefix("failed") }.count == PlaybackState.maxConsecutiveFailures)
+            #expect(messages.count == 1)
+            #expect(messages.first?.contains("/nonexistent/G10.flac") == true)
+
+            // A track started by hand counts from scratch.
+            env.state.play(albumIndex: 0, trackIndex: 4)
+            try await env.run(8 * Self.slice)
+            #expect(env.rig.events.filter { $0.hasPrefix("failed") }.count == 2 * PlaybackState.maxConsecutiveFailures)
+            #expect(messages.count == 2)
+        }
+
+        @Test("when only the tracks after a playing one keep failing, it plays to its end, then playback stops")
+        func giveUpAfterCurrent() async throws {
+            let entries = [try entry(.a, title: "A1", album: "X", track: 1)]
+                + (2...14).map { entryMissing(title: "G\($0)", album: "X", track: $0) }
+            let env = try await makeEnv(entries)
+            var messages: [String] = []
+            env.state.onGiveUp = { messages.append($0) }
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(4 * Self.slice)
+
+            #expect(env.rig.events.filter { $0.hasSuffix(":next") }.count == PlaybackState.maxConsecutiveFailures)
+            #expect(env.state.status == .playing && messages.isEmpty)
+            try await env.run(RampFile.a.frames)
+            #expect(env.state.status == .stopped)
+            #expect(messages.count == 1)
+            #expect(env.rig.deviation(of: .a, from: 0, at: 0, count: RampFile.a.frames) == 0)
+        }
+
+        @Test("a track that plays resets the count of failures")
+        func failuresReset() async throws {
+            var entries: [TrackEntry] = []
+            for n in 0..<3 {   // albums: 6 missing tracks, a playable one, 6 missing, ...
+                entries += (1...6).map { entryMissing(title: "G\(n)-\($0)", album: "G\(n)", track: $0) }
+                entries.append(try entry(.tiny, title: "T\(n)", album: "T\(n)", track: 1))
+            }
+            let env = try await makeEnv(entries)
+            var messages: [String] = []
+            env.state.onGiveUp = { messages.append($0) }
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(3 * RampFile.tiny.frames + 8 * Self.slice)
+            #expect(messages.isEmpty)
+            #expect(env.rig.events.filter { $0.hasPrefix("failed") }.count == 18)
+        }
+
         @Test("next track skips over a missing one too")
         func nextOverMissing() async throws {
             let env = try await makeEnv([
@@ -1342,6 +1423,20 @@ extension AllTests {
         }
 
         // MARK: The display
+
+        @Test("the anchor only runs while audio comes out")
+        func anchorWaitsForAudio() async throws {
+            let env = try await standard()
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            #expect(env.state.status == .playing && !env.state.anchor.isRunning)
+            try await env.run(Self.slice)
+            #expect(env.state.anchor.isRunning)
+            env.state.togglePause()
+            #expect(!env.state.anchor.isRunning)
+            env.state.togglePause()
+            try await env.run(Self.slice)
+            #expect(env.state.anchor.isRunning)
+        }
 
         @Test("the position and duration shown are refreshed by tick")
         func tick() async throws {

@@ -55,12 +55,14 @@ enum LegacyMigration {
         return files
     }
 
-    /// Removes everything in the working directory except what belongs to this version (`config.json`, `app.log`,
-    /// `.cache`, `playlists`). Irreversible; failures are logged and skipped.
+    /// Removes everything in the working directory except what belongs to this version (`config.json`, `app.log` and
+    /// the older logs `app.log.N`, `.cache`, `playlists`). Irreversible; failures are logged and skipped.
     static func cleanUp(paths: AppPaths) {
         let fm = FileManager.default
-        let keep: Set<String> = [paths.configURL.lastPathComponent, paths.logURL.lastPathComponent,
-                                 paths.cacheDir.lastPathComponent, paths.playlistsDir.lastPathComponent]
+        let log = paths.logURL.lastPathComponent
+        let keep = Set([paths.configURL.lastPathComponent, log,
+                        paths.cacheDir.lastPathComponent, paths.playlistsDir.lastPathComponent]
+                       + (1...Log.keptOldLogs).map { "\(log).\($0)" })
         guard let items = try? fm.contentsOfDirectory(
             at: paths.workDir, includingPropertiesForKeys: nil, options: []
         ) else {

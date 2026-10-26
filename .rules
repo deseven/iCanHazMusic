@@ -32,6 +32,7 @@ UI and logic are split (still one SwiftPM target, so no `public` needed). **UI m
   - `Search/` – fuzzy search over all playlists (`SearchSettings`, `SearchText`/`FuzzyMatcher`, `PlaylistSearch`).
   - `Hotkeys/` – global hotkeys through Carbon (own `HotkeyModifiers`, since AppKit is off limits here).
   - `Migration/` – migration from the previous (PureBasic) version, which used the same working directory.
+  - `Diagnostics/` – `SlowCallLog` (the engine times its CoreAudio calls on the main thread, logs those > 0.5 s), `MainThreadWatchdog` (logs UI hangs >= 2 s; started by `AppDelegate`). Both rate-limited: report, then only count for 60 s.
   - `Log.swift`, `Constants.swift` (`AppPaths`, `AppConstants`), `StableHash.swift`.
 - `UI/` – Views and AppKit glue, grouped like Core (`MainWindow/`, `Playlist/`, `Playback/`, `Queue/`, `Lyrics/`, `Search/`, `Preferences/`, `Hotkeys/`, `Updates/`, `Import/`, `Dialogs/`, `Window/`, `About/`, `Migration/`), plus `Layout.swift`.
 
@@ -57,6 +58,10 @@ UI and logic are split (still one SwiftPM target, so no `public` needed). **UI m
 - The output device is only looked at when the output starts (`bindOutputDevice`); a device that is gone falls back to the system default, and going back to "follow default" replaces the `AVAudioEngine` (only with the engine stopped).
 - The play queue is runtime-only. `nextTarget` takes the queue first; anything else that starts playback by hand (`play`, previous, next album, random, `stop()`) drops it, internal stops (`halt()`) keep it. Shuffles never repeat the track/album that just played; previous track/album always go by playlist order.
 - Tracks without tags (`PlayedTrack.hasTags`) are never looked up on LRCLIB or sent to Last.fm.
+- **A track counts as started only when its audio does**: the UI shows it at once, but the listeners (Last.fm, LRCLIB, notifications, waveform), the `playback: started` log line and `trackDidEnd` wait for the engine's `.started` event (first chunk of the current track scheduled; a gapless transition is audible already). A file that can't be played is never announced. The seek bar's anchor only runs while `PlaybackEngine.isAudible`.
+- **A file that doesn't answer (network share gone) must never stall the feeder**: `TrackDecoder.next()` returns at once when the decoder is cancelled, and gives up after `PlaybackEngine.decoderTimeout` (10 s; `.failed` if nothing was delivered, else the track ends there). Tests simulate such a file with a named pipe (`tests/Support/HungFile.swift`).
+- Failures in a row (`PlaybackState.failures`, reset when a track starts or the user starts one): at `maxConsecutiveFailures` (10) playback gives up and `onGiveUp` shows a sheet. If only the tracks after a playing one fail, that one plays to its end first. A failed current track doesn't stop/start the output (`teardown(keepOutput:)` + `stopOutputIfIdle`).
+- After `PlaybackEngine.pauseReleaseDelay` (60 s) of pause the output is released (`releaseIdleOutput`: player, decoders and device engine stopped, position kept, `isActive` stays true); `resume` restarts from there. A running output keeps the Mac from idle sleep.
 - `PlaybackListener`s get the time actually listened to (forward seeks and pauses don't count); Last.fm scrobbles at >= 50% listened and a track >= 30 s.
 - `PlaybackState.smoothUpdates` (set by `AppDelegate` while a window is key) switches position updates from 1 Hz to 20 Hz.
 
@@ -88,7 +93,7 @@ UI and logic are split (still one SwiftPM target, so no `public` needed). **UI m
 
 ## Runtime data
 Everything lives in `~/Library/Application Support/iCanHazMusic` (`AppPaths`). Pass `--workdir /some/dir` (or `--workdir=/some/dir`) to use another directory.
-- `app.log` – log of the current run (copy of stdout), rewritten on every start.
+- `app.log` – log of the current run (copy of stdout); on every start the earlier ones are shifted to `app.log.1` (previous run) ... `app.log.4` (`Log.keptOldLogs`).
 - `config.json` – read once at startup, written on every change (debounced ~250 ms, flushed on quit). Missing/invalid values are reset to defaults and written back. Keys, defaults and valid values are in `Config.swift` / `ConfigLimits.swift`; the sections are `ui.*`, `general.*`, `engine.*`, `playlist.*`, `playback.*`, `now_playing.*`, `search.*`, `hotkeys.*`, `integrations.*`.
 - `.cache/covers.sqlite`, `.cache/lyrics.sqlite`, `.cache/waveforms.sqlite` – caches, safe to delete (covers are rebuilt on import, LRCLIB lyrics on the next play, embedded lyrics with Reload Tag(s), waveforms on the next play).
 - `playlists/{name}.json` – one file per playlist (`main.json` is created if there are none). Format: `{"version": 1, "is_flat": false, "next_id": N, "last_played"?: id, "tracks": [{id, path, artist, album, title, trackNumber?, year?, duration?, codec, cue?}, ...]}`, a flat array in playlist order (albums are rebuilt on load, art isn't stored). A file that can't be parsed is moved to `{name}.json.broken` and replaced by an empty playlist.

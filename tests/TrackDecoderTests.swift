@@ -312,6 +312,45 @@ extension AllTests {
             guard case .finished = await decoder.next() else { Issue.record("expected finished"); return }
         }
 
+        // MARK: Files that don't answer
+
+        @Test("a file that doesn't answer is given up after the timeout, and the decoder stays given up")
+        func timeout() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let decoder = TrackDecoder(url: hung.url, startSeconds: 0, outputFormat: outputFormat(44100))
+            let started = Date()
+            guard case .failed(let message) = await decoder.next(timeout: 0.3) else {
+                Issue.record("expected a failure")
+                return
+            }
+            #expect(message.contains("no answer"))
+            #expect(Date().timeIntervalSince(started) < 3)
+            guard case .finished = await decoder.next(timeout: 0.3) else { Issue.record("expected finished"); return }
+            hung.release()
+        }
+
+        @Test("cancelling releases a caller that waits for a file that doesn't answer, at once")
+        func cancelReleasesWait() async throws {
+            let dir = try TempDir()
+            let hung = try HungFile(in: dir)
+            let decoder = TrackDecoder(url: hung.url, startSeconds: 0, outputFormat: outputFormat(44100))
+            let waiting = Task { await decoder.next() }
+            try await Task.sleep(for: .milliseconds(100))
+            let started = Date()
+            decoder.cancel()
+            guard case .finished = await waiting.value else { Issue.record("expected finished"); return }
+            #expect(Date().timeIntervalSince(started) < 1)
+            hung.release()
+        }
+
+        @Test("a timeout that isn't reached changes nothing")
+        func timeoutNotReached() async throws {
+            let d = TrackDecoder(url: try RampFile.tiny.url(), startSeconds: 0, outputFormat: outputFormat(44100))
+            guard case .chunk = await d.next(timeout: 5) else { Issue.record("expected a chunk"); return }
+            guard case .finished(nil) = await d.next(timeout: 5) else { Issue.record("expected finished"); return }
+        }
+
         @Test("decoders on different queues don't wait for each other")
         func independent() async throws {
             let a = TrackDecoder(url: try RampFile.a.url(), startSeconds: 0, outputFormat: outputFormat(44100))

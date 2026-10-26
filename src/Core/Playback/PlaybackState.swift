@@ -66,7 +66,7 @@ final class PlaybackState {
             // (the system's Now Playing), and no tick publishes it then.
             let continuing = oldValue != .stopped && status != .stopped
             if continuing { publishPosition(engine.position) }
-            anchor = PositionAnchor(position: continuing ? Self.seconds(engine.position) : 0, isRunning: status == .playing)
+            anchor = PositionAnchor(position: continuing ? Self.seconds(engine.position) : 0, isRunning: isAudible)
         }
     }
     private(set) var info: TrackInfo?
@@ -226,6 +226,13 @@ final class PlaybackState {
         return time.isFinite ? max(time, 0) : 0
     }
 
+    /// After this many tracks in a row couldn't be played, playback gives up and `onGiveUp` is told.
+    static let maxConsecutiveFailures = 10
+
+    /// Called when playback stopped because track after track couldn't be played (a drive or network share that is
+    /// gone, most likely); gets the explanation for the user.
+    @ObservationIgnored var onGiveUp: ((String) -> Void)?
+
     /// Whether a window of the app is on screen. Set by the UI (`AppDelegate`). While none is, `position` is not
     /// published by the ticks at all (every change re-renders the views reading it, and nobody sees them); playback
     /// itself (track changes, listeners) goes on. It is brought up to date when a window shows up again.
@@ -251,10 +258,22 @@ final class PlaybackState {
     /// The track a shuffle order picked to follow `from`. It is picked once and kept, so that the track queued in
     /// the engine, "next" and whatever asks again in the meantime agree. Dropped whenever the current track changes.
     @ObservationIgnored private var shuffleNext: (from: Position, pos: Position)?
-    /// Tracks that failed to open since one last played. Playing on to the next one after a failure could go on
-    /// forever with a playlist of files that are all gone, as it doesn't end by itself with a shuffle order or
-    /// "start over".
+    /// Tracks that failed to open in a row, since one last started playing or the user started one. Playing on to
+    /// the next one after a failure could go on forever with a playlist of files that are all gone (it doesn't end by
+    /// itself with a shuffle order or "start over"): at `maxConsecutiveFailures` playback gives up.
     @ObservationIgnored private var failures = 0
+    /// Set when playback gave up while a track that plays fine was on (only the tracks after it failed): nothing is
+    /// queued after it, and when it ends playback stops and `onGiveUp` gets this.
+    @ObservationIgnored private var giveUpMessage: String?
+    /// The current track, until its audio actually starts (`PlaybackEngine.Event.started`): only then are the
+    /// listeners told, so that a file that can't be played is never announced (Last.fm, LRCLIB, notifications).
+    @ObservationIgnored private var pendingStart: PendingStart?
+
+    private struct PendingStart {
+        let track: PlayedTrack
+        let source: PlaybackSource
+        let logLine: String
+    }
     /// The current track was taken from the queue: when nothing is left in it, "Stop at queue end" applies. A track
     /// started in any other way (and dropping the queue) ends that.
     @ObservationIgnored private var playingFromQueue = false
@@ -331,7 +350,6 @@ final class PlaybackState {
 
         store.playbackStarted()
         cursorRequested = false   // an explicit choice of a track overrides what was selected before
-        failures = 0
         dropQueue("a track was started")
         begin(at: Position(album: albumIndex, track: trackIndex))
     }
@@ -397,7 +415,6 @@ final class PlaybackState {
             return
         }
         cursorRequested = false
-        failures = 0
         begin(target)
     }
 
@@ -434,6 +451,8 @@ final class PlaybackState {
     func halt() {
         playingFromQueue = false
         endProgress()
+        pendingStart = nil
+        giveUpMessage = nil
         if status != .stopped { Log.info("playback: stopped") }
         status = .stopped
         engine.stop()
@@ -655,7 +674,11 @@ final class PlaybackState {
 
     /// Replaces the engine's queue with the target and the track after it, and plays. A target in another playlist
     /// than the playing one (`playlist`) moves playback over to that playlist. A queued track leaves the queue.
-    private func begin(_ target: Target) {
+    /// `afterFailure`: playback moves on by itself because the track before couldn't be played (which goes on counting
+    /// the failures in a row); anything else starts counting from scratch.
+    private func begin(_ target: Target, afterFailure: Bool = false) {
+        if !afterFailure { failures = 0 }
+        giveUpMessage = nil
         var target = target
         if let entry = target.queued, let pos = store.playlist(named: entry.playlist)?.position(of: entry.id) {
             target.pos = pos   // the playlist may have changed since the target was made
@@ -691,7 +714,8 @@ final class PlaybackState {
 
     /// Hands the track following `pos` (if there is one) to the engine.
     private func prepareNext(after pos: Position) {
-        guard let next = nextTarget(after: pos), let track = track(at: next.pos, in: playlist(of: next)) else {
+        guard giveUpMessage == nil, let next = nextTarget(after: pos),
+              let track = track(at: next.pos, in: playlist(of: next)) else {
             if nextSource != nil { Log.info("playback: nothing queued next") }
             nextPos = nil
             nextSource = nil
@@ -714,9 +738,17 @@ final class PlaybackState {
         }
         guard status != .stopped else { return }
         switch event {
+        case .started(let source):
+            if pendingStart?.source == source { announceStart() }
+            alignAnchor(to: Self.seconds(engine.position))
         case .advanced:
             advanceToNext()
         case .finished:
+            if let message = giveUpMessage {
+                halt()
+                onGiveUp?(message)
+                return
+            }
             // The engine's queue ran out: the end of the playlist, or (very short tracks) it was refilled too late.
             if let queued = nextPos, queued.foreign || queued.queued != nil {
                 begin(queued)
@@ -732,15 +764,14 @@ final class PlaybackState {
                 halt()
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
             }
-        case .failed(let source, let wasCurrent, _):
+        case .failed(let source, let wasCurrent, let message):
             failures += 1
-            if failures > 4 * max(store.playingPlaylist?.trackCount ?? 0, 1) {
-                Log.error("playback: stopped, the tracks keep failing to open")
-                halt()
+            if failures >= Self.maxConsecutiveFailures {
+                giveUp(lastFailed: source, message: message, stopNow: wasCurrent)
                 return
             }
             if wasCurrent, let pos = currentPos {
-                if let next = nextTarget(after: pos) { begin(next) } else { halt() }
+                if let next = nextTarget(after: pos) { begin(next, afterFailure: true) } else { halt() }
             } else if let failed = nextPos, track(at: failed.pos, in: playlist(of: failed))?.source == source {
                 if let entry = failed.queued {
                     queue.started(entry)   // the file can't be played: it is not queued any more
@@ -757,6 +788,23 @@ final class PlaybackState {
             halt()
         case .outputDeviceLost:
             break   // handled above
+        }
+    }
+
+    /// Too many tracks in a row couldn't be played: stop trying. `stopNow`: nothing plays, playback stops at once;
+    /// otherwise the current track (which plays fine, only the ones after it failed) plays to its end first.
+    private func giveUp(lastFailed source: PlaybackSource, message: String, stopNow: Bool) {
+        let count = Self.maxConsecutiveFailures
+        Log.error("playback: giving up, \(count) tracks in a row couldn't be played")
+        let text = "\(count) tracks in a row couldn't be played. The last one was:\n\n\(source.url.path)\n\n"
+            + "\(message.prefix(1).uppercased())\(message.dropFirst())."
+        if stopNow {
+            halt()
+            onGiveUp?(text)
+        } else {
+            Log.info("playback: stopping after the current track")
+            giveUpMessage = text
+            if let pos = currentPos { prepareNext(after: pos) }   // queues nothing now
         }
     }
 
@@ -783,7 +831,8 @@ final class PlaybackState {
         currentPos = next.pos
         nextPos = nil
         shuffleNext = nil
-        trackDidChange(how: "gapless transition")
+        // Normally decoded long before; if it isn't yet (the file is slow to answer), it is announced once it is.
+        trackDidChange(how: "gapless transition", audible: engine.hasCurrentAudio)
         prepareNext(after: next.pos)
     }
 
@@ -803,7 +852,6 @@ final class PlaybackState {
         checkFileInfo()
         let time = engine.position
         guard time.isFinite, time >= 0 else { return }
-        if time > 0 { failures = 0 }
         progress?.observe(position: time)
         guard isWatched else { return }
         publishPosition(time)
@@ -813,9 +861,15 @@ final class PlaybackState {
     /// How far the position may be from where the anchor extrapolates before the anchor is replaced.
     private static let anchorTolerance = 0.5
 
+    /// The position moves on now: playing, and the engine has audio of the track coming out (not while the file is
+    /// still being opened, after a seek, or while decoding is behind).
+    private var isAudible: Bool {
+        status == .playing && engine.isAudible
+    }
+
     /// Keeps `anchor` true to `time`: replaced when it was made for another state of playback or has drifted off.
     private func alignAnchor(to time: Double) {
-        let running = status == .playing
+        let running = isAudible
         if anchor.isRunning == running,
            abs(anchor.position(at: ProcessInfo.processInfo.systemUptime) - time) <= Self.anchorTolerance { return }
         anchor = PositionAnchor(position: time, isRunning: running)
@@ -873,9 +927,11 @@ final class PlaybackState {
 
     // MARK: - Current track
 
-    /// Fills in everything shown about the (new) current track.
-    private func trackDidChange(how: String) {
+    /// Fills in everything shown about the (new) current track. The listeners are told when its audio starts: at once
+    /// if `audible`, else on `PlaybackEngine.Event.started`.
+    private func trackDidChange(how: String, audible: Bool = false) {
         endProgress()
+        pendingStart = nil
         // The request is served
         if cursorRequested, store.playingIsActive, cursorTarget()?.pos == currentPos { cursorRequested = false }
         guard let pos = currentPos, let playlist = store.playingPlaylist,
@@ -890,10 +946,22 @@ final class PlaybackState {
         duration = track.duration ?? 0
         loadArtworkIfNeeded(for: album, playing: pos.track)
 
-        Log.info("playback: \(how): \(track.artist) – \(track.title) [\(album.title)], \(track.codec.isEmpty ? "format unknown" : track.codec), "
-            + "playlist \"\(store.playingName ?? "")\", \(track.path)")
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
                                  duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue)
+        let logLine = "playback: \(how): \(track.artist) – \(track.title) [\(album.title)], "
+            + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingName ?? "")\", \(track.path)"
+        pendingStart = PendingStart(track: played, source: track.source, logLine: logLine)
+        if audible { announceStart() }
+    }
+
+    /// The current track's audio has started: now it counts as played, for the log and the listeners.
+    private func announceStart() {
+        guard let pending = pendingStart else { return }
+        pendingStart = nil
+        failures = 0
+        var played = pending.track
+        played.startedAt = Date()
+        Log.info(pending.logLine)
         progress = PlayProgress(track: played)
         for listener in listeners { listener.value?.trackDidStart(played) }
     }

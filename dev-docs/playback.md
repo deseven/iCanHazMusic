@@ -38,7 +38,40 @@ from about 1 s, tiny differences before that) and Vorbis (every seek lands a con
 - Pause, seek, stop and replacing the track **fade the output out** (`node.volume = 0`, ramps in about 25 ms), act
   `fadeDuration` (30 ms) later, and fade back in when playing again. Without it each of them clicks.
 - `PlaybackState` keeps the playlist logic (which track follows which, the display) and talks to the engine through
-  `start`, `setNext`, `pause`/`resume`, `seek`, `stop` and the events `advanced`, `finished`, `failed`, `deviceError`.
+  `start`, `setNext`, `pause`/`resume`, `seek`, `stop` and the events `started`, `advanced`, `finished`, `failed`,
+  `deviceError`. `started` comes when the current track's first audio is scheduled (after any start, seek or restart):
+  only then does the track count as playing for the listeners (Last.fm, LRCLIB, notifications) and the log.
+
+## Files that don't answer
+
+A file on a network share that went away (SMB mounts are hard mounts by default) can block `AVAudioFile`'s open or read
+in the kernel for a long time, and nothing can interrupt that call. This used to wedge playback: the feeder is a single
+loop that awaited the decoder, so after one hung read no track was ever fed again until Stop (the UI showed "playing"
+with a seek bar jumping back to 0). Now:
+
+- `TrackDecoder.next()` returns `.finished` at once when its decoder is cancelled (every dropped slot is), so the
+  feeder moves on; the blocked call finishes in the background whenever the system lets it, its result is dropped.
+- Every `next()` call has a timeout (`PlaybackEngine.decoderTimeout`, 10 s): a file that delivered nothing fails
+  ("no answer from the file"), one that did ends its track there. A sleeping NAS disk that takes longer to spin up
+  than that counts as not answering.
+- `PlaybackState` skips a failed track, and gives up after 10 failures in a row (sheet on the main window).
+- The position never runs past what was scheduled, and `isAudible` is false while nothing comes out, so the seek bar
+  stands still instead of running ahead.
+
+## Long pauses
+
+Pausing only pauses the player node; the device engine keeps running, which keeps the device busy and holds a
+`PreventUserIdleSystemSleep` assertion (coreaudiod, attributed to the app: `pmset -g assertions`). After
+`pauseReleaseDelay` (60 s) the engine lets go of the output (`releaseIdleOutput`): player, decoders and device engine
+are stopped, the position and the next track are kept, and `resume` restarts from there with a freshly started output.
+
+## Diagnosing hangs
+
+- `SlowCallLog`: every CoreAudio call the engine makes on the main thread (`AVAudioEngine.start/stop/prepare`, the
+  node's `play/pause/stop/playerTime`, binding the device) is timed; those over 0.5 s are logged (rate limited).
+- `MainThreadWatchdog` logs any UI hang of 2 s or more, and once at 10 s if it is still stuck.
+- Sleep/wake and the output device name (on every output start) are in the log too. The log of the last 4 runs is
+  kept (`app.log.1` ...). For a hang in progress, `sample <pid> 10` shows where the main thread is stuck.
 
 ## What the opened file reports
 
@@ -95,6 +128,7 @@ Measured on Apple silicon, 44.1 kHz FLAC resampled to a 96 kHz device (engine al
 ## Not covered by tests
 
 Only the real output device can't be tested: engine start/stop on playback start/end, a changed output device or rate
-(`AVAudioEngineConfigurationChange`: the engine restarts and continues from the same position), and the background
-feeder/boundary timers. These were smoke-tested once against the real device at volume 0 (gapless advance within
+(`AVAudioEngineConfigurationChange`: the engine restarts and continues from the same position), the background
+feeder/boundary timers, the timer that releases the output after a pause (offline tests call `releaseIdleOutput`
+themselves) and keeping the output running across a failed track. These were smoke-tested once against the real device at volume 0 (gapless advance within
 30 ms of the boundary, pause/resume/seek/stop, restart, missing file); device switching needs a manual check.
