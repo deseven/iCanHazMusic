@@ -10,7 +10,8 @@ import Foundation
 /// ## Why not `AVPlayer`
 /// AVFoundation's FLAC support delivers up to a packet of padding after the last real sample (an audible gap or
 /// click between tracks) and its seeking lands at the wrong place in many files. `AVAudioFile` has neither problem,
-/// so the file is decoded here and the audio is fed to the player node.
+/// so the file is decoded here and the audio is fed to the player node. (WavPack and APE, which macOS doesn't open at all,
+/// are decoded the same way, by our own `PCMSource`s instead of `AVAudioFile`.)
 ///
 /// ## How it works
 /// - Every track is decoded by a `TrackDecoder` into one format (stereo float32 at the output's sample rate), so

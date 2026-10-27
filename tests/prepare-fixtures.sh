@@ -4,15 +4,15 @@
 #
 #   ./tests/prepare-fixtures.sh
 #
-# Requires ffmpeg (with libmp3lame and libopus, as Homebrew's is) and Monkey's Audio's `mac` (brew install ffmpeg mac).
-# Everything else is plain POSIX shell. The four directories are rebuilt from scratch. With the same tool versions the
+# Requires ffmpeg (with libmp3lame and libopus, as Homebrew's is), Monkey's Audio's `mac` and WavPack's `wavpack` and
+# `wvtag` (brew install ffmpeg mac wavpack). Everything else is plain POSIX shell. The four directories are rebuilt from scratch. With the same tool versions the
 # output is byte for byte the same (ffmpeg runs `bitexact`), so only the fixtures whose recipe changed show up in git;
 # a new ffmpeg may still change every encoded file, so don't regenerate just because a new version is out.
 set -e
 
-for tool in ffmpeg mac; do
+for tool in ffmpeg mac wavpack wvtag; do
     if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "error: $tool is required to generate the test fixtures (brew install ffmpeg mac)" >&2
+        echo "error: $tool is required to generate the test fixtures (brew install ffmpeg mac wavpack)" >&2
         exit 1
     fi
 done
@@ -59,11 +59,14 @@ ff $sine -ac 2 -c:a vorbis -strict -2 $T "$f/t.ogg"
 ff $sine -c:a libmp3lame -id3v2_version 3 $T "$f/t_v23.mp3"
 ff $sine -c:a libmp3lame -id3v2_version 4 $T "$f/t_v24.mp3"
 ff $sine -c:a libopus $T "$f/t.opus"
-# WavPack and APE carry APEv2 tags (ffmpeg writes them for .wv; for .ape they are given to `mac`)
+# WavPack and APE carry APEv2 tags (ffmpeg writes them for .wv; for .ape they are given to `mac`). Neither writes the
+# keys the same way: ffmpeg's are lower case (`title`, `date`), `mac`'s capitalised (`Title`, `Year`).
 ff $sine $T "$f/t.wv"
 ff $sine -map_metadata -1 "$tmp/plain.wav"
 ape "$tmp/plain.wav" "$f/t.ape" "Title=TTitle|Artist=TArtist|Album=TAlbum|Year=2020|Track=3"
-rm "$tmp/plain.wav"
+# the same without any tag
+ff $sine -map_metadata -1 "$f/t_notags.wv"
+ape "$tmp/plain.wav" "$f/t_notags.ape"
 
 # ---------------------------------------------------------------- mp3 without any tag (also used as a base)
 ff $sine -c:a libmp3lame -write_xing 0 -id3v2_version 0 -map_metadata -1 "$f/plain.mp3"
@@ -90,12 +93,14 @@ rm "$tmp/v22.frames"
 
 # ID3v1 only: 'TAG' + title(30) + artist(30) + album(30) + year(4) + comment(28) + 0 + track + genre
 v1() { printf '%s' "$1" | dd bs="$2" count=1 conv=sync 2>/dev/null; }
-{
-    cat "$f/plain.mp3"
+v1_tag() {
     printf TAG
     v1 "V1 Title" 30; v1 "V1 Artist" 30; v1 "V1 Album" 30; printf 2011
     head -c 28 /dev/zero; printf '\000\007\377'
-} > "$f/t_v1.mp3"
+}
+{ cat "$f/plain.mp3"; v1_tag; } > "$f/t_v1.mp3"
+# WavPack files may carry it too, instead of an APEv2 tag
+{ cat "$f/t_notags.wv"; v1_tag; } > "$f/t_v1.wv"
 
 # ---------------------------------------------------------------- artist fallback chain
 ff $sine -c:a libmp3lame -id3v2_version 3 -metadata title=TTitle -metadata album=TAlbum -metadata album_artist=TAlbumArtist "$f/t_albumartist.mp3"
@@ -123,6 +128,8 @@ ff $sine -c:a libopus $T -metadata "lyrics=$LYRICS" "$f/l.opus"
 ff $sine -c:a aac $T -metadata "lyrics=$LYRICS" "$f/l_aac.m4a"
 ff $sine -c:a alac $T -metadata "lyrics=$LYRICS" "$f/l_alac.m4a"
 ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.caf"
+ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.wv"
+ape "$tmp/plain.wav" "$f/l.ape" "Title=TTitle|Artist=TArtist|Album=TAlbum|Year=2020|Track=3|Lyrics=$LYRICS"
 # FLAC's other comment name for it
 ff $sine $T -metadata "UNSYNCEDLYRICS=$LYRICS" "$f/l_unsynced.flac"
 # lyrics, but no artist: nothing to file them under
@@ -171,6 +178,26 @@ picture=$({
 } | base64)
 ff $sine -c:a libopus $T -metadata "METADATA_BLOCK_PICTURE=$picture" "$f/t_cover.opus"
 
+# WavPack and APE keep a cover in a binary APEv2 item `Cover Art (Front)`: a file name, a NUL, the image. `wvtag` writes
+# it for WavPack (with a tag header, and the file name "Cover Art (Front).jpg"). `mac` can't, so for APE the tag is made
+# by hand and appended to the audio, the way `mac` writes its own tags: items (value size, flags: 0 text / 2 binary, key,
+# NUL, value), then a footer without a header (`APETAGEX`, version 2000, size of items + footer, item count, flags, 8
+# reserved bytes).
+le32() { printf "\\$(printf %03o $(( $1 & 255 )))\\$(printf %03o $(( ($1 >> 8) & 255 )))\\$(printf %03o $(( ($1 >> 16) & 255 )))\\$(printf %03o $(( ($1 >> 24) & 255 )))"; }
+ape_text() { le32 $(printf '%s' "$2" | wc -c | tr -d ' '); le32 0; printf '%s\000%s' "$1" "$2"; }
+ape_cover() { le32 $(( ${#1} + 1 + $(wc -c < "$2" | tr -d ' ') )); le32 2; printf 'Cover Art (Front)\000%s\000' "$1"; cat "$2"; }
+cp "$f/t.wv" "$f/t_cover.wv"
+wvtag -q --write-binary-tag "Cover Art (Front)=@$a/cover.jpg" "$f/t_cover.wv"
+{
+    ape_text Title TTitle; ape_text Artist TArtist; ape_text Album TAlbum; ape_text Year 2020; ape_text Track 3
+    ape_cover cover.jpg "$a/cover.jpg"
+} > "$tmp/ape.items"
+ape "$tmp/plain.wav" "$f/t_cover.ape"
+{
+    cat "$tmp/ape.items"
+    printf APETAGEX; le32 2000; le32 $(( $(wc -c < "$tmp/ape.items" | tr -d ' ') + 32 )); le32 6; le32 $(( 1 << 30 )); head -c 8 /dev/zero
+} >> "$f/t_cover.ape"
+
 # ---------------------------------------------------------------- playback: sample-exact ramps
 # Playback tests compare what the engine renders with the file content, sample by sample. A sine wave would hide
 # an off-by-some-samples error, so these files hold a sawtooth that is different in every channel and every
@@ -213,6 +240,32 @@ ramp "$p/a.caf"         44100 2 136710 0     s16 16 -c:a pcm_s16le
 ramp "$p/a_alac.m4a"    44100 2 136710 0     s16p 16 -c:a alac
 ramp "$p/a.wv"          44100 2 136710 0     s16p 16 -c:a wavpack
 ape "$p/a.wav" "$p/a.ape"
+# The same kinds of file as the FLAC ones above, in WavPack and APE (`mac` compresses a WAV made on the side). A higher
+# compression level keeps the 24 bit WavPack a quarter of the size.
+ramp "$p/r96_24.wv"     96000 2 192000 400   s32p 24 -c:a wavpack -bits_per_raw_sample 24 -compression_level 3
+ramp "$tmp/r96_24.wav"  96000 2 192000 400   s32 24 -c:a pcm_s24le
+ape "$tmp/r96_24.wav" "$p/r96_24.ape"
+ramp "$p/mono22.wv"     22050 1 33075  500   s16p 16 -c:a wavpack
+ramp "$tmp/mono22.wav"  22050 1 33075  500   s16 16 -c:a pcm_s16le
+ape "$tmp/mono22.wav" "$p/mono22.ape"
+# 5.1 with the channel mask of a WAV file (front, centre, LFE, back)
+ramp "$p/surround.wv"   44100 6 66150  600   s16p 16 -c:a wavpack
+ramp "$tmp/surround.wav" 44100 6 66150 600   s16 16 -c:a pcm_s16le
+ape "$tmp/surround.wav" "$p/surround.ape"
+# 32 bit float samples: the values are the 16 bit ones, which a float holds exactly
+ramp "$p/float.wv"      44100 2 136710 700   fltp 16 -c:a wavpack
+# Hybrid WavPack: a lossy .wv and the correction file that makes it lossless again
+wavpack -q -b128 -c -f "$p/a.wav" -o "$p/hybrid.wv"
+# DSD64, stereo, 8 blocks of 4096 bytes per channel (a Sony DSF file made by hand: header, format, data), as WavPack
+# stores it. The pattern 0x69 is DSD's silence.
+le64() { le32 "$1"; le32 0; }
+{
+    printf 'DSD '; le64 28; le64 $(( 28 + 52 + 12 + 8 * 4096 * 2 )); le64 0
+    printf 'fmt '; le64 52; le32 1; le32 0; le32 2; le32 2; le32 2822400; le32 1; le64 $(( 8 * 4096 * 8 )); le32 4096; le32 0
+    printf 'data'; le64 $(( 12 + 8 * 4096 * 2 ))
+    head -c $(( 8 * 4096 * 2 )) /dev/zero | tr '\000' '\151'
+} > "$tmp/dsd.dsf"
+wavpack -q "$tmp/dsd.dsf" -o "$p/dsd.wv" 2>/dev/null
 # tone <file> <rate> <channels> <frames> <frequency> <ffmpeg sample_fmt> [extra output options...]
 # A sine wave, 0.5 amplitude in the first channel and 0.25 in the second (so swapped channels are noticed).
 # Used where the exact samples can't be predicted (resampling) but the waveform can: the tests compare the
@@ -242,11 +295,19 @@ ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a vorbis -strict -2 "$p/lossy.ogg"
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a libopus "$p/lossy.opus"
 # a FLAC cut in the middle: the header still promises the full length
 head -c 60000 "$p/a.flac" > "$p/truncated.flac"
+head -c 60000 "$p/a.wv" > "$p/truncated.wv"
+head -c 60000 "$p/a.ape" > "$p/truncated.ape"
+# the same length, but 64 bytes in the middle are overwritten
+damage() { cp "$1" "$2"; head -c 64 /dev/zero | tr '\000' '\125' | dd of="$2" bs=1 seek="$3" conv=notrunc 2>/dev/null; }
+damage "$p/a.wv" "$p/damaged.wv" 80000
+damage "$p/a.ape" "$p/damaged.ape" 60000
 
 # ---------------------------------------------------------------- broken files
 b="$tmp/broken"
 head -c 5000 "$f/t_v23.mp3" > "$b/truncated.mp3"
 echo garbage > "$b/garbage.mp3"
+echo garbage > "$b/garbage.wv"
+echo garbage > "$b/garbage.ape"
 : > "$b/empty.flac"
 # an MPEG-4 video that pretends to be an mp3
 ff -f lavfi -i testsrc=s=64x64:d=1 -c:v mpeg4 -f mp4 "$b/video.mp3"

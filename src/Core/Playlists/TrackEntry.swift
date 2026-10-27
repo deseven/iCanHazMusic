@@ -77,7 +77,7 @@ struct TrackEntry: Codable {
             trackNumber: r.tags.trackNumber,
             year: r.tags.year,
             duration: r.tags.duration,
-            codec: (r.cue?.fileURL ?? r.url).pathExtension.uppercased(),
+            codec: r.codec ?? (r.cue?.fileURL ?? r.url).pathExtension.uppercased(),
             cue: r.cue
         )
     }

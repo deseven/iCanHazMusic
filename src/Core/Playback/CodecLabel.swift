@@ -6,14 +6,16 @@ import AVFoundation
 import Foundation
 
 /// The short description of a file's format shown next to a track, e.g. "MP3 CBR 320k", "AAC 256k", "OGG 128k",
-/// "OPUS 128k", "FLAC 24/96", "WAV 16/44.1".
+/// "OPUS 128k", "FLAC 24/96", "WAV 16/44.1", "WV 16/44.1", "APE 24/96".
 ///
 /// - Lossy formats: the name and the average bit rate in kbit/s. For MP3 also whether the packets all have the
 ///   same size (CBR) or not (VBR).
 /// - Lossless formats: the name, the bit depth and the sample rate in kHz (the bit rate of lossless audio says little).
 ///
 /// Everything comes from the file's own stream description and from AudioToolbox's file properties, which are
-/// cheap (they don't decode anything). Whatever is unknown is left out, down to the bare file extension.
+/// cheap (they don't decode anything). Whatever is unknown is left out, down to the bare file extension. The formats
+/// macOS doesn't open (WavPack, APE) are described by their own sources, with `lossless` and `lossy`, so the text is the
+/// same wherever it is made.
 enum CodecLabel {
     static func make(url: URL, fileFormat: AVAudioFormat) -> String {
         let asbd = fileFormat.streamDescription.pointee
@@ -42,6 +44,16 @@ enum CodecLabel {
         default:
             return join(ext, kbps(probe.bitRate))
         }
+    }
+
+    /// "WV 24/96", "APE 16/44.1": a lossless format by its name, bit depth and sample rate in kHz ("32f" for floats).
+    static func lossless(_ name: String, bitDepth: Int, isFloat: Bool = false, sampleRate: Double) -> String {
+        join(name, lossless(depth: "\(bitDepth)" + (isFloat ? "f" : ""), rate: sampleRate))
+    }
+
+    /// "WV 256k": a lossy format by its name and average bit rate in bits per second.
+    static func lossy(_ name: String, bitsPerSecond: Double?) -> String {
+        join(name, kbps(bitsPerSecond))
     }
 
     /// `kAudioFormatXiphVorbis`, which the SDK headers don't export under that name.

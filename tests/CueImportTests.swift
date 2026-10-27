@@ -127,8 +127,8 @@ extension AllTests {
         @Test("a file of a format that isn't supported adds nothing; other files next to it do")
         func unsupportedFormat() throws {
             let dir = try TempDir()
-            try dir.write("Album/album.ape")
-            try dir.write("Album/album.cue", Data(Self.sheetText.replacingOccurrences(of: "album.flac", with: "album.ape").utf8))
+            try dir.write("Album/album.wma")
+            try dir.write("Album/album.cue", Data(Self.sheetText.replacingOccurrences(of: "album.flac", with: "album.wma").utf8))
             try dir.write("Album/other.mp3")
             #expect(names(AudioFileGatherer.gatherInputs(from: [dir.url]), in: dir) == ["Album/other.mp3"])
         }
@@ -137,12 +137,12 @@ extension AllTests {
         func partlyUnsupported() throws {
             let dir = try TempDir()
             try dir.copy("playback/a.flac", to: "Album/a.flac")
-            try dir.write("Album/b.wv")
+            try dir.write("Album/b.wma")
             let sheet = """
             FILE "a.flac" WAVE
               TRACK 01 AUDIO
                 INDEX 01 00:00:00
-            FILE "b.wv" WAVE
+            FILE "b.wma" WAVE
               TRACK 02 AUDIO
                 INDEX 01 00:00:00
             """
@@ -312,6 +312,48 @@ extension AllTests {
             #expect(session.failed == 0 && session.successful == 3 && session.incomplete == 0)
         }
 
+        @Test("the classic whole-album rip: an APE or WavPack image and a sheet", arguments: ["a.ape", "a.wv"])
+        func importImage(fixture: String) async throws {
+            let dir = try TempDir()
+            let ext = (fixture as NSString).pathExtension
+            try dir.copy("playback/" + fixture, to: "Album/album." + ext)
+            try dir.write("Album/album.cue", Data(Self.sheetText.replacingOccurrences(of: "album.flac", with: "album." + ext).utf8))
+            #expect(names(AudioFileGatherer.gatherInputs(from: [dir.url]), in: dir)
+                    == ["Album/album.cue:1", "Album/album.cue:2", "Album/album.cue:3"])
+
+            let (session, _) = try session()
+            let outcome = await session.run(inputs: [dir.url])
+            #expect(!outcome.aborted && outcome.fileCount == 3 && session.failed == 0)
+            let album = try #require(outcome.albums.first)
+            #expect(album.tracks.map(\.title) == ["One", "Two", "Three"])
+            // The label is the decoder's, there is no need to play the track to know it.
+            let label = ext == "ape" ? "APE 16/44.1" : "WV 16/44.1"
+            #expect(album.tracks.map(\.codec) == [label, label, label])
+            let durations = album.tracks.compactMap(\.duration)
+            #expect(durations.count == 3 && durations[0] == 1.0)
+            #expect(abs(durations[2] - 0.7) < 1e-9)                    // what is left of the 3.1 s of the file
+        }
+
+        @Test("the album's art: the cover embedded in an APE image")
+        func embeddedArtInImage() async throws {
+            let dir = try TempDir()
+            let sheet = """
+            TITLE "Album"
+            FILE "album.ape" WAVE
+              TRACK 01 AUDIO
+                INDEX 01 00:00:00
+              TRACK 02 AUDIO
+                INDEX 01 00:01:00
+            """
+            try dir.copy("formats/t_cover.ape", to: "Album/album.ape")
+            try dir.write("Album/album.cue", Data(sheet.utf8))
+            let (session, covers) = try session()
+            let outcome = await session.run(inputs: [dir.url])
+
+            #expect(session.albumsProcessed == 1 && session.artsProcessed == 1)
+            #expect(covers.data(for: outcome.albums[0].key) != nil)
+        }
+
         @Test("a track that the sheet says little about is incomplete, not failed")
         func importIncomplete() async throws {
             let dir = try TempDir()
@@ -410,8 +452,8 @@ extension AllTests {
         @Test("a sheet that adds nothing is no file found: nothing to add")
         func importNothing() async throws {
             let dir = try TempDir()
-            try dir.write("Album/album.ape")
-            try dir.write("Album/album.cue", Data(Self.sheetText.replacingOccurrences(of: "album.flac", with: "album.ape").utf8))
+            try dir.write("Album/album.wma")
+            try dir.write("Album/album.cue", Data(Self.sheetText.replacingOccurrences(of: "album.flac", with: "album.wma").utf8))
             let (session, _) = try session()
             let outcome = await session.run(inputs: [dir.url])
             #expect(outcome.fileCount == 0 && outcome.albums.isEmpty && !outcome.aborted)

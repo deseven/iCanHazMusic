@@ -224,7 +224,7 @@ extension AllTests {
         @Test("a file of a format that isn't supported gives no tracks, but is still the sheet's")
         func unsupportedFormat() {
             let result = contents("""
-            FILE "album.ape" WAVE
+            FILE "album.wma" WAVE
               TRACK 01 AUDIO
                 INDEX 01 00:00:00
               TRACK 02 AUDIO
@@ -232,7 +232,24 @@ extension AllTests {
             """)
             #expect(result.tracks.isEmpty)
             #expect(result.skipped == 2)
-            #expect(result.referenced.map(\.lastPathComponent) == ["album.ape"])
+            #expect(result.referenced.map(\.lastPathComponent) == ["album.wma"])
+        }
+
+        @Test("APE and WavPack files are supported: their tracks are the sheet's")
+        func extraFormats() {
+            let result = contents("""
+            FILE "album.ape" WAVE
+              TRACK 01 AUDIO
+                INDEX 01 00:00:00
+              TRACK 02 AUDIO
+                INDEX 01 01:00:00
+            FILE "b.WV" WAVE
+              TRACK 03 AUDIO
+                INDEX 01 00:00:00
+            """)
+            #expect(result.tracks.map(\.trackNumber) == [1, 2, 3])
+            #expect(result.skipped == 0)
+            #expect(result.referenced.map(\.lastPathComponent) == ["album.ape", "b.WV"])
         }
 
         @Test("a sheet with several files takes the tracks of the supported ones only")
@@ -241,7 +258,7 @@ extension AllTests {
             FILE "a.flac" WAVE
               TRACK 01 AUDIO
                 INDEX 01 00:00:00
-            FILE "b.wv" WAVE
+            FILE "b.wma" WAVE
               TRACK 02 AUDIO
                 INDEX 01 00:00:00
               TRACK 03 AUDIO
@@ -252,7 +269,7 @@ extension AllTests {
             """)
             #expect(result.tracks.map(\.trackNumber) == [1, 4])
             #expect(result.skipped == 2)
-            #expect(result.referenced.map(\.lastPathComponent) == ["a.flac", "b.wv", "c.mp3"])
+            #expect(result.referenced.map(\.lastPathComponent) == ["a.flac", "b.wma", "c.mp3"])
         }
 
         @Test("the same file named twice is one referenced file")

@@ -89,6 +89,9 @@ enum AlbumArtProcessor {
             if url.pathExtension.lowercased() == "flac" {
                 return (try? await TagReader.offload(timeout: timeout) { try FlacArtwork.readPicture(url: url) }) ?? nil
             }
+            if ApeTagBackend.handles(url) {
+                return (try? await TagReader.offload(timeout: timeout) { try ApeTagBackend.embeddedArtwork(url: url) }) ?? nil
+            }
             return await AVFoundationBackend.embeddedArtwork(url: url)
         }
     }

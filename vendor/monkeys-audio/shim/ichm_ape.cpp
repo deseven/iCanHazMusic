@@ -1,6 +1,9 @@
 // Copyright (C) 2026 Ivan Novohatski <https://d7.wtf/>
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+#include <cstring>
+#include <vector>
+
 #include "All.h"
 #include "MACLib.h"
 #include "IAPEIO.h"
@@ -9,6 +12,37 @@
 using namespace APE;
 
 namespace {
+
+uint32_t readLE32(const unsigned char *p) {
+    return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+}
+
+/// `dwChannelMask` of the WAV header the file was made from: 0 if there is none, or the header has no extensible
+/// format chunk (a plain mono or stereo file, whose header the SDK makes up).
+uint32_t storedChannelMask(IAPEDecompress *decompress) {
+    const int64 bytes = decompress->GetInfo(IAPEInfo::APE_INFO_WAV_HEADER_BYTES);
+    if (bytes < 12 + 8 + 40 || bytes > 4096) return 0;
+    std::vector<unsigned char> header(static_cast<size_t>(bytes));
+    if (decompress->GetInfo(IAPEInfo::APE_INFO_WAV_HEADER_DATA, APE_POINTER_TO_INT64(header.data()), bytes)
+        != APE_ERROR_SUCCESS) return 0;
+
+    // "RIFF" (or "RF64"), a size, "WAVE", then chunks: id, size, data.
+    size_t at = 12;
+    while (at + 8 <= header.size()) {
+        const uint32_t size = readLE32(&header[at + 4]);
+        if (std::memcmp(&header[at], "fmt ", 4) == 0) {
+            // WAVEFORMATEXTENSIBLE: tag (0xFFFE), channels, rate, bytes/s, align, bits, cbSize (>= 22), valid
+            // bits, channel mask, sub format.
+            const size_t body = at + 8;
+            if (size < 40 || body + 24 > header.size()) return 0;
+            const unsigned tag = header[body] | header[body + 1] << 8;
+            const unsigned extra = header[body + 16] | header[body + 17] << 8;
+            return (tag == WAVE_FORMAT_EXTENSIBLE && extra >= 22) ? readLE32(&header[body + 20]) : 0;
+        }
+        at += 8 + size + (size & 1);
+    }
+    return 0;
+}
 
 /// The SDK's I/O interface over the caller's reader: read-only, positioned reads.
 class ReaderIO final : public IAPEIO {
@@ -124,6 +158,7 @@ extern "C" void ichm_ape_get_info(ichm_ape_decoder *decoder, ichm_ape_info *info
         info->file_version = static_cast<int32_t>(d->GetInfo(IAPEInfo::APE_INFO_FILE_VERSION));
         info->compression_level = static_cast<int32_t>(d->GetInfo(IAPEInfo::APE_INFO_COMPRESSION_LEVEL));
         info->average_bitrate = static_cast<int32_t>(d->GetInfo(IAPEInfo::APE_INFO_AVERAGE_BITRATE));
+        info->channel_mask = storedChannelMask(d);
     } catch (...) {
     }
 }

@@ -107,6 +107,27 @@ extension AllTests {
             #expect(session.incomplete == 0)
         }
 
+        @Test("WavPack and APE files import with their tags, length, format label and cover")
+        func extraFormats() async throws {
+            let dir = try TempDir()
+            try dir.copy("formats/t_cover.wv", to: "Artist/Album/01.wv")
+            try dir.copy("formats/t_cover.ape", to: "Artist/Album/02.ape")
+            try dir.copy("broken/garbage.wv", to: "Artist/Album/03.wv")
+            let covers = makeStore(try TempDir())
+            let session = ImportSession(coverStore: covers)
+            let outcome = await session.run(inputs: [dir.url])
+
+            #expect(outcome.fileCount == 3 && session.failed == 1 && session.successful == 2)
+            let album = try #require(outcome.albums.first)
+            #expect(outcome.albums.count == 1)
+            #expect(album.title == Fixtures.album && album.artist == Fixtures.artist && album.year == Fixtures.year)
+            #expect(album.tracks.map(\.title) == [Fixtures.title, Fixtures.title])
+            // What playback will say too, so it needs no correction after the first play.
+            #expect(album.tracks.map(\.codec) == ["WV 16/44.1", "APE 16/44.1"])
+            #expect(album.tracks.compactMap(\.duration) == [Fixtures.duration, Fixtures.duration])
+            #expect(session.artsProcessed == 1 && covers.data(for: album.key) != nil)
+        }
+
         @Test("files and directories can be mixed, duplicates are read once")
         func mixedInputs() async throws {
             let library = try makeLibrary()

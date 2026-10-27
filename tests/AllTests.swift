@@ -10,7 +10,7 @@ import Testing
 /// inherit both through `extension AllTests`) keeps that predictable.
 ///
 /// Audio/image fixtures are committed in `tests/fixtures`; `tests/prepare-fixtures.sh` is the recipe for them (needs
-/// ffmpeg and `mac`, only to add or change one).
+/// ffmpeg, `mac` and `wavpack`, only to add or change one).
 @MainActor
 @Suite(.serialized)
 enum AllTests {}

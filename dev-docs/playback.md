@@ -1,7 +1,8 @@
 # Playback notes
 
 Why playback is built on `AVAudioEngine` + `AVAudioFile` and not on `AVPlayer`/`AVQueuePlayer`, how the engine works,
-and what to know before touching it. Everything here was measured (macOS 26, Apple silicon), not assumed.
+how files are read (`AVAudioFile`, and decoders of our own for WavPack and APE), and what to know before touching it.
+Everything here was measured (macOS 26, Apple silicon), not assumed.
 
 ## Why not AVPlayer
 
@@ -23,17 +24,71 @@ but only with a pre-roll, see below).
 
 **Opus needs a pre-roll.** `AVAudioFile` lands on the right frame but starts the Opus decoder there with no history: the
 first ~150 ms after a seek come out faded in and distorted. So every seek (decoder start, waveform slice) goes through
-`AVAudioFile.seekPrerolled`, which starts 0.5 s earlier and drops that audio (`SeekPreroll`: 80 ms, what libopus suggests,
+`PCMSource.seek`, which for `AVAudioFileSource` starts 0.5 s earlier and drops that audio (`SeekPreroll`: 80 ms, what libopus suggests,
 leaves an error of -21 dB, 250 ms -71 dB, 400 ms none). Without it every seek, restore and CUE track that starts
 mid-file would begin with a fade-in. Its length (exact) and the decode from the start match `opusdec` sample for sample.
 Multichannel Opus doesn't open at all (`'fmt?'`).
+
+## What a file is read through: `PCMSource`
+
+`TrackDecoder` and `WaveformAnalyzer` don't open files themselves, they read a `PCMSource` (`src/Core/Playback/Sources/`,
+made by `PCMSources.open` from the file extension, compared case-insensitively): its `length` in frames (exact), its
+`processingFormat` (float32, non-interleaved, the file's own rate, a channel layout for more than two channels),
+`framePosition`, `codec` (the `CodecLabel` text), `seek(to:)` (exact, with whatever pre-roll the format needs) and
+`read(into:frameCount:)` (0 frames at the end, an error for a file that can't be decoded). A source is used from one
+thread at a time; the waveform's workers each open their own.
+
+- `AVAudioFileSource`: everything macOS opens, as it always was, behind the protocol. The Opus pre-roll is in its `seek`; its
+  `read` doesn't reach past the end (FLAC throws there).
+- `WavPackSource` (`.wv`) and `APESource` (`.ape`): macOS opens neither (`AudioFile` says `'typ?'`, `AVURLAsset` "Cannot
+  Open", and a format can't be plugged into Core Audio from inside a process), so the decoders of `vendor/` do it: libwavpack
+  directly, the Monkey's Audio SDK through our C interface (`vendor/README.md`). Only these two files import `CWavPack` and
+  `CMonkeysAudio`; Core code and the UI never see the difference.
+
+What the decoders do, as the app uses them (all of it in `tests/`, with fixtures made by `tests/prepare-fixtures.sh`):
+
+- **Reading.** Through callbacks of ours over `pread` (`RandomAccessFile`): nothing is read ahead or cached, and an error
+  is the end of the data, never retried. A file that stops answering therefore blocks the decoder's own queue and nobody
+  else, and `TrackDecoder`'s timeout and abandon logic applies to it as it is (see below). Opening reads headers, not the
+  whole file: WavPack is opened without `OPEN_TAGS` (which would seek to the end for the tags; they are read by `ApeTag`) and
+  needs its first block; the Monkey's Audio SDK reads its descriptor, the seek table and **the whole APEv2 tag**, a cover
+  included, at every open (import, playback, each waveform worker). A few MB of cover art are not much, and the SDK has no
+  way to skip it; if it ever shows, the shim could report the file as ending where the tag starts, so the SDK finds none.
+- **Exact.** Both decode bit for bit and seek to the exact frame (16/44.1, 24/96, mono, 5.1, WavPack floats and hybrid, APE
+  "normal"; `PCMSourceTests`). The length is the one in the header. A WavPack file with no length in its header (a stream
+  that was never finished) can't be played; the library finds it by itself at open if it can seek, so this is rare.
+- **Seeking costs differently.** WavPack goes to the block that has the frame, APE can only enter at the start of a frame
+  (73728 samples with `mac`'s default level, 1.7 s at 44.1 kHz) and decodes up to the target.
+- **Cost** (measured when the decoders were first added, 30 s of 16/44.1 stereo, the decoders alone): ~0.12 s for WavPack, ~0.14 s
+  for APE "normal", ~0.56 s for APE "insane", i.e. far above real time, but APE "insane" costs several times FLAC.
+  Both are single threaded here (no worker threads). They add ~50 KB (WavPack) and ~160 KB (APE) of machine code per
+  architecture and ~5 s to a clean build.
+- **Samples.** 8 to 32 bit integers and 32 bit floats become floats (the power of two that scales them is exact, so a 24 bit
+  file comes out exactly). WavPack floats are normalised to +-1 (`OPEN_NORMALIZE`). DSD is decoded to PCM
+  (`OPEN_DSD_AS_PCM`): 24 bit at 1/8 of the one-bit rate, so DSD64 is 352.8 kHz, resampled like any other rate; its label is
+  "WV DSD64".
+- **Hybrid WavPack.** The `.wvc` correction file is looked for next to the `.wv` (the name with a `c`, or a `C` after an
+  upper-case extension, as the library's own functions have it). With it the file is lossless ("WV 16/44.1"), without it
+  the lossy audio it holds ("WV 240k": the average bit rate of the `.wv`).
+- **Channel layout.** `ChannelDownmix` mixes by channel *label*, so a source with more than two channels has to come with
+  a layout (`SourceFormat`). WavPack gives the speaker mask of a WAV file (`WavpackGetChannelMask`), APE keeps the WAV
+  header it was made from (the shim reads `dwChannelMask` of its `WAVEFORMATEXTENSIBLE` into `ichm_ape_info`); the
+  channels are in the order of the mask's bits. Without a mask, or one that doesn't fit, 3 to 8 channels are taken to be the
+  WAV layout of that many channels, and anything else is numbered (`DiscreteInOrder`) and mixed alternately to left and
+  right. 5.1 gives exactly the same stereo mix as the FLAC with the same audio. Mono and stereo need no layout.
+- **Damaged files.** The track ends where the audio does, with a warning (as for FLAC), after everything in front of the
+  damage. A truncated WavPack file just ends early (`the file ends after N of M frames`). A block that fails its
+  checksum is an error: WavPack counts them (`WavpackGetNumErrors`, checked after every read; the audio of the block is
+  dropped), and so is a truncated APE file, whose SDK fills what follows the damage with silence and reports the error,
+  so `ichm_ape_read` hands out nothing of that call (an APE frame is 73728 samples: the damage costs the audio from its
+  frame on, `damaged.ape` plays 73728 of its 136710 frames).
 
 ## How it works
 
 `PlaybackEngine` (`src/Core/Playback/`) plays a queue of two files, the current track and the next one:
 
 - `TrackDecoder`: one per file, with its own serial queue (so a hung read on a network share can be abandoned
-  without blocking the next track). Opens the file, folds the channels to stereo (`ChannelDownmix`), resamples to
+  without blocking the next track). Opens the file as a `PCMSource`, folds the channels to stereo (`ChannelDownmix`), resamples to
   the output rate with `AVAudioConverter` and hands out chunks of stereo float32. Resampling with the converter's
   default priming gives exactly `round(frames * outRate / inRate)` frames, no offset and no dependence on chunking.
 - Everything is converted to **one format** (stereo float32 at the output's rate), so gapless playback is nothing
@@ -53,7 +108,8 @@ Multichannel Opus doesn't open at all (`'fmt?'`).
 ## Files that don't answer
 
 A file on a network share that went away (SMB mounts are hard mounts by default) can block `AVAudioFile`'s open or read
-in the kernel for a long time, and nothing can interrupt that call. This used to wedge playback: the feeder is a single
+(and the `open` and `pread` of `RandomAccessFile`, which WavPack and APE are read through) in the kernel for a long time,
+and nothing can interrupt that call. This used to wedge playback: the feeder is a single
 loop that awaited the decoder, so after one hung read no track was ever fed again until Stop (the UI showed "playing"
 with a seek bar jumping back to 0). Now:
 
@@ -113,10 +169,13 @@ The config doesn't (and shouldn't) hold how much of the track was listened to. S
 
 ## What the opened file reports
 
-When the decoder opens a file it also learns the exact length (`AVAudioFile.length`) and describes the format
-(`CodecLabel`: the file's stream description plus `AudioFile` properties, nothing is decoded). `PlaybackState.tick`
+When the decoder opens a file it also learns the exact length (`PCMSource.length`) and describes the format
+(`PCMSource.codec`, i.e. `CodecLabel`: the file's stream description plus `AudioFile` properties, nothing is decoded;
+WavPack and APE make the text out of their header with the same `CodecLabel` functions). `PlaybackState.tick`
 compares both with the playlist's track once per track and, if the length is more than 0.5 s off or missing, or the
-label differs, writes them back through `PlaylistStore.updateTrack` (the playlist file is saved again).
+label differs, writes them back through `PlaylistStore.updateTrack` (the playlist file is saved again). For WavPack and
+APE nothing differs: import (`TagReadResult.codec`) already opened the file with its decoder and made the same text, so a
+track of these formats is right from the start.
 
 - Bit rate: `kAudioFilePropertyBitRate`, the average over the file (MP3, AAC, Vorbis), shown in kbit/s with a `k` (`MP3 CBR 320k`). MP3 is called VBR when the
   largest packet is clearly larger than the average one (`kAudioFilePropertyMaximumPacketSize`), else CBR.
@@ -127,7 +186,13 @@ label differs, writes them back through `PlaylistStore.updateTrack` (the playlis
 
 - **`AVAudioFile.framePosition` raises an Objective-C exception** (which Swift can't catch, so the process dies) for a
   negative position, and `read` throws at/after the end. The decoder clamps the start to `0...length-1` and never
-  reads more than `length - framePosition`. A damaged file only makes `read` throw: the track ends there.
+  reads more than `length - framePosition` (`AVAudioFileSource` doesn't either, and refuses a seek outside the file).
+  A damaged file only makes `read` throw: the track ends there.
+- A Swift closure given to a C library as a callback can't capture anything: what the callbacks of `WavPackSource` and
+  `APESource` work on comes in as the `void *` the library hands back (an unretained pointer to an object the source keeps
+  alive for as long as the library has the file open).
+- WavPack's `WavpackSeekSample64` returns 1 on success, the shim's `ichm_ape_seek` 0. `WavpackUnpackSamples` gives
+  interleaved `Int32` right-justified to `WavpackGetBitsPerSample` bits, or the bits of floats (`MODE_FLOAT`).
 - `AVAudioFormat(commonFormat:sampleRate:channels:interleaved:)` returns nil for more than 2 channels without a layout.
 - `AVAudioPlayerNode.playerTime` is nil while paused and `lastRenderTime` is invalid before the first render (using it
   raises an exception). The engine keeps its own frame counter for those cases, and guards every use.

@@ -10,7 +10,8 @@ import Foundation
 /// - Everything blocking (opening the file, reading, decoding) happens on the decoder's own serial queue, never on
 ///   the caller's thread. Each decoder has a queue of its own, so one that hangs (say, on a stalled network
 ///   share) can be abandoned without holding up the decoders created after it.
-/// - The length is what `AVAudioFile` reports, i.e. the exact number of audio frames of the file. AVFoundation's
+/// - The file is read through a `PCMSource`: `AVAudioFile` for what macOS opens, our own decoders for WavPack and APE.
+///   The length is what the source reports, i.e. the exact number of audio frames of the file. AVFoundation's
 ///   player rounds FLAC up to whole packets and plays up to 1176 frames of padding at the end; the file API does not.
 /// - Channels are folded down by `ChannelDownmix`, the sample rate is converted by `AVAudioConverter` at the
 ///   given `ResampleQuality` (`.high` unless told otherwise; the frame counts come out exact at every quality, so
@@ -19,8 +20,8 @@ import Foundation
 /// - A track can be a part of the file (`endSeconds`, and a `startSeconds` that is where the part starts, for the tracks of
 ///   a CUE sheet): decoding stops at the end frame, and a part that lies beyond the end of the file fails instead of
 ///   playing its last frame.
-/// - Starting anywhere but at the beginning seeks with `seekPrerolled`, so formats whose decoder needs history (Opus)
-///   are right from the first frame, see `SeekPreroll`.
+/// - Starting anywhere but at the beginning seeks the source, which is exact: formats whose decoder needs history (Opus)
+///   are right from the first frame too, see `SeekPreroll`.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
 /// - Whoever waits in `next()` is never held up by a file that doesn't respond: `cancel()` releases the wait at once,
@@ -72,7 +73,7 @@ final class TrackDecoder: @unchecked Sendable {
     // Only touched on `queue` from here on.
     private var opened = false
     private var finished = false
-    private var file: AVAudioFile?
+    private var file: PCMSource?
     private var fileDuration: Double = 0
     /// The frame (of the file) decoding stops at: the end of the track, or of the file.
     private var endFrame: Int64 = 0
@@ -219,13 +220,13 @@ final class TrackDecoder: @unchecked Sendable {
     }
 
     private func open() throws {
-        let file = try AVAudioFile(forReading: url)
+        let file = try PCMSources.open(url: url)
         let format = file.processingFormat
         guard file.length > 0, format.sampleRate > 0 else { throw DecoderError("the file has no audio") }
 
         self.file = file
         fileDuration = Double(file.length) / format.sampleRate
-        codec = CodecLabel.make(url: url, fileFormat: file.fileFormat)
+        codec = file.codec
         downmix = ChannelDownmix(format: format)
         readBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(Self.blockFrames))
 
@@ -249,7 +250,7 @@ final class TrackDecoder: @unchecked Sendable {
             // A position past the end plays the last frame, not nothing.
             start = min(start, file.length - 1)
         }
-        if start > 0, let readBuffer { file.seekPrerolled(to: start, scratch: readBuffer) }
+        if start > 0 { try file.seek(to: start) }
         opened = true
 
         let channels = format.channelCount == 2 ? "stereo" : "\(format.channelCount) ch -> stereo"

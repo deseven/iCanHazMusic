@@ -276,6 +276,14 @@ extension AllTests {
             let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.flac")])
             #expect(image?.width == 200)
         }
+
+        @Test("WavPack and APE embedded art", arguments: ["wv", "ape"])
+        func extraFormatEmbedded(ext: String) async throws {
+            let dir = try TempDir()
+            try dir.copy("formats/t_cover." + ext, to: "01." + ext)
+            let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01." + ext)])
+            #expect(image?.width == 200)
+        }
     }
 
     @MainActor @Suite("AlbumArtProcessor")

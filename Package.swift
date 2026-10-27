@@ -47,8 +47,6 @@ let package = Package(
             name: "iCanHazMusicTests",
             dependencies: [
                 .target(name: "iCanHazMusic"),
-                "CWavPack",
-                "CMonkeysAudio",
             ],
             path: "tests",
             exclude: ["fixtures", "prepare-fixtures.sh"]

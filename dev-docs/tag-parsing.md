@@ -8,8 +8,9 @@ They explain *why* the reader looks the way it does. Behaviour described here is
 
 1. **No subprocess needed.** `AudioToolbox` (`AudioFileOpenURL` + `kAudioFilePropertyInfoDictionary`) and
    `AVFoundation` (`AVURLAsset` metadata) read the tags of every container we support (WAV, AIFF, CAF, MP3,
-   AAC/M4A, ALAC, FLAC, OGG Vorbis, OGG Opus). WMA/APE/WavPack/MPC are readable by neither. Spotlight (`MDItem`) is
-   useless (file name as title, no artist/album). An `ffprobe` per file was ~2x slower and drags in a binary.
+   AAC/M4A, ALAC, FLAC, OGG Vorbis, OGG Opus). WMA/APE/WavPack/MPC are readable by neither (APE and WavPack are read by
+   hand, see "WavPack and APE" below). Spotlight (`MDItem`) is useless (file name as title, no artist/album). An
+   `ffprobe` per file was ~2x slower and drags in a binary.
 2. **Per-format routing (`TagReader.Strategy.auto`).** On a NAS, AVFoundation is ~2x faster than AudioFile for
    MP3, AudioFile is ~1.4x faster for FLAC. So `.mp3` goes to AVFoundation, everything else to AudioFile; the
    other backend is consulted only if the artist is still missing.
@@ -27,6 +28,9 @@ They explain *why* the reader looks the way it does. Behaviour described here is
    `TagReader` detects that layout (`TrailingTags.hasApeBeforeV1`) and reads such files with AudioFile only.
 9. **FLAC pictures are invisible** to both APIs (AudioFile claims the property exists but returns nothing), so
    `FlacArtwork` walks the metadata block headers by hand.
+10. **WavPack and APE open in neither API** (`AudioFile` gives `'typ?'`, `AVURLAsset` "Cannot Open"), and there is no
+    in-process way to teach Core Audio a format. Both keep their tags in an APEv2 tag at the end of the file, which is
+    parsed by hand (`ApeTag`), the length and format label come from the decoders of `vendor/`.
 
 ## What each API sees
 
@@ -44,6 +48,33 @@ Samples tagged with title/artist/album/year/track (macOS 26):
 | WAV | title, artist | title, artist (`caaf/info-*`) | ffmpeg writes no album/year/track here |
 | AIFF | title (+ffmpeg's minimal set) | same | |
 | CAF | complete | same | |
+| WavPack, APE | - (`'typ?'`) | - ("Cannot Open") | read by `ApeTagBackend`: the APEv2 tag, the decoder's header |
+
+## WavPack and APE
+
+`TagReader.readOne` sends `.wv` and `.ape` files (`ExtraFormat`) to `ApeTagBackend` and to nothing else, whatever the
+strategy: the two APIs would only fail or waste time. The result is credited to `APEv2`, a failure to open the file with
+its decoder is the file's failure (a file that is not playable doesn't get into a playlist).
+
+- **Length and format label** come from opening the file with its `PCMSource` (`WavPackSource`, `APESource`): the header
+  is exact and cheap to read, and nothing is decoded. The label (`TagReadResult.codec`, "WV 16/44.1", "APE 24/96") is the
+  one playback would make, so the playlist shows it from the import on (other formats show the file extension until
+  the first play).
+- **Tags** are the text items of the APEv2 tag (`ApeTag`): a 32 byte footer `APETAGEX` right at the end of the file
+  (before an ID3v1 tag, if there is one), items before it, optionally a header before those. Keys are case-insensitive
+  and differ by writer: ffmpeg writes `title`, `artist`, `album`, `date`, `track`; `mac` (Monkey's Audio) `Title`,
+  `Artist`, `Album`, `Year`, `Track`. They go through `TagKeyMap` like Vorbis comments. An item can hold several
+  NUL-separated values, the first is used. WavPack files may have an ID3v1 tag instead of (or as well as) the APEv2
+  one: it fills in what the APEv2 tag lacks.
+- **Lyrics** are an item `Lyrics` (sometimes `UNSYNCEDLYRICS`), read with the other tags: these files get no extra pass
+  like the other formats do (`embeddedLyrics`).
+- **Cover**: the binary item `Cover Art (Front)` (else any `Cover Art (...)`) is a file name, a NUL, then the image.
+  Detection (`hasArtwork`) only needs the item, never the image; `ApeTagBackend.embeddedArtwork` reads it for
+  `AlbumArtProcessor` (and so for the player's big picture too). Images are never read to get to the items behind them:
+  `ApeTag` walks the items one by one and only takes the value of the text ones. `wvtag` writes `Cover Art (Front).jpg`
+  as the name, other tools `cover.jpg`; some leave the name out.
+- **MP3s** with an APEv2 tag (before ID3v1) use the same parser to recover the long title/artist/album
+  (`TrailingTags`).
 
 ## Error classification
 
@@ -68,8 +99,11 @@ Vorbis `METADATA_BLOCK_PICTURE`), for FLAC through `FlacArtwork`. Folders are li
 
 - **OGG Opus** (`.opus`, `.oga`) is read like Vorbis. Multichannel Opus (5.1, mapping family 1) opens in neither API,
   a chained file shows only its first part. Ogg FLAC in an `.oga` has its tags read but opens without audio.
-- WMA/APE/WavPack/MPC are readable by neither API. Decoders for APE and WavPack are vendored (`vendor/`), their
-  integration is planned in `extra-formats-support.md`.
+- WMA/MPC are readable by neither API and the app has no decoder for them. APE and WavPack are covered above
+  (`extra-formats-support.md`). Tags at the *start* of a WavPack/APE file (an APEv2 tag without a footer, ID3v2) are
+  not read.
+- WavPack and APE tags: external-locator items, `Cover Art` items bigger than 64 MB and text items bigger than 4 MB
+  are skipped.
 - `discogs_artist_list` only exists as an ID3 `TXXX` frame (private key in AVFoundation); it is in the artist
   fallback chain but rarely hits.
 - Track/disc "N/M" is reduced to the leading integer; disc numbers are not read.

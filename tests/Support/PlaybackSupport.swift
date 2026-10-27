@@ -46,6 +46,8 @@ struct RampFile {
     static let r96 = RampFile(name: "r96_24.flac", sampleRate: 96000, channels: 2, frames: 192_000, salt: 400, bits: 24)
     static let mono22 = RampFile(name: "mono22.flac", sampleRate: 22050, channels: 1, frames: 33_075, salt: 500, bits: 16)
     static let surround = RampFile(name: "surround.flac", sampleRate: 44100, channels: 6, frames: 66_150, salt: 600, bits: 16)
+    /// 32 bit float samples that hold the 16 bit ramp values (a float holds them exactly).
+    static let float = RampFile(name: "float.wv", sampleRate: 44100, channels: 2, frames: 136_710, salt: 700, bits: 16)
 }
 
 /// A sine fixture: 1 kHz, amplitude 0.5 on the left and 0.25 on the right.

@@ -42,9 +42,9 @@ final class WaveformCancellation: @unchecked Sendable {
 ///   so the result doesn't depend on how the work is split. The band powers of a bucket are the mean over its frames,
 ///   scaled so the bands add up to the mean square of the mono signal (a bucket with no frame, in a very short track or
 ///   in the last 4096 frames of one, takes its neighbour's). Bands are log spaced from 40 Hz to 16 kHz (`SpectralLayout`).
-/// - The buckets are split into `workers` contiguous slices; each worker has its own `AVAudioFile`, seeked to the start
-///   of its slice (`seekPrerolled`, so an Opus slice doesn't start with a fade-in), and reads 4096 frames past the end
-///   of it for the last frames of the slice.
+/// - The buckets are split into `workers` contiguous slices; each worker has its own `PCMSource` (a decoder is not thread
+///   safe, and opening one is cheap), seeked to the start of its slice (exactly, with the pre-roll an Opus slice needs
+///   not to start with a fade-in), and reads 4096 frames past the end of it for the last frames of the slice.
 /// - Decoding is nearly all of the cost (the spectrum adds about 15%), see `dev-docs/playback.md` for numbers. The pass
 ///   runs on a queue of its own at `.utility`, not on the Swift concurrency pool: reads blocked on a stalled network share
 ///   would eat its threads.
@@ -78,7 +78,7 @@ enum WaveformAnalyzer {
     /// the file gives `nil`.
     static func analyse(url: URL, start: TimeInterval = 0, end: TimeInterval? = nil, workers: Int,
                         isCancelled: @escaping @Sendable () -> Bool) -> WaveformAnalysis? {
-        guard let first = try? AVAudioFile(forReading: url),
+        guard let first = try? PCMSources.open(url: url),
               first.length > 0, first.processingFormat.sampleRate > 0 else { return nil }
         let sampleRate = first.processingFormat.sampleRate
         let base = min(first.length, max(0, Int64((start * sampleRate).rounded())))
@@ -101,7 +101,7 @@ enum WaveformAnalyzer {
                 result = .cancelled
             } else {
                 var file = index == 0 ? firstFile.take() : nil
-                if file == nil { file = try? AVAudioFile(forReading: url) }
+                if file == nil { file = try? PCMSources.open(url: url) }
                 if let file {
                     result = measure(file, base: base, length: length, buckets: start..<end, bucketFrames: bucketFrames, hop: hop,
                                      isCancelled: isCancelled)
@@ -172,7 +172,7 @@ enum WaveformAnalyzer {
     }
 
     /// `base`/`length`: the frames of the file that are measured; positions below are relative to `base`.
-    private static func measure(_ file: AVAudioFile, base: Int64, length: Int64, buckets: Range<Int>, bucketFrames: Int64, hop: Int,
+    private static func measure(_ file: PCMSource, base: Int64, length: Int64, buckets: Range<Int>, bucketFrames: Int64, hop: Int,
                                 isCancelled: () -> Bool) -> Slice {
         let format = file.processingFormat
         let downmix = ChannelDownmix(format: format)
@@ -200,9 +200,14 @@ enum WaveformAnalyzer {
         let endFrame = min(length, Int64(buckets.upperBound) * bucketFrames)
         // The last frames of the slice need the next `fftSize` frames of the file.
         let readEnd = min(length, endFrame + Int64(fftSize))
-        // `framePosition` raises an Objective-C exception outside 0..<length; a slice starts inside by construction.
+        // A slice starts inside the file by construction.
         if base + startFrame > 0, base + startFrame < file.length {
-            file.seekPrerolled(to: base + startFrame, scratch: readBuffer)
+            do {
+                try file.seek(to: base + startFrame)
+            } catch {
+                slice.isComplete = false
+                return slice
+            }
         }
 
         var mono = [Float](repeating: 0, count: blockFrames)
@@ -376,13 +381,13 @@ enum WaveformAnalyzer {
     /// network share, opening is the slow part).
     private final class FileBox: @unchecked Sendable {
         private let lock = NSLock()
-        private var file: AVAudioFile?
+        private var file: PCMSource?
 
-        init(_ file: AVAudioFile) {
+        init(_ file: PCMSource) {
             self.file = file
         }
 
-        func take() -> AVAudioFile? {
+        func take() -> PCMSource? {
             lock.lock()
             defer { lock.unlock() }
             defer { file = nil }

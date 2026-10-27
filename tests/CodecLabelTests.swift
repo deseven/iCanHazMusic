@@ -26,6 +26,34 @@ extension AllTests {
             #expect(try label("playback/a.caf") == "CAF 16/44.1")
         }
 
+        /// The label of a file macOS doesn't open: made by its source.
+        private func sourceLabel(_ fixture: String) throws -> String {
+            try PCMSources.open(url: Fixtures.url(fixture)).codec
+        }
+
+        @Test("WavPack and APE: name, bit depth and sample rate")
+        func extraFormats() throws {
+            #expect(try sourceLabel("playback/a.wv") == "WV 16/44.1")
+            #expect(try sourceLabel("playback/a.ape") == "APE 16/44.1")
+            #expect(try sourceLabel("playback/r96_24.wv") == "WV 24/96")
+            #expect(try sourceLabel("playback/r96_24.ape") == "APE 24/96")
+            #expect(try sourceLabel("playback/mono22.wv") == "WV 16/22.1")
+            #expect(try sourceLabel("playback/mono22.ape") == "APE 16/22.1")
+            #expect(try sourceLabel("playback/float.wv") == "WV 32f/44.1")
+            #expect(try sourceLabel("playback/hybrid.wv") == "WV 16/44.1")   // with its correction file: lossless
+            #expect(try sourceLabel("playback/dsd.wv") == "WV DSD64")
+            #expect(try sourceLabel("formats/t.wv") == "WV 16/44.1")
+        }
+
+        @Test("the label made when a file is imported is the one made when it is played")
+        func sameWherever() async throws {
+            for name in ["formats/t.wv", "formats/t.ape"] {
+                let url = try Fixtures.url(name)
+                let imported = await TagReader(detectArtwork: false).readOne(url: url).codec
+                #expect(imported == (try sourceLabel(name)), "\(name)")
+            }
+        }
+
         @Test("lossy files: name and bit rate, MP3 also CBR or VBR")
         func lossy() throws {
             let mp3 = try label("playback/lossy.mp3")

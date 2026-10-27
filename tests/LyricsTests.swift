@@ -184,7 +184,8 @@ extension AllTests {
         }
 
         @Test("every format that can carry lyrics yields them",
-              arguments: ["l_v24.mp3", "l.flac", "l_unsynced.flac", "l.ogg", "l.opus", "l_aac.m4a", "l_alac.m4a", "l.caf"])
+              arguments: ["l_v24.mp3", "l.flac", "l_unsynced.flac", "l.ogg", "l.opus", "l_aac.m4a", "l_alac.m4a", "l.caf",
+                          "l.wv", "l.ape"])
         func lyrics(name: String) async throws {
             let r = try await read(name)
             #expect(r.status == .complete)
@@ -201,7 +202,8 @@ extension AllTests {
 
         @Test("files without lyrics have none, and the backends credited are the same as before")
         func none() async throws {
-            for name in ["t_v23.mp3", "t.flac", "t_aac.m4a", "t.caf", "t.wav", "t_v1.mp3", "plain.mp3"] {
+            for name in ["t_v23.mp3", "t.flac", "t_aac.m4a", "t.caf", "t.wav", "t_v1.mp3", "plain.mp3", "t.wv", "t.ape",
+                         "t_v1.wv"] {
                 #expect(try await read(name).tags.lyrics == nil, "\(name)")
             }
             #expect(try await read("l.flac").sources == ["AudioFile"])

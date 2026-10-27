@@ -39,13 +39,15 @@ enum ReadInput: Sendable {
 
 /// Turns whatever the user handed us (files, directories, a mix) into the ordered list of audio files to read.
 enum AudioFileGatherer {
-    /// Extensions macOS 15.4+ can open natively (compared case-insensitively).
-    /// - WMA/APE/WavPack/MPC etc. are absent: neither AudioToolbox nor AVFoundation opens them.
+    /// Extensions the app can play (compared case-insensitively): what macOS 15.4+ opens natively, and WavPack and APE,
+    /// which it doesn't but the app decodes itself (`ExtraFormat`).
+    /// - WMA/MPC etc. are absent: neither AudioToolbox nor AVFoundation opens them, and the app has no decoder for them.
     /// - "opus" and "oga": Ogg Opus (mono/stereo; multichannel Opus doesn't open) and Ogg Vorbis. Ogg FLAC in an
     ///   ".oga" opens without any audio, so its tracks fail to play ("the file has no audio").
     static let supportedExtensions: Set<String> = [
         "mp3", "m4a", "m4b", "aac", "flac", "ogg", "opus", "oga",
         "wav", "wave", "aif", "aiff", "aifc", "caf",
+        "wv", "ape",
     ]
 
     static func isSupported(_ url: URL) -> Bool {

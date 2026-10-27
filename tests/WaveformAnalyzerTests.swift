@@ -52,7 +52,8 @@ extension AllTests {
 
         @Test("a file is cut into 2048 buckets (fewer frames: one bucket per frame) whose levels match the content")
         func levels() throws {
-            for file in [RampFile.a, .b, .r48, .r96, .tiny, .tiny2] {
+            for file in [RampFile.a, .b, .r48, .r96, .tiny, .tiny2, .a.stored(as: "a.wv"), .a.stored(as: "a.ape"),
+                         .r96.stored(as: "r96_24.wv"), .r96.stored(as: "r96_24.ape"), .float] {
                 let result = try #require(analyse(try file.url()), "\(file.name)")
                 #expect(result.isComplete, "\(file.name)")
                 expectClose(result.waveform.rms, to: expectedLevels(file), file.name)
@@ -65,16 +66,16 @@ extension AllTests {
             #expect(try #require(analyse(try RampFile.a.url())).waveform.rms.count <= Waveform.bucketCount)
         }
 
-        @Test("mono is on both sides")
-        func mono() throws {
-            let result = try #require(analyse(try RampFile.mono22.url()))
+        @Test("mono is on both sides", arguments: ["mono22.flac", "mono22.wv", "mono22.ape"])
+        func mono(name: String) throws {
+            let result = try #require(analyse(try RampFile.mono22.stored(as: name).url()))
             #expect(result.isComplete)
             expectClose(result.waveform.rms, to: expectedLevels(.mono22))
         }
 
-        @Test("more than two channels are folded down, not ignored")
-        func surround() throws {
-            let result = try #require(analyse(try RampFile.surround.url()))
+        @Test("more than two channels are folded down, not ignored", arguments: ["surround.flac", "surround.wv", "surround.ape"])
+        func surround(name: String) throws {
+            let result = try #require(analyse(try RampFile.surround.stored(as: name).url()))
             #expect(result.isComplete)
             #expect(result.waveform.rms.count > 1000)
             #expect(result.waveform.rms.allSatisfy { $0 > 50 })
@@ -138,10 +139,21 @@ extension AllTests {
             }
         }
 
+        /// Not as many as above: every worker opens the file and seeks, and an APE file can only be entered at the start of
+        /// a frame of 73728 samples, from where the decoder runs up to the target.
+        @Test("the same goes for WavPack and APE", arguments: ["a.wv", "a.ape", "surround.ape", "r96_24.wv"])
+        func workersExtra(name: String) throws {
+            let url = try Fixtures.url("playback/" + name)
+            let one = try #require(analyse(url, workers: 1), "\(name)").waveform
+            for workers in [2, 3, 8] {
+                #expect(try #require(analyse(url, workers: workers)).waveform == one, "\(name), \(workers) workers")
+            }
+        }
+
         @Test("every container gives the same levels with workers that seek into the file")
         func containers() throws {
             let reference = expectedLevels(.a)
-            for name in ["a.wav", "a.aiff", "a.caf", "a_alac.m4a", "a.flac"] {
+            for name in ["a.wav", "a.aiff", "a.caf", "a_alac.m4a", "a.flac", "a.wv", "a.ape", "hybrid.wv"] {
                 let url = try Fixtures.url("playback/" + name)
                 for workers in [1, 2, 3] {
                     let result = try #require(analyse(url, workers: workers), "\(name)")
@@ -171,13 +183,18 @@ extension AllTests {
             #expect(analyse(try TempDir().path("nope.flac")) == nil)
             #expect(analyse(try Fixtures.url("broken/garbage.mp3")) == nil)
             #expect(analyse(try Fixtures.url("broken/empty.flac")) == nil)
+            #expect(analyse(try Fixtures.url("broken/garbage.wv")) == nil)
+            #expect(analyse(try Fixtures.url("broken/garbage.ape")) == nil)
         }
 
-        @Test("a file that ends before it said it would gives a result that is flagged as incomplete")
-        func truncated() throws {
-            let result = try #require(analyse(try Fixtures.url("playback/truncated.flac")))
-            #expect(!result.isComplete)
-            #expect(!result.waveform.rms.isEmpty)
+        @Test("a file that ends before it said it would gives a result that is flagged as incomplete",
+              arguments: ["truncated.flac", "truncated.wv", "truncated.ape", "damaged.wv", "damaged.ape"])
+        func truncated(name: String) throws {
+            for workers in [1, 2] {
+                let result = try #require(analyse(try Fixtures.url("playback/" + name), workers: workers), "\(name)")
+                #expect(!result.isComplete, "\(name), \(workers) workers")
+                #expect(!result.waveform.rms.isEmpty)
+            }
         }
 
         @Test("a cancelled pass gives nothing, quickly")

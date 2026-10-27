@@ -130,7 +130,7 @@ struct CueTrack: Equatable, Sendable {
         raw.duration = file.tags.duration
         let (tags, status) = TagReader.finalize(raw: raw, failed: nil)
         return TagReadResult(id: id, url: file.url, tags: tags, status: status, sources: file.sources, elapsed: file.elapsed,
-                             rawFields: raw.fields, artwork: file.artwork)
+                             rawFields: raw.fields, artwork: file.artwork, codec: file.codec)
     }
 
     /// The tag result of this track as a part of its audio file, with the pseudo path of the sheet's track (what
@@ -161,6 +161,6 @@ struct CueTrack: Equatable, Sendable {
         }
 
         return TagReadResult(id: id, url: url, tags: tags, status: status, sources: ["CUE"] + file.sources,
-                             elapsed: file.elapsed, rawFields: raw.fields, artwork: artwork, cue: slice)
+                             elapsed: file.elapsed, rawFields: raw.fields, artwork: artwork, codec: file.codec, cue: slice)
     }
 }

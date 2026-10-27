@@ -27,9 +27,44 @@ extension AllTests {
 
         @Test("every format we support yields complete tags",
               arguments: ["t_v23.mp3", "t_v24.mp3", "t_v22.mp3", "t.flac", "t.ogg", "t.opus", "t_aac.m4a", "t_alac.m4a",
-                          "t.caf"])
+                          "t.caf", "t.wv", "t.ape"])
         func fullyTagged(name: String) async throws {
             expectFullyTagged(try await read("formats/" + name))
+        }
+
+        @Test("WavPack and APE are read from their decoder's header and the APEv2 tag, whichever strategy is set",
+              arguments: [TagReader.Strategy.auto, .hybrid, .audioFile, .avFoundation])
+        func apeTagged(strategy: TagReader.Strategy) async throws {
+            for (name, codec) in [("t.wv", "WV 16/44.1"), ("t.ape", "APE 16/44.1"), ("t_cover.wv", "WV 16/44.1")] {
+                let r = try await read("formats/" + name, strategy: strategy)
+                expectFullyTagged(r)
+                #expect(r.sources == ["APEv2"], "\(name)")
+                #expect(r.codec == codec, "\(name)")
+                // The decoder's header is exact, not an approximation.
+                #expect(r.tags.duration == Fixtures.duration, "\(name)")
+            }
+        }
+
+        @Test("the format label of the other formats is left to playback")
+        func noCodec() async throws {
+            #expect(try await read("formats/t.flac").codec == nil)
+            #expect(try await read("formats/t_v23.mp3").codec == nil)
+        }
+
+        @Test("an ID3v1 tag does for a WavPack file that has no other, and fills in what an APEv2 tag lacks")
+        func wavPackV1() async throws {
+            let r = try await read("formats/t_v1.wv")
+            #expect(r.status == .complete)
+            #expect(r.tags.title == "V1 Title" && r.tags.artist == "V1 Artist" && r.tags.album == "V1 Album")
+            #expect(r.tags.year == "2011" && r.tags.trackNumber == 7)
+        }
+
+        @Test("APEv2 keys are case-insensitive: ffmpeg writes title, mac writes Title")
+        func apeKeys() async throws {
+            let wv = try await read("formats/t.wv")
+            let ape = try await read("formats/t.ape")
+            #expect(wv.rawFields == ape.rawFields)
+            #expect(!wv.rawFields.isEmpty)
         }
 
         @Test("the same result whichever strategy is used",
@@ -116,7 +151,8 @@ extension AllTests {
             #expect(onlyTitle.rawFields[.artist] == nil)
         }
 
-        @Test("readable files without tags", arguments: ["t_notags.mp3", "t_notags.flac", "plain.mp3"])
+        @Test("readable files without tags",
+              arguments: ["t_notags.mp3", "t_notags.flac", "plain.mp3", "t_notags.wv", "t_notags.ape"])
         func noTags(name: String) async throws {
             let r = try await read("formats/" + name)
             #expect(r.status == .noTags)
@@ -169,12 +205,38 @@ extension AllTests {
             #expect(reason?.hasPrefix("unrecognised header") == true)
         }
 
-        @Test("a text file that claims to be FLAC")
-        func fakeFlac() async throws {
+        @Test("a text file that claims to be FLAC, WavPack or APE", arguments: ["fake.flac", "fake.wv", "fake.ape"])
+        func fakeFlac(name: String) async throws {
             let dir = try TempDir()
-            let file = try dir.write("fake.flac", Data("definitely not a flac".utf8))
+            let file = try dir.write(name, Data("definitely not a flac".utf8))
             let reason = await failure(file)
             #expect(reason?.hasPrefix("unrecognised header") == true)
+        }
+
+        @Test("WavPack and APE files that are broken, empty or not there")
+        func brokenExtra() async throws {
+            for name in ["broken/garbage.wv", "broken/garbage.ape"] {
+                #expect(await failure(try Fixtures.url(name))?.hasPrefix("unrecognised header") == true, "\(name)")
+            }
+            let dir = try TempDir()
+            #expect(await failure(try dir.write("empty.wv"))?.hasPrefix("file is empty") == true)
+            #expect(await failure(dir.path("nope.ape"))?.hasPrefix("file not found") == true)
+        }
+
+        @Test("a WavPack file whose header is damaged is a failure that names the file's format")
+        func damagedHeader() async throws {
+            // The first bytes say WavPack, what follows is not.
+            let dir = try TempDir()
+            let file = try dir.write("x.wv", Data("wvpk".utf8) + Data(repeating: 0xAB, count: 200))
+            let reason = await failure(file)
+            #expect(reason != nil && reason?.hasPrefix("unrecognised header") == false, "\(reason ?? "")")
+        }
+
+        @Test("a truncated WavPack or APE file is read as far as it goes", arguments: ["truncated.wv", "truncated.ape"])
+        func truncatedExtra(name: String) async throws {
+            let r = await TagReader(detectArtwork: false).readOne(url: try Fixtures.url("playback/" + name))
+            #expect(!r.status.isFailure)
+            #expect(r.tags.duration == RampFile.a.duration)
         }
 
         @Test("failed files have fallback tags, no artwork and no sources")
@@ -359,13 +421,13 @@ extension AllTests {
         }
 
         @Test("embedded artwork is found in every container that has it",
-              arguments: ["t_cover.mp3", "t_cover.m4a", "t_cover.flac", "t_cover.opus"])
+              arguments: ["t_cover.mp3", "t_cover.m4a", "t_cover.flac", "t_cover.opus", "t_cover.wv", "t_cover.ape"])
         func embedded(fixture: String) async throws {
             let source = try await detect([(fixture, "a." + (fixture as NSString).pathExtension)], read: "a." + (fixture as NSString).pathExtension)
             #expect(source == .embedded)
         }
 
-        @Test("files without artwork", arguments: ["t_v23.mp3", "t.flac", "t_aac.m4a", "t.opus"])
+        @Test("files without artwork", arguments: ["t_v23.mp3", "t.flac", "t_aac.m4a", "t.opus", "t.wv", "t.ape"])
         func noArtwork(fixture: String) async throws {
             let ext = (fixture as NSString).pathExtension
             let source = try await detect([(fixture, "a." + ext)], read: "a." + ext)

@@ -25,7 +25,7 @@ enum TrailingTags {
 
         var end = try fh.seekToEnd()
         guard end > v1Size else { return [:] }
-        if let tag = try bytes(fh, at: end - v1Size, count: 3), tag == Data("TAG".utf8) { end -= v1Size }
+        if let tag = try TagBytes.read(fh, at: end - v1Size, count: 3), tag == Data("TAG".utf8) { end -= v1Size }
 
         var found: [TagField: String] = [:]
         for _ in 0..<3 {   // Lyrics3 and APE can follow each other in either order
@@ -50,7 +50,7 @@ enum TrailingTags {
         defer { try? fh.close() }
         let end = try fh.seekToEnd()
         let tail = v1Size + 32
-        guard end >= tail, let data = try bytes(fh, at: end - tail, count: Int(tail)) else { return false }
+        guard end >= tail, let data = try TagBytes.read(fh, at: end - tail, count: Int(tail)) else { return false }
         return data.prefix(8) == Data("APETAGEX".utf8) && data.dropFirst(32).prefix(3) == Data("TAG".utf8)
     }
 
@@ -59,11 +59,11 @@ enum TrailingTags {
     /// `LYRICSBEGIN` + fields (`ID` + 5 digit size + data) + 6 digit size + `LYRICS200`; the size covers the
     /// fields plus `LYRICSBEGIN`. Returns the fields and the offset where the block starts.
     private static func lyrics3(_ fh: FileHandle, end: UInt64) throws -> ([TagField: String], UInt64)? {
-        guard end > 15, let trailer = try bytes(fh, at: end - 15, count: 15),
+        guard end > 15, let trailer = try TagBytes.read(fh, at: end - 15, count: 15),
               trailer.suffix(9) == Data("LYRICS200".utf8),
               let size = UInt64(String(decoding: trailer.prefix(6), as: UTF8.self)),
               size >= 11, size <= maxBlockSize, size + 15 <= end,
-              let block = try bytes(fh, at: end - 15 - size, count: Int(size)),
+              let block = try TagBytes.read(fh, at: end - 15 - size, count: Int(size)),
               block.prefix(11) == Data("LYRICSBEGIN".utf8)
         else { return nil }
 
@@ -79,7 +79,7 @@ enum TrailingTags {
             case "EAL": .album
             default: nil
             }
-            if let field, let text = decode(block[(i + 8)..<(i + 8 + length)]) { fields[field] = text }
+            if let field, let text = TagBytes.text(block[(i + 8)..<(i + 8 + length)]) { fields[field] = text }
             i += 8 + length
         }
         return (fields, end - 15 - size)
@@ -87,57 +87,22 @@ enum TrailingTags {
 
     // MARK: APEv2
 
-    /// 32 byte footer `APETAGEX` (version, tag size incl. footer, item count, flags) preceded by the items.
+    /// The title, artist and album of the APEv2 tag that ends at `end` (see `ApeTag`: the footer is looked for there), and
+    /// the offset where the tag starts.
     private static func ape(_ fh: FileHandle, end: UInt64) throws -> ([TagField: String], UInt64)? {
-        guard end > 32, let footer = try bytes(fh, at: end - 32, count: 32),
-              footer.prefix(8) == Data("APETAGEX".utf8) else { return nil }
-        let tagSize = UInt64(le32(footer, 12))
-        let itemCount = Int(le32(footer, 16))
-        let hasHeader = le32(footer, 20) & (1 << 31) != 0
-        guard tagSize >= 32, tagSize <= maxBlockSize, tagSize <= end,
-              let items = try bytes(fh, at: end - tagSize, count: Int(tagSize) - 32) else { return nil }
-
+        guard let tag = try ApeTag.read(fh, end: end, maxSize: maxBlockSize) else { return nil }
         var fields: [TagField: String] = [:]
-        var i = items.startIndex
-        for _ in 0..<itemCount {
-            guard i + 8 <= items.endIndex else { break }
-            let valueSize = Int(le32(items, i - items.startIndex))
-            let flags = le32(items, i - items.startIndex + 4)
-            guard let nul = items[(i + 8)...].firstIndex(of: 0), nul + 1 + valueSize <= items.endIndex else { break }
-            let key = String(decoding: items[(i + 8)..<nul], as: UTF8.self).lowercased()
-            let value = items[(nul + 1)..<(nul + 1 + valueSize)]
-            i = nul + 1 + valueSize
-            guard (flags >> 1) & 3 == 0 else { continue }   // text items only
-            let field: TagField? = switch key {
+        for item in tag.items where item.kind == .text {   // text items only
+            let field: TagField? = switch item.lowercasedKey {
             case "title": .title
             case "artist": .artist
             case "album": .album
             default: nil
             }
             // Multiple values are NUL separated, the first one is enough.
-            if let field, let text = decode(value.prefix(while: { $0 != 0 })) { fields[field] = text }
+            if let field, let value = item.text, let text = TagBytes.text(value.prefix(while: { $0 != 0 })) { fields[field] = text }
         }
-        return (fields, end - tagSize - (hasHeader ? 32 : 0))
-    }
-
-    // MARK: Helpers
-
-    private static func bytes(_ fh: FileHandle, at offset: UInt64, count: Int) throws -> Data? {
-        try fh.seek(toOffset: offset)
-        guard let data = try fh.read(upToCount: count), data.count == count else { return nil }
-        return Data(data)   // re-based, indices start at 0
-    }
-
-    private static func le32(_ d: Data, _ offset: Int) -> UInt32 {
-        let o = d.startIndex + offset
-        return UInt32(d[o]) | UInt32(d[o + 1]) << 8 | UInt32(d[o + 2]) << 16 | UInt32(d[o + 3]) << 24
-    }
-
-    /// UTF-8 if valid, otherwise Latin-1 (what Lyrics3 specifies). Trimmed, `nil` when empty.
-    private static func decode(_ data: Data) -> String? {
-        let s = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? ""
-        let t = s.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
-        return t.isEmpty ? nil : t
+        return (fields, tag.start)
     }
 }
 

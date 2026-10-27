@@ -52,7 +52,8 @@ extension AllTests {
 
         @Test("lossless files are delivered sample by sample, with exactly the announced length",
               arguments: [RampFile.a, .b, .c, .tiny, .tiny2, .a.stored(as: "a.wav"), .a.stored(as: "a.aiff"),
-                          .a.stored(as: "a.caf"), .a.stored(as: "a_alac.m4a")])
+                          .a.stored(as: "a.caf"), .a.stored(as: "a_alac.m4a"), .a.stored(as: "a.wv"),
+                          .a.stored(as: "a.ape"), .float, .a.stored(as: "hybrid.wv")])
         func exact(file: RampFile) async throws {
             let d = await decode(try file.url())
             #expect(d.failure == nil && d.warning == nil)
@@ -61,11 +62,12 @@ extension AllTests {
             #expect(d.fileDuration == file.duration)
         }
 
-        @Test("24 bit audio at 96 kHz comes out exactly when the output has the same rate")
-        func hiRes() async throws {
-            let d = await decode(try RampFile.r96.url(), rate: 96000)
-            #expect(d.samples.frameCount == RampFile.r96.frames)
-            #expect(maxDeviation(d.samples, from: 0, count: RampFile.r96.frames) { RampFile.r96.value($0, channel: $1) } == 0)
+        @Test("24 bit audio at 96 kHz comes out exactly when the output has the same rate",
+              arguments: [RampFile.r96, .r96.stored(as: "r96_24.wv"), .r96.stored(as: "r96_24.ape")])
+        func hiRes(file: RampFile) async throws {
+            let d = await decode(try file.url(), rate: 96000)
+            #expect(d.samples.frameCount == file.frames)
+            #expect(maxDeviation(d.samples, from: 0, count: file.frames) { file.value($0, channel: $1) } == 0)
         }
 
         @Test("a FLAC ends at its last real frame, without the padding AVFoundation's player adds")
@@ -101,9 +103,9 @@ extension AllTests {
         // MARK: Starting in the middle
 
         @Test("starting at an offset delivers the audio from exactly that frame",
-              arguments: [0.0, 0.5, 1.0, 1.2345, 2.9, 3.09])
-        func startOffset(seconds: Double) async throws {
-            let file = RampFile.a
+              arguments: ["a.flac", "a.wv", "a.ape"], [0.0, 0.5, 1.0, 1.2345, 2.9, 3.09])
+        func startOffset(name: String, seconds: Double) async throws {
+            let file = RampFile.a.stored(as: name)
             let first = Int((seconds * file.sampleRate).rounded())
             let d = await decode(try file.url(), from: seconds)
             #expect(d.failure == nil)
@@ -111,7 +113,8 @@ extension AllTests {
             #expect(maxDeviation(d.samples, from: 0, count: d.samples.frameCount) { file.value(first + $0, channel: $1) } == 0)
         }
 
-        @Test("every container seeks to the right frame", arguments: ["a.wav", "a.aiff", "a.caf", "a_alac.m4a"])
+        @Test("every container seeks to the right frame",
+              arguments: ["a.wav", "a.aiff", "a.caf", "a_alac.m4a", "a.wv", "a.ape", "hybrid.wv"])
         func seekContainers(name: String) async throws {
             let file = RampFile.a.stored(as: name)
             let first = 70_001
@@ -120,9 +123,9 @@ extension AllTests {
             #expect(maxDeviation(d.samples, from: 0, count: d.samples.frameCount) { file.value(first + $0, channel: $1) } == 0)
         }
 
-        @Test("a start past the end plays the last frame instead of failing")
-        func startPastEnd() async throws {
-            let file = RampFile.a
+        @Test("a start past the end plays the last frame instead of failing", arguments: ["a.flac", "a.wv", "a.ape"])
+        func startPastEnd(name: String) async throws {
+            let file = RampFile.a.stored(as: name)
             let d = await decode(try file.url(), from: 10_000)
             #expect(d.failure == nil)
             #expect(d.samples.frameCount == 1)
@@ -137,22 +140,26 @@ extension AllTests {
 
         // MARK: Channels
 
-        @Test("mono is delivered on both channels at full level")
-        func mono() async throws {
-            let file = RampFile.mono22
+        @Test("mono is delivered on both channels at full level",
+              arguments: [RampFile.mono22, .mono22.stored(as: "mono22.wv"), .mono22.stored(as: "mono22.ape")])
+        func mono(file: RampFile) async throws {
             let d = await decode(try file.url(), rate: file.sampleRate)
             #expect(d.samples.frameCount == file.frames)
             #expect(maxDeviation(d.samples, from: 0, count: file.frames) { file.stereo($0, channel: $1) } == 0)
         }
 
-        @Test("5.1 is folded down without clipping")
-        func surround() async throws {
-            let file = RampFile.surround
+        @Test("5.1 is folded down without clipping",
+              arguments: [RampFile.surround, .surround.stored(as: "surround.wv"), .surround.stored(as: "surround.ape")])
+        func surround(file: RampFile) async throws {
             let d = await decode(try file.url())
             #expect(d.samples.frameCount == file.frames)
             #expect(peak(d.samples, in: 0..<file.frames) <= 1.0001)
             // The front channels are in there (the ramp is loud, so the mix isn't silence either).
             #expect(peak(d.samples, in: 0..<file.frames) > 0.3)
+
+            // Whichever way a format says where its channels are, the mix is that of the FLAC with the same audio.
+            let flac = await decode(try RampFile.surround.url())
+            #expect(maxDeviation(d.samples, from: 0, count: file.frames) { flac.samples[$1][$0] } == 0)
         }
 
         // MARK: Resampling
@@ -291,14 +298,14 @@ extension AllTests {
 
         // MARK: Errors
 
-        @Test("a missing file fails")
-        func missing() async {
-            let d = await decode(URL(fileURLWithPath: "/nonexistent/x.flac"))
-            #expect(d.failure != nil)
+        @Test("a missing file fails", arguments: ["flac", "wv", "ape"])
+        func missing(ext: String) async {
+            let d = await decode(URL(fileURLWithPath: "/nonexistent/x." + ext))
+            #expect(d.failure?.hasPrefix("file not found") == true, "\(d.failure ?? "")")
             #expect(d.samples.frameCount == 0)
         }
 
-        @Test("garbage and an empty file fail", arguments: ["garbage.mp3", "empty.flac"])
+        @Test("garbage and an empty file fail", arguments: ["garbage.mp3", "empty.flac", "garbage.wv", "garbage.ape"])
         func broken(name: String) async throws {
             let d = await decode(try Fixtures.url("broken/" + name))
             #expect(d.failure != nil, "\(name)")
@@ -313,14 +320,16 @@ extension AllTests {
             #expect(d.samples.frameCount < 4410)   // under a tenth of a second
         }
 
-        @Test("a file cut short ends where the data ends, with a warning")
-        func truncated() async throws {
-            let d = await decode(try Fixtures.url("playback/truncated.flac"))
-            #expect(d.failure == nil)
-            #expect(d.samples.frameCount > 0 && d.samples.frameCount < RampFile.a.frames)
-            #expect(d.warning != nil)
+        @Test("a file cut short, or damaged, ends where the audio does, with a warning",
+              arguments: ["truncated.flac", "truncated.wv", "truncated.ape", "damaged.wv", "damaged.ape"])
+        func truncated(name: String) async throws {
+            let d = await decode(try Fixtures.url("playback/" + name))
+            #expect(d.failure == nil, "\(name)")
+            #expect(d.samples.frameCount > 0 && d.samples.frameCount < RampFile.a.frames, "\(name)")
+            #expect(d.warning != nil, "\(name)")
             // What was delivered is right.
-            #expect(maxDeviation(d.samples, from: 0, count: d.samples.frameCount) { RampFile.a.value($0, channel: $1) } == 0)
+            #expect(maxDeviation(d.samples, from: 0, count: d.samples.frameCount) { RampFile.a.value($0, channel: $1) } == 0,
+                    "\(name)")
         }
 
         @Test("a cancelled decoder delivers nothing more")
@@ -333,10 +342,11 @@ extension AllTests {
 
         // MARK: Files that don't answer
 
-        @Test("a file that doesn't answer is given up after the timeout, and the decoder stays given up")
-        func timeout() async throws {
+        @Test("a file that doesn't answer is given up after the timeout, and the decoder stays given up",
+              arguments: ["hung.flac", "hung.wv", "hung.ape"])
+        func timeout(name: String) async throws {
             let dir = try TempDir()
-            let hung = try HungFile(in: dir)
+            let hung = try HungFile(in: dir, name: name)
             let decoder = TrackDecoder(url: hung.url, startSeconds: 0, outputFormat: outputFormat(44100))
             let started = Date()
             guard case .failed(let message) = await decoder.next(timeout: 0.3) else {
@@ -349,10 +359,11 @@ extension AllTests {
             hung.release()
         }
 
-        @Test("cancelling releases a caller that waits for a file that doesn't answer, at once")
-        func cancelReleasesWait() async throws {
+        @Test("cancelling releases a caller that waits for a file that doesn't answer, at once",
+              arguments: ["hung.flac", "hung.wv", "hung.ape"])
+        func cancelReleasesWait(name: String) async throws {
             let dir = try TempDir()
-            let hung = try HungFile(in: dir)
+            let hung = try HungFile(in: dir, name: name)
             let decoder = TrackDecoder(url: hung.url, startSeconds: 0, outputFormat: outputFormat(44100))
             let waiting = Task { await decoder.next() }
             try await Task.sleep(for: .milliseconds(100))

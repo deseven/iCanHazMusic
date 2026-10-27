@@ -65,6 +65,9 @@ struct TagReadResult: Sendable, Identifiable {
     let rawFields: [TagField: String]
     /// Detected album-art source (`.none` for failed files or when artwork detection is off).
     let artwork: ArtworkSource
+    /// The format label (`CodecLabel`) of the file, if reading it already told: it does for the files macOS doesn't
+    /// open (WavPack, APE), which are opened by their decoder. nil = the file extension stands for it until playback.
+    var codec: String? = nil
     /// Set for the result of a track that is a part of a file cut by a CUE sheet (then `url` is the pseudo path
     /// `sheet.cue:N`, see `CuePath`, and the sheet's tags come first, see `CueTrack`).
     var cue: CueSlice? = nil
@@ -72,7 +75,7 @@ struct TagReadResult: Sendable, Identifiable {
     /// The same result as the file number `id` of another list.
     func with(id: Int) -> TagReadResult {
         TagReadResult(id: id, url: url, tags: tags, status: status, sources: sources, elapsed: elapsed,
-                      rawFields: rawFields, artwork: artwork, cue: cue)
+                      rawFields: rawFields, artwork: artwork, codec: codec, cue: cue)
     }
 }
 

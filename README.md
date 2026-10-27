@@ -7,22 +7,22 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 
 ## Features
 ### Playback
-- Playback of everything macOS can decode natively:
-  - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, WAV, AIFF/AIFC, CAF
+- Supports everything macOS can parse/decode natively, plus some extra formats:
+  - MP3, FLAC, AAC/M4A/M4B (including ALAC), Ogg Vorbis, Ogg Opus, WAV, AIFF/AIFC, CAF
+  - WavPack (including hybrid files with their `.wvc`) and APE
   - CUE sheets
-  - not supported: Opus, WMA, APE, WavPack, MPC and other formats macOS can't open
 - Gapless playback with its own audio engine (built on `AVAudioEngine`, exact seeking, high-quality resampling with configurable quality)
 - Playback modes & queue
 
 ### Playlists
-- Very large playlists (tens of thousands of entries at the very least)
+- Minimal performance impact with very large playlists (hundreds of thousands of entries easily)
 - Drag and drop of files, directories and playlists, recursive directory import
 - Tags reading, fast!
 - Album art support (embedded or external images)
 - Grouping by albums or a flat list if you prefer (can be switched per playlist)
-- Playlist entries drag'n'drop reordering (in a nice non-confusing way)
-- Playlists import/export (M3U8, M3U, PLS)
-- Playlist search, Spotlight-style
+- Entries drag'n'drop reordering (in a nice non-confusing way)
+- Import/export (M3U8, M3U, PLS)
+- Global search, Spotlight-style
 
 ### UI
 - Basic interface customization with inidividual components reordering and visibility toggles
@@ -37,7 +37,7 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 
 ### Under the hood
-- Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies
+- Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies other than the reference WV/APE decoders
 - Very low resource usage
 - Updates from GitHub releases (automatic check can be turned off, manual check in the About window)
 
@@ -45,12 +45,12 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 I was a big fan of the legendary [foobar2000](https://www.foobar2000.org/) until I moved to macOS in 2010. Naturally, for some time I continued using foobar under Wine, but the experience was subpar and eventually I started jumping from player to player. Some notable examples in no particular order:
 - [Clementine](https://www.clementine-player.org/) with its [10+ years old bug](https://github.com/clementine-player/Clementine/issues/4733) that makes it eat up to 50% of CPU for a simple mp3 playback
 - [cmus](https://cmus.github.io/), which was fun and all, but just a bit too minimalistic
-- [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs (back when I was using it, things seems to have improved since then)
+- [DeaDBeeF](https://deadbeef.sourceforge.io/) with no stable release and insane bugs (back when I was using it, things seem to have improved since then)
 - [mac version of foobar2000](https://www.foobar2000.org/mac) which is a fucking joke of a player
 
 I remember many other apps, both free and paid, however each and every one of them did lack something important. It's also worth mentioning that with every year the chance to get a decent desktop audio player is only getting lower and lower - it's the age of cloud music now, not many people are still interested in those mammoths of a bygone era. But the urge of having a good desktop player is still here for me, that's why I finally decided to go for it myself.
 
-It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in an audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
+It's by no means a replacement for foobar2000, just my personal compilation of things I would like to see in the audio player. Nothing is set in stone, however, feel free to create new issues with feedback and suggestions.
 
 ## Roadmap
 - simple web interface and API
@@ -70,14 +70,14 @@ iCHM is a Swift package (Swift tools 5.10, no third-party dependencies) for macO
 3. Run `./build.sh` to make a dev build: it builds the app for your architecture (arm64), creates `dist/iCanHazMusic.app` and launches it with its own working directory, `~/Library/Application Support/iCanHazMusic-dev` (it runs in the foreground until you quit the app).
 
 Other modes:
-- `./build.sh test` - generates test fixtures and runs the test suite, no artifacts.
+- `./build.sh test` - runs the test suite, no artifacts.
 - `./build.sh dev-release` - universal (arm64 + x86_64) build, tests, `dist/ichm-dev.zip`, copies the app to `/Applications` (overwriting any existing copy), and uploads the zip with the `share` tool (specific to the author's setup, remove that step if you don't have it).
 - `./build.sh release` - universal build, tests, `dist/ichm.zip` and `dist/ichm.dmg`.
 
 The plain compile check is `swift build -c debug --arch arm64`.
 
 Optional requirements:
-- [FFmpeg](https://www.ffmpeg.org/) (`brew install ffmpeg`) for generating the test fixtures (`./build.sh test` and the release modes).
+- [FFmpeg](https://www.ffmpeg.org/), [Monkey's Audio](https://monkeysaudio.com/) and [WavPack](https://www.wavpack.com/) command line tools (`brew install ffmpeg mac wavpack`) for changing the test fixtures (`tests/prepare-fixtures.sh`; the fixtures themselves are committed).
 - [create-dmg](https://github.com/create-dmg/create-dmg) (`brew install create-dmg`) for `release`.
 
 Optional `.env` file in the repo root (git-ignored), read by `build.sh`:

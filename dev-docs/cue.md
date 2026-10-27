@@ -83,7 +83,8 @@ before the file's end. A track that is its whole file doesn't cut it.
 | Full EAC sheet next to already split, tagged files | no | the files' own tags win, the sheet is ignored in effect |
 | Same, files untagged | no | plain files tagged from the sheet |
 | One track, `INDEX 01 00:02:33` (gap prepended) | yes | a part that starts at 2.44 s, sheet first, gaps (artist, title: the only track) from the file |
-| Sheet names an unsupported file (`.ape`) | - | adds nothing; the file stays the sheet's |
+| One APE or WavPack image + full sheet (the classic whole-album rip) | yes | as for any other image: parts with the sheet's titles; the file is read by its decoder (exact length, tags, cover), so the parts have their format label ("APE 16/44.1") from the start |
+| Sheet names an unsupported file (`.wma`, `.mpc`, ...) | - | adds nothing; the file stays the sheet's |
 | Only the audio file given | - | a plain file; no sheet is looked for |
 | Only the `.cue` given | per file | as above; its files are read |
 | Two sheets name one file | per sheet | both add their tracks (duplicates), as before |
@@ -111,7 +112,8 @@ queued and shuffled one by one, like any others, and each has an ID of its own.
 - Encoding: UTF-8 (BOM or not), UTF-16 with a BOM, anything else as Windows-1252.
 - **Names are taken as written**: relative to the sheet's directory, or absolute. No other extension, other case or backslash
   is tried. (Where the file system ignores case, `album.FLAC` *is* `album.flac`; that is the file system's answer, not a guess.)
-- A file of a format the app can't play (`.ape`, `.wv`, ...) adds nothing, and the file stays the sheet's.
+- A file of a format the app can't play (`.wma`, `.mpc`, ...) adds nothing, and the file stays the sheet's. APE and WavPack
+  files are played (`AudioFileGatherer.supportedExtensions`), whole-album images in them are the usual case for a sheet.
 - Start = `INDEX 01` (lowest index if there is none), end = the next track's start in the same `FILE`; the last track of a
   file runs to its end. A pregap (`INDEX 00`) therefore ends up at the end of the previous track, and a hidden track before
   track 1's `INDEX 01` is not played. Data tracks, tracks without an index and tracks that would have no length are skipped.
@@ -129,8 +131,9 @@ the audio file adds it as a plain file (nobody looks for a sheet next to it). Pl
 import never take a `.cue`.
 
 The audio file is read once per file (not once per track), whatever the sheet turns out to do with it (`CueTrack.importResult`):
-its tags, the length of the last track, its art (folder cover next to the file, or the embedded picture), and whether it can
-be read; a file that can't be read fails all its tracks.
+its tags, the length of the last track, its art (folder cover next to the file, or the embedded picture), whether it can
+be read, and its format label if reading it told (`TagReadResult.codec`, for APE and WavPack); a file that can't be read
+fails all its tracks.
 
 ## Playing
 

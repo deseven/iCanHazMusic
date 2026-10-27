@@ -127,6 +127,9 @@ final class TagReader: Sendable {
         let folder = detectArtwork
             ? await artworkCache.listing(for: url.deletingLastPathComponent()) : .empty
 
+        // WavPack and APE: macOS opens neither, they are read by `ApeTagBackend` instead of the strategy's backends.
+        let isApeTagged = ApeTagBackend.handles(url)
+
         var effective = strategy
         if effective == .auto {
             effective = url.pathExtension.lowercased() == "mp3" ? .avFoundation : .hybrid
@@ -143,6 +146,10 @@ final class TagReader: Sendable {
         }
 
         switch effective {
+        case _ where isApeTagged:
+            do {
+                merge(try await Self.offload(timeout: timeout) { try ApeTagBackend.read(url: url) }, from: "APEv2")
+            } catch { errors.append(error.localizedDescription) }
         case .audioFile:
             _ = await viaAudioFile()
         case .avFoundation:
@@ -171,7 +178,7 @@ final class TagReader: Sendable {
         }
 
         let failed = sources.isEmpty
-        if !failed, raw.fields[.lyrics] == nil, !avFoundationRead, !avFoundationIsUnreliable,
+        if !failed, !isApeTagged, raw.fields[.lyrics] == nil, !avFoundationRead, !avFoundationIsUnreliable,
            let lyrics = await embeddedLyrics(url: url) {
             raw.set(.lyrics, lyrics)
         }
@@ -188,7 +195,7 @@ final class TagReader: Sendable {
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
         let (tags, status) = Self.finalize(raw: raw, failed: failed ? explainFailure(errors, url) : nil)
         return TagReadResult(id: index, url: url, tags: tags, status: status,
-                             sources: sources, elapsed: elapsed, rawFields: raw.fields, artwork: artwork)
+                             sources: sources, elapsed: elapsed, rawFields: raw.fields, artwork: artwork, codec: raw.codec)
     }
 
     /// Lyrics are in the tags AudioToolbox doesn't list (everything but CAF), so a file that was not read through
@@ -200,8 +207,9 @@ final class TagReader: Sendable {
         return await AVFoundationBackend.lyrics(url: url)
     }
 
-    /// `known` is what the tag read already found out (nil = AVFoundation didn't run). FLAC pictures are invisible
-    /// to both macOS APIs, so they are looked for in the file itself; everything else uses AVFoundation item keys.
+    /// `known` is what the tag read already found out (nil = AVFoundation didn't run; WavPack and APE files always say).
+    /// FLAC pictures are invisible to both macOS APIs, so they are looked for in the file itself; everything else uses
+    /// AVFoundation item keys.
     private func hasEmbeddedArtwork(url: URL, known: Bool?) async -> Bool {
         if known == true { return true }
         if url.pathExtension.lowercased() == "flac" {
@@ -245,6 +253,8 @@ final class TagReader: Sendable {
         if b[0..<4] == [0x52, 0x49, 0x46, 0x46] { return true }                   // "RIFF" (wav)
         if b[0..<4] == [0x46, 0x4F, 0x52, 0x4D] { return true }                   // "FORM" (aiff)
         if b[0..<4] == [0x63, 0x61, 0x66, 0x66] { return true }                   // "caff"
+        if b[0..<4] == [0x77, 0x76, 0x70, 0x6B] { return true }                   // "wvpk" (WavPack)
+        if b[0..<4] == [0x4D, 0x41, 0x43, 0x20] { return true }                   // "MAC " (Monkey's Audio)
         if b.count >= 8, b[4..<8] == [0x66, 0x74, 0x79, 0x70] { return true }                   // "?ftyp" (mp4/m4a/alac)
         return false
     }

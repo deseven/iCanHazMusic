@@ -157,6 +157,39 @@ extension AllTests {
             #expect(rig.events == ["advanced", "advanced", "finished"])
         }
 
+        @Test("WavPack and APE files join the other lossless formats exactly")
+        func extraFormats() async throws {
+            let rig = EngineRig()
+            // The same ramp in WavPack, APE, FLAC and a hybrid WavPack file with its correction file.
+            let files = ["a.wv", "a.ape", "a.flac", "hybrid.wv"].map { RampFile.a.stored(as: $0) }
+            var advances = 0
+            rig.react = { [engine = rig.engine] event in
+                guard case .advanced = event else { return }
+                advances += 1
+                if advances < files.count - 1 { engine.setNext(try? files[advances + 1].url()) }
+            }
+            rig.engine.start(try files[0].url(), next: try files[1].url())
+            try await rig.render(4 * RampFile.a.frames + 2000)
+            for n in 0..<4 {
+                #expect(rig.deviation(of: .a, from: 0, at: n * RampFile.a.frames, count: RampFile.a.frames) == 0, "part \(n)")
+            }
+            #expect(rig.events == ["advanced", "advanced", "advanced", "finished"])
+            #expect(isSilent(rig.out, in: 4 * RampFile.a.frames..<rig.frame))
+        }
+
+        @Test("the engine reports the exact length and the format label of a WavPack or APE file",
+              arguments: [("a.wv", "WV 16/44.1"), ("a.ape", "APE 16/44.1"), ("r96_24.ape", "APE 24/96")])
+        func extraFormatInfo(name: String, label: String) async throws {
+            let rig = EngineRig(rate: 96000)
+            rig.engine.start(try Fixtures.url("playback/" + name))
+            try await rig.render(5000)
+            let file = try #require(rig.engine.currentFile)
+            #expect(file.codec == label)
+            let frames = name.hasPrefix("r96") ? RampFile.r96.frames : RampFile.a.frames
+            let rate = name.hasPrefix("r96") ? 96000.0 : 44100.0
+            #expect(file.duration == Double(frames) / rate)
+        }
+
         // MARK: Any rate
 
 
@@ -207,28 +240,28 @@ extension AllTests {
             #expect(longestSilence < 4, "silent for \(longestSilence) frames")
         }
 
-        @Test("a 96 kHz 24 bit file plays exactly on a 96 kHz output")
-        func hiRes() async throws {
+        @Test("a 96 kHz 24 bit file plays exactly on a 96 kHz output",
+              arguments: [RampFile.r96, .r96.stored(as: "r96_24.wv"), .r96.stored(as: "r96_24.ape")])
+        func hiRes(file: RampFile) async throws {
             let rig = EngineRig(rate: 96000)
-            let file = RampFile.r96
             rig.engine.start(try file.url())
             try await rig.render(file.frames + 2000)
             #expect(rig.deviation(of: file, from: 0, at: 0, count: file.frames) == 0)
         }
 
-        @Test("mono is played on both channels at full level")
-        func mono() async throws {
+        @Test("mono is played on both channels at full level",
+              arguments: [RampFile.mono22, .mono22.stored(as: "mono22.wv"), .mono22.stored(as: "mono22.ape")])
+        func mono(file: RampFile) async throws {
             let rig = EngineRig(rate: 22050)
-            let file = RampFile.mono22
             rig.engine.start(try file.url())
             try await rig.render(file.frames + 2000)
             #expect(rig.deviation(of: file, from: 0, at: 0, count: file.frames) == 0)
         }
 
-        @Test("a 5.1 file is folded down and doesn't clip")
-        func surround() async throws {
+        @Test("a 5.1 file is folded down and doesn't clip",
+              arguments: [RampFile.surround, .surround.stored(as: "surround.wv"), .surround.stored(as: "surround.ape")])
+        func surround(file: RampFile) async throws {
             let rig = EngineRig()
-            let file = RampFile.surround
             rig.engine.start(try file.url())
             try await rig.render(file.frames + 2000)
             #expect(peak(rig.out, in: 0..<file.frames) <= 1.0001)

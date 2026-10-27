@@ -40,6 +40,10 @@ typedef struct {
     int32_t file_version;
     int32_t compression_level;
     int32_t average_bitrate;
+    /// The speaker positions of the original WAV file (`dwChannelMask` of its WAVEFORMATEXTENSIBLE header: bit 0 front
+    /// left, 1 front right, 2 front centre, 3 LFE, ...), 0 if the file has none stored (the usual case for mono and
+    /// stereo).
+    uint32_t channel_mask;
 } ichm_ape_info;
 
 /// Opens a decoder that reads through `reader` (copied; its context must outlive the decoder). NULL on failure, with
@@ -49,7 +53,8 @@ ichm_ape_decoder *ichm_ape_open(const ichm_ape_reader *reader, int32_t *error);
 void ichm_ape_get_info(ichm_ape_decoder *decoder, ichm_ape_info *info);
 
 /// Decodes up to `frames` frames into `buffer` (room for `frames * channels * bits_per_sample / 8` bytes). Returns the
-/// number of frames decoded (0 at the end), or -1 on an error (a damaged file).
+/// number of frames decoded (0 at the end), or -1 on an error (a damaged file: the SDK fills what follows the damage
+/// with silence, so nothing of that call is handed out).
 int64_t ichm_ape_read(ichm_ape_decoder *decoder, void *buffer, int64_t frames);
 
 /// Positions the decoder at `frame` (exact). 0 on success, the SDK's error code otherwise.

@@ -13,6 +13,9 @@ struct RawTags: Sendable {
     var duration: TimeInterval?
     /// Whether the file carries embedded artwork. nil = not checked (backend didn't run / failed).
     var hasArtwork: Bool?
+    /// The format label (`CodecLabel`), for the backends that can tell it right away: the files macOS doesn't open are
+    /// opened by their decoder for the length anyway. nil = not known, the file extension stands for it until playback.
+    var codec: String?
 
     mutating func set(_ field: TagField, _ value: String) {
         let v = value.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
@@ -24,6 +27,7 @@ struct RawTags: Sendable {
     mutating func merge(_ other: RawTags) {
         for (k, v) in other.fields where fields[k] == nil { fields[k] = v }
         if duration == nil { duration = other.duration }
+        if codec == nil { codec = other.codec }
         if let o = other.hasArtwork { hasArtwork = (hasArtwork ?? false) || o }
     }
 

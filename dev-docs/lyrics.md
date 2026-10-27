@@ -24,9 +24,10 @@ Checked on macOS 26 with the test fixtures (`tests/fixtures/formats/l*`, recipe 
 | MP4/M4A (AAC, ALAC) | `©lyr` | no | `itsk/%A9lyr` |
 | CAF | `lyrics` | info dictionary key `lyrics` | `caaf/info-lyrics` |
 | WAV, AIFF | - | no | no |
-| APE tags, Lyrics3v2 `LYR` | - | no | no; **not read** (`TrailingTags` only walks them for ID3v1 values) |
+| WavPack, APE (APEv2 tag) | `Lyrics`, `UNSYNCEDLYRICS` | neither opens these files | read by hand with the other tags (`ApeTag`, `ApeTagBackend`), no pass of their own |
+| APE tags and Lyrics3v2 `LYR` on an MP3 | - | no | no; **not read** (`TrailingTags` only walks them for ID3v1 values) |
 
-- AudioToolbox lists lyrics for CAF only, so for every other file a pass of its own is needed: **FLAC by hand** (the Vorbis comment block is read directly, as for pictures, cheap), everything else through AVFoundation (only if the normal read didn't go through it already: MP3 does, the rest of the formats doesn't, which makes reading M4A/Ogg/WAV files slower).
+- AudioToolbox lists lyrics for CAF only, so for every other file (but WavPack and APE, whose tag is parsed whole anyway) a pass of its own is needed: **FLAC by hand** (the Vorbis comment block is read directly, as for pictures, cheap), everything else through AVFoundation (only if the normal read didn't go through it already: MP3 does, the rest of the formats doesn't, which makes reading M4A/Ogg/WAV files slower).
 - ffmpeg can't write a `USLT` frame (`-metadata lyrics=` ends up in a `TXXX` frame), the MP3 fixture is built by hand in `prepare-fixtures.sh`.
 - A lyrics tag that holds an LRC text (two or more `[mm:ss.xx]` lines) is treated as synced lyrics.
 
