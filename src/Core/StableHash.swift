@@ -14,3 +14,19 @@ extension String {
         return hash
     }
 }
+
+private let hexDigits = Array("0123456789abcdef".utf8)
+
+extension Sequence<UInt8> {
+    /// Lower-case hex, two digits per byte (digests used as keys and signatures). The same text as
+    /// `String(format: "%02x")` per byte, without its cost (keys are made while the playlist renders rows).
+    var hexString: String {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(underestimatedCount * 2)
+        for byte in self {
+            bytes.append(hexDigits[Int(byte >> 4)])
+            bytes.append(hexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+}

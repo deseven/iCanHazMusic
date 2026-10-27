@@ -85,7 +85,7 @@ enum LyricsKey {
         // Unit separator: can't be in a tag for real, so ("a b", "c") and ("a", "b c") differ.
         let text = [artist, title, album].map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .joined(separator: "\u{1F}")
-        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: Data(text.utf8)).hexString
     }
 }
 

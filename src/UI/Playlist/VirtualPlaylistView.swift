@@ -13,6 +13,12 @@ import SwiftUI
 /// mixed row heights the scroll bar / content offset drift. Here every row height is known
 /// up front (`PlaylistLayout.rowOffsets`), so nothing is estimated and nothing can jump.
 ///
+/// The rendered rows are kept as light as possible, as a scroll mounts new ones all the time: they have no gestures,
+/// hover tracking or context menus of their own. The click, the hover and the drag are handled once for the whole
+/// content (the row is worked out from the offset, `PlaylistLayout`), the context menu is an `NSMenu` shown from the
+/// event monitor, and the row window moves in steps rather than with every row scrolled past
+/// (`PlaylistLayout.window`).
+///
 /// Selection (all custom): click = select, ⌘-click = toggle, ⇧-click = range,
 /// ↑/↓ = move (with ⇧ to extend), double click = `onActivate` with the row id.
 ///
@@ -66,7 +72,7 @@ struct VirtualPlaylistView: View {
     @State private var anchor: Int?   // fixed end of a shift-range
     @State private var pointer = PointerBox()
     @State private var eventMonitor: Any?
-    @State private var keys = KeyHandlerBox()
+    @State private var handlers = EventHandlerBox()
     @State private var drag: ReorderDrag?
     @State private var dragPosition = DragPosition()
     @State private var reorder = ReorderBox()
@@ -91,8 +97,8 @@ struct VirtualPlaylistView: View {
         self.cursorFollowsPlayback = cursorFollowsPlayback
         self.style = style
         self.onActivate = onActivate
-        let layout = PlaylistLayout(playlist: playlist, showAlbumArt: style.showsAlbumArt,
-                                    trackHeight: style.rowHeight)
+        let layout = PlaylistLayout.cached(for: playlist, showAlbumArt: style.showsAlbumArt,
+                                           trackHeight: style.rowHeight)
         self.layout = layout
         self._window = State(initialValue: layout.rowRange(minY: 0, maxY: 800,
                                                            overscan: Layout.playlistOverscan))
@@ -105,7 +111,8 @@ struct VirtualPlaylistView: View {
         let shown = min(window.lowerBound, active.rowCount)..<min(window.upperBound, active.rowCount)
         // The event monitor and the timer outlive this struct value, so they call whatever handler the latest body
         // left here (plain references, not observed: no re-render).
-        let _ = keys.handler = { event in handleKey(event) }
+        let _ = handlers.key = { event in handleKey(event) }
+        let _ = handlers.menu = { event in showContextMenu(for: event) }
         let _ = reorder.tick = { tickDrag() }
         let _ = scrollBox.onChange = { scrollViewChanged() }
         ScrollView {
@@ -117,6 +124,11 @@ struct VirtualPlaylistView: View {
                 Color.clear.frame(height: active.totalHeight - active.rowOffsets[shown.upperBound])
             }
             .coordinateSpace(name: Self.contentSpace)
+            .contentShape(Rectangle())
+            .onTapGesture(coordinateSpace: .named(Self.contentSpace)) { location in
+                clicked(atContentY: location.y)
+            }
+            .onHover { inside in pointer.isInside = inside }
             .overlay(alignment: .topLeading) {
                 if let drag { draggedItem(drag) }
             }
@@ -177,28 +189,35 @@ struct VirtualPlaylistView: View {
     }
 
     /// One item of the list that is shown: a row, or (while an album is dragged) the header of an album. The items
-    /// the dragged one passes over are moved to make room, the dragged one itself is drawn by `draggedItem`.
+    /// the dragged one passes over are moved to make room, the dragged one itself is drawn by `draggedItem`. Only
+    /// a drag needs the modifiers for that, rows that are just scrolled go without them.
     @ViewBuilder
     private func rowItem(_ i: Int, drag d: ReorderDrag?) -> some View {
-        let row = d?.kind == .album ? playlist.headerRow[i] : i
-        let shift = d?.shift(of: i) ?? 0
+        if let d {
+            let shift = d.shift(of: i)
+            rowView(d.kind == .album ? playlist.headerRow[i] : i)
+                .opacity(d.from == i ? 0 : 1)
+                .offset(y: shift)
+                .animation(.easeOut(duration: 0.12), value: shift)
+        } else {
+            rowView(i)
+        }
+    }
+
+    private func rowView(_ row: Int) -> some View {
         PlaylistRowView(playlist: playlist, index: row, isSelected: selection.contains(row),
                         isPlaying: row == playingRow, style: style,
                         queuePosition: queuePosition(at: row), queued: queuedRow(at: row))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard !reorder.suppressClicks else { return }
-                click(row)
-                // A separate count: 2 gesture would delay every single click.
-                if NSApp.currentEvent?.clickCount == 2 { onActivate(row) }
-            }
-            .onHover { inside in
-                if inside { pointer.row = row } else if pointer.row == row { pointer.row = nil }
-            }
-            .contextMenu { contextMenu(for: row) }
-            .opacity(d?.from == i ? 0 : 1)
-            .offset(y: shift)
-            .animation(d == nil ? nil : Animation.easeOut(duration: 0.12), value: shift)
+            .equatable()
+    }
+
+    /// A click on the content (at content offset `y`): selects, and plays on a double click. Clicks that end a drag
+    /// don't count.
+    private func clicked(atContentY y: CGFloat) {
+        guard !reorder.suppressClicks, drag == nil, let row = layout.row(containing: y) else { return }
+        click(row)
+        // A separate count: 2 gesture would delay every single click.
+        if NSApp.currentEvent?.clickCount == 2 { onActivate(row) }
     }
 
     private func draggedItem(_ d: ReorderDrag) -> some View {
@@ -238,34 +257,59 @@ struct VirtualPlaylistView: View {
 
     // MARK: Context menu
 
-    @ViewBuilder
-    private func contextMenu(for row: Int) -> some View {
-        if queue != nil {
-            Button("Remove from Queue") { removeFromQueueSelected() }
-                .keyboardShortcut(.delete, modifiers: [])
-            Divider()
-            Button("Show in Playlist") { showInPlaylist() }
-            Button("Reveal in Finder") { PlaylistItemActions.reveal(selection, in: playlist) }
-        } else {
-            Button("Play") { playSelected() }
-                .keyboardShortcut(.return, modifiers: [])
-            if playback.queue.isEnabled {
-                // The title is about what the menu will act on: the selection, or the row if that is outside it.
-                let toggle = PlaylistItemActions.queueToggle(for: selection.contains(row) ? selection : [row])
-                Button(toggle.title) { toggleQueued() }
-                    .keyboardShortcut(.space, modifiers: [])
-                    .disabled(toggle.isUnavailable)
-            }
+    /// A right click (or ⌃-click) in the main window while the pointer is over the content: if it is on a row, that
+    /// row is selected (unless it is in the selection already) and the menu is shown. Returns whether it was (the
+    /// event is used up then).
+    private func showContextMenu(for event: NSEvent) -> Bool {
+        guard drag == nil, let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return false }
+        // Only where rows are seen: not under the title bar's inset.
+        let clip = scrollView.contentView
+        let inClip = clip.convert(event.locationInWindow, from: nil)
+        let insets = scrollView.contentInsets
+        guard inClip.x >= clip.bounds.minX, inClip.x < clip.bounds.maxX,
+              inClip.y >= clip.bounds.minY + insets.top, inClip.y < clip.bounds.maxY - insets.bottom,
+              let row = layout.row(containing: content.convert(event.locationInWindow, from: nil).y) else { return false }
 
-            Divider()
-            Button("Reveal in Finder") { PlaylistItemActions.reveal(selection) }
-            Button("Reload Tag(s)") { reloadSelected() }
-                .keyboardShortcut("r", modifiers: .command)
-            Divider()
-            Button("Remove from Playlist") { removeSelected() }
-                .keyboardShortcut(.delete, modifiers: [])
+        // What the menu will act on: the selection, or the row if that is outside it.
+        let target: Set<Int> = selection.contains(row) ? selection : [row]
+        if !selection.contains(row) {
+            selection = [row]
+            anchor = row
+            cursor = row
         }
+        let menu = contextMenu(for: target)
+        // Once the new selection is drawn.
+        DispatchQueue.main.async { NSMenu.popUpContextMenu(menu, with: event, for: scrollView) }
+        return true
     }
+
+    /// The items read the selection when they are chosen; `target` (what is selected once the menu opens) only
+    /// decides the title of the queue item.
+    private func contextMenu(for target: Set<Int>) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if queue != nil {
+            menu.addItem(ActionMenuItem("Remove from Queue", key: Self.backspaceKey) { removeFromQueueSelected() })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Show in Playlist") { showInPlaylist() })
+            menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection, in: playlist) })
+        } else {
+            menu.addItem(ActionMenuItem("Play", key: "\r") { playSelected() })
+            if playback.queue.isEnabled {
+                let toggle = PlaylistItemActions.queueToggle(for: target)
+                menu.addItem(ActionMenuItem(toggle.title, key: " ", isEnabled: !toggle.isUnavailable) { toggleQueued() })
+            }
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection) })
+            menu.addItem(ActionMenuItem("Reload Tag(s)", key: "r", modifiers: .command) { reloadSelected() })
+            menu.addItem(.separator())
+            menu.addItem(ActionMenuItem("Remove from Playlist", key: Self.backspaceKey) { removeSelected() })
+        }
+        return menu
+    }
+
+    /// Shown as ⌫, like SwiftUI's `.delete` shortcut.
+    private static let backspaceKey = "\u{8}"
 
     /// The place of the track of a row in the queue (nothing for headers, or while the queue is what is shown).
     private func queuePosition(at row: Int) -> Int? {
@@ -278,8 +322,8 @@ struct VirtualPlaylistView: View {
         return QueuedRow(number: row + 1, playlist: showsQueuePlaylists ? queue[row].playlist : nil)
     }
 
-    /// - A right click (or ⌃-click) outside the selection selects the row under the pointer before the menu opens.
-    ///   The menu items read the selection when they are chosen, so they act on what is selected by then.
+    /// - A right click (or ⌃-click) on a row opens the context menu (`showContextMenu`). Only while the pointer is
+    ///   over the content (SwiftUI's hover, which knows what covers it), the row is found from the event's location.
     /// - The playlist is the keyboard target of the whole main window, whatever has the key focus (the playlist
     ///   selector after choosing a playlist, a button...): ↑/↓, Return, Space and Backspace are handled here, `handleKey`.
     ///   This is a monitor and not `onKeyPress`, which depends on focus and left Backspace unhandled (the system
@@ -294,20 +338,14 @@ struct VirtualPlaylistView: View {
                 guard !(event.window?.firstResponder is NSText) else { return event }
                 let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
                 guard [[], .shift, .command].contains(modifiers) else { return event }
-                let handled = MainActor.assumeIsolated { keys.handler?(event) ?? false }
+                let handled = MainActor.assumeIsolated { handlers.key?(event) ?? false }
                 return handled ? nil : event
             }
 
             let opensMenu = event.type == .rightMouseDown || event.modifierFlags.contains(.control)
-            guard opensMenu, let row = pointer.row else { return event }
-            MainActor.assumeIsolated {
-                if !selection.contains(row) {
-                    selection = [row]
-                    anchor = row
-                    cursor = row
-                }
-            }
-            return event
+            guard opensMenu, pointer.isInside else { return event }
+            let shown = MainActor.assumeIsolated { handlers.menu?(event) ?? false }
+            return shown ? nil : event
         }
     }
 
@@ -627,7 +665,7 @@ struct VirtualPlaylistView: View {
         // update): the new content is described here, so that it all changes at once.
         let new = store.activePlaylist
         endDrag(landing: d.target, playlist: new,
-                layout: PlaylistLayout(playlist: new, showAlbumArt: showAlbumArt, trackHeight: style.rowHeight))
+                layout: PlaylistLayout.cached(for: new, showAlbumArt: showAlbumArt, trackHeight: style.rowHeight))
     }
 
     private func cancelDrag() {
@@ -690,19 +728,45 @@ struct VirtualPlaylistView: View {
         refreshWindow(using: active)
     }
 
-    /// Makes the rows around what is visible the ones that are rendered.
+    /// Makes sure the rows around what is visible are rendered (see `PlaylistLayout.window`).
     private func refreshWindow(using active: PlaylistLayout) {
         guard let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return }
         let clip = scrollView.contentView
         let visible = content.convert(clip.bounds, from: clip)
-        let new = active.rowRange(minY: visible.minY, maxY: visible.maxY, overscan: Layout.playlistOverscan)
+        let new = active.window(minY: visible.minY, maxY: visible.maxY, current: window,
+                                margin: Layout.playlistWindowMargin, overscan: Layout.playlistOverscan)
         if new != window { window = new }
     }
 }
 
-/// Where the key monitor finds the current key handler (see `VirtualPlaylistView.body`).
-private final class KeyHandlerBox {
-    var handler: ((NSEvent) -> Bool)?
+/// Where the event monitor finds the current handlers (see `VirtualPlaylistView.body`): keys, and the right click
+/// (returns whether it showed the context menu).
+private final class EventHandlerBox {
+    var key: ((NSEvent) -> Bool)?
+    var menu: ((NSEvent) -> Bool)?
+}
+
+/// A context menu item that runs a closure. Without `modifiers` the key equivalent is the bare key.
+private final class ActionMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(_ title: String, key: String = "", modifiers: NSEvent.ModifierFlags = [], isEnabled: Bool = true,
+         handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(runHandler), keyEquivalent: key)
+        keyEquivalentModifierMask = modifiers
+        target = self
+        self.isEnabled = isEnabled
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("not used in archives")
+    }
+
+    @objc private func runHandler() {
+        handler()
+    }
 }
 
 private final class ViewportBox {
@@ -805,7 +869,7 @@ private struct ScrollViewFinder: NSViewRepresentable {
     }
 }
 
-/// The row under the mouse pointer (a plain reference: changes don't re-render).
+/// Whether the mouse pointer is over the content (a plain reference: changes don't re-render).
 private final class PointerBox {
-    var row: Int?
+    var isInside = false
 }

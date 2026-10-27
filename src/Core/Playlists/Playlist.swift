@@ -41,11 +41,11 @@ struct Track {
     var durationText: String {
         guard let duration else { return "--:--" }
         let total = Int(duration)
-        return String(format: "%02d:%02d", total / 60, total % 60)
+        return "\((total / 60).twoDigits):\((total % 60).twoDigits)"
     }
 
     var numberText: String {
-        number.map { String(format: "%02d", $0) } ?? ""
+        number?.twoDigits ?? ""
     }
 
     /// The same track with another duration and format label.
@@ -64,16 +64,24 @@ struct Album {
     /// The tracks have different artists (`artist` is then "Various Artists"), so rows show the artist per track.
     let hasMultipleArtists: Bool
     let tracks: [Track]
+    /// The playing time of the album: the track durations that are known, added up; `nil` if none is. Worked out
+    /// once, the album header shows it.
+    let totalDuration: TimeInterval?
+
+    init(directory: URL, artist: String, title: String, year: String?, hasMultipleArtists: Bool, tracks: [Track]) {
+        self.directory = directory
+        self.artist = artist
+        self.title = title
+        self.year = year
+        self.hasMultipleArtists = hasMultipleArtists
+        self.tracks = tracks
+        let known = tracks.compactMap(\.duration)
+        totalDuration = known.isEmpty ? nil : known.reduce(0, +)
+    }
 
     /// "12 tracks" / "1 track": the track count tag of the album block.
     var trackCountText: String {
         "\(tracks.count) \(tracks.count == 1 ? "track" : "tracks")"
-    }
-
-    /// The playing time of the album: the track durations that are known, added up; `nil` if none is.
-    var totalDuration: TimeInterval? {
-        let known = tracks.compactMap(\.duration)
-        return known.isEmpty ? nil : known.reduce(0, +)
     }
 }
 

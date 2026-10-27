@@ -4,7 +4,7 @@
 import SwiftUI
 
 /// What a row of the queue shows besides the track.
-struct QueuedRow {
+struct QueuedRow: Equatable {
     /// Its place in the queue, from 1.
     let number: Int
     /// The playlist of the track, if that is to be said.
@@ -13,7 +13,10 @@ struct QueuedRow {
 
 /// One row of the flattened playlist: an album header or a track. `queued`: it is a row of the queue view, which
 /// has its own kind of track row; `queuePosition`: the track is queued (shown where the play symbol goes).
-struct PlaylistRowView: View {
+///
+/// Equatable (the playlist by identity: it is immutable), so that a row whose inputs are the same is left alone when
+/// the list around it is updated (`.equatable()`). What a row reads from observed objects (lyrics) still updates it.
+struct PlaylistRowView: View, Equatable {
     let playlist: Playlist
     let index: Int
     let isSelected: Bool
@@ -21,6 +24,11 @@ struct PlaylistRowView: View {
     let style: TrackRowStyle
     var queuePosition: Int?
     var queued: QueuedRow?
+
+    static func == (a: PlaylistRowView, b: PlaylistRowView) -> Bool {
+        a.playlist === b.playlist && a.index == b.index && a.isSelected == b.isSelected && a.isPlaying == b.isPlaying
+            && a.style == b.style && a.queuePosition == b.queuePosition && a.queued == b.queued
+    }
 
     var body: some View {
         let row = playlist.rows[index]
@@ -90,10 +98,7 @@ private struct AlbumHeaderContent: View {
     }
 
     private var cover: some View {
-        Image(nsImage: CoverCache.image(for: album))
-            .resizable()
-            .frame(width: Layout.coverSize, height: Layout.coverSize)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+        AlbumCover(album: album)
     }
 
     /// The three lines: artist, album, tags.
@@ -122,6 +127,32 @@ private struct AlbumHeaderContent: View {
     /// The tags turn white together with the rest of the row when that is selected.
     private func tagColor(_ color: Color) -> Color {
         isSelected ? Color(nsColor: .alternateSelectedControlTextColor) : color
+    }
+}
+
+/// The cover of an album header: at once if it is in memory, else a plain tile until it has been loaded (see
+/// `CoverCache`). Loading is a task of this view, so it stops when the header is scrolled out of the rendered rows.
+private struct AlbumCover: View {
+    let album: Album
+    /// The last cover loaded here; kept while another one loads (same album, after a `CoverCache.reset`) so the
+    /// header doesn't flash.
+    @State private var loaded: (key: String, image: NSImage)?
+
+    var body: some View {
+        let shown = CoverCache.cached(for: album) ?? (loaded?.key == album.key ? loaded?.image : nil)
+        Group {
+            if let shown {
+                Image(nsImage: shown).resizable()
+            } else {
+                RoundedRectangle(cornerRadius: CoverCache.cornerRadius).fill(.quaternary)
+            }
+        }
+        .frame(width: Layout.coverSize, height: Layout.coverSize)
+        .task(id: "\(album.key)\u{1F}\(CoverCache.generation)") {
+            guard CoverCache.cached(for: album) == nil else { return }   // shown already
+            let key = album.key
+            if let image = await CoverCache.load(for: album) { loaded = (key, image) }
+        }
     }
 }
 

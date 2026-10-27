@@ -13,6 +13,9 @@ import SQLite3
 ///
 /// Failures are logged and swallowed (reads find nothing, writes are dropped): a broken store must never break the
 /// app, tracks simply have no lyrics then.
+///
+/// `contains` is asked for every track row the playlist renders, so it answers from a set of all the keys, read on
+/// its first use and kept up to date by `store` (this instance is the only writer).
 final class LyricsStore: @unchecked Sendable {
     static let shared = LyricsStore(url: AppPaths.current.lyricsCacheURL)
 
@@ -20,6 +23,8 @@ final class LyricsStore: @unchecked Sendable {
     private let lock = NSLock()
     private var db: OpaquePointer?
     private var opened = false
+    /// Every key in the table, nil until `contains` first needs it.
+    private var keys: Set<String>?
 
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -42,9 +47,10 @@ final class LyricsStore: @unchecked Sendable {
     func contains(_ key: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard let statement = prepare("SELECT 1 FROM lyrics WHERE key = ?1", key: key) else { return false }
-        defer { sqlite3_finalize(statement) }
-        return sqlite3_step(statement) == SQLITE_ROW
+        if let keys { return keys.contains(key) }
+        let loaded = loadKeys()
+        keys = loaded
+        return loaded.contains(key)
     }
 
     /// Stores `lyrics` under `key`. With `replacing: false` what is there already stays (LRCLIB never replaces
@@ -65,6 +71,7 @@ final class LyricsStore: @unchecked Sendable {
             logFailure("insert")
             return false
         }
+        keys?.insert(key)
         return sqlite3_changes(db) > 0
     }
 
@@ -113,6 +120,22 @@ final class LyricsStore: @unchecked Sendable {
         }
         db = handle
         return handle
+    }
+
+    /// All the keys of the table (none if the store can't be used). Caller holds the lock.
+    private func loadKeys() -> Set<String> {
+        guard let db = openIfNeeded() else { return [] }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT key FROM lyrics", -1, &statement, nil) == SQLITE_OK else {
+            logFailure("prepare")
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+        var keys = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let key = text(statement, 0) { keys.insert(key) }
+        }
+        return keys
     }
 
     // MARK: - Helpers

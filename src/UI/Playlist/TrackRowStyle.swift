@@ -32,9 +32,22 @@ struct TrackRowStyle: Equatable {
         self.headerStyle = headerStyle
         rowHeight = (Layout.trackRowHeight * scale).rounded()
         fontSize = Layout.trackRowFontSize * scale
-        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
-        durationWidth = ceil(("0:00:00" as NSString).size(withAttributes: [.font: font]).width) + 2
+        durationWidth = Self.durationWidth(fontSize: fontSize)
     }
+
+    /// Measured once per font size: a style is made on every update of the playlist view.
+    private static func durationWidth(fontSize: CGFloat) -> CGFloat {
+        widthLock.lock()
+        defer { widthLock.unlock() }
+        if let width = durationWidths[fontSize] { return width }
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        let width = ceil(("0:00:00" as NSString).size(withAttributes: [.font: font]).width) + 2
+        durationWidths[fontSize] = width
+        return width
+    }
+
+    private static let widthLock = NSLock()
+    private nonisolated(unsafe) static var durationWidths: [CGFloat: CGFloat] = [:]   // guarded by `widthLock`
 
     @MainActor
     init(_ settings: PlaylistSettings) {

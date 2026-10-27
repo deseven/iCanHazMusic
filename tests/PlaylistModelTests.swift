@@ -28,6 +28,13 @@ extension AllTests {
             #expect(track(number: 12, duration: nil).numberText == "12")
             #expect(track(number: 123, duration: nil).numberText == "123")
         }
+
+        @Test("two digits are the same text as %02d")
+        func twoDigits() {
+            for n in [-100, -10, -9, -1, 0, 1, 9, 10, 99, 100, 12345] {
+                #expect(n.twoDigits == String(format: "%02d", n))
+            }
+        }
     }
 
     @MainActor @Suite("Album")

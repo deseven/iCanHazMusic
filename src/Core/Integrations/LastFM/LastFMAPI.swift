@@ -160,7 +160,7 @@ enum LastFMAPI {
             text += name + value
         }
         text += secret
-        return Insecure.MD5.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        return Insecure.MD5.hash(data: Data(text.utf8)).hexString
     }
 
     /// A signed POST for `call`; `sessionKey` for the methods that act on an account.

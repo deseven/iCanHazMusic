@@ -135,6 +135,17 @@ extension AllTests {
             let lyrics = try #require(Lyrics.embedded("text"))
             LyricsStore(url: url).store(lyrics, for: "k")
             #expect(LyricsStore(url: url).lyrics(for: "k") == lyrics)
+            let reopened = LyricsStore(url: url)                               // the keys are read from the file
+            #expect(reopened.contains("k") && !reopened.contains("other"))
+        }
+
+        @Test("keys are the lower-case hex of the digest, as they always were")
+        func keyFormat() {
+            let bytes = (0...255).map { UInt8($0) }
+            #expect(bytes.hexString == bytes.map { String(format: "%02x", $0) }.joined())
+            let key = LyricsKey.make(artist: " Artist ", title: "Title", album: "Album")
+            #expect(key.count == 64 && key == key.lowercased())
+            #expect(key == LyricsKey.make(artist: "artist", title: "TITLE", album: "album"))
         }
 
         @Test("storing replaces what is there, unless told not to")

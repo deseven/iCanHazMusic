@@ -93,6 +93,16 @@ final class LyricsService: PlaybackListener {
     @ObservationIgnored private var retryStage: [String: Int] = [:]
     /// Retries that are waiting for their time.
     @ObservationIgnored private var retryTimers: [String: Task<Void, Never>] = [:]
+    /// The keys `hasLyrics` made: the playlist asks it for every track row it renders, and a key is a digest. Only
+    /// keys are kept (they never change), whether there are lyrics is always asked of the store.
+    @ObservationIgnored private var keyCache: [KeyInput: String] = [:]
+    private static let keyCacheLimit = 20_000
+
+    private struct KeyInput: Hashable {
+        let artist: String
+        let title: String
+        let album: String
+    }
 
     init(configStore: ConfigStore, store: LyricsStore,
          transport: any HTTPTransport = URLSessionTransport(timeout: LRCLIBAPI.requestTimeout),
@@ -120,7 +130,16 @@ final class LyricsService: PlaybackListener {
     func hasLyrics(artist: String, title: String, album: String) -> Bool {
         _ = revision
         guard isEnabled, TagFallback.isIdentified(artist: artist, title: title) else { return false }
-        return store.contains(LyricsKey.make(artist: artist, title: title, album: album))
+        return store.contains(cachedKey(artist: artist, title: title, album: album))
+    }
+
+    private func cachedKey(artist: String, title: String, album: String) -> String {
+        let input = KeyInput(artist: artist, title: title, album: album)
+        if let key = keyCache[input] { return key }
+        if keyCache.count >= Self.keyCacheLimit { keyCache.removeAll(keepingCapacity: true) }
+        let key = LyricsKey.make(artist: artist, title: title, album: album)
+        keyCache[input] = key
+        return key
     }
 
     /// The store changed under the playing track (its tags were read again): look again.

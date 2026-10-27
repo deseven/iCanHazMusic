@@ -25,7 +25,7 @@ enum WaveformKey {
         if !source.isWholeFile {
             text += "|\(Int64((source.start * 1000).rounded()))-\(source.end.map { String(Int64(($0 * 1000).rounded())) } ?? "")"
         }
-        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: Data(text.utf8)).hexString
     }
 }
 

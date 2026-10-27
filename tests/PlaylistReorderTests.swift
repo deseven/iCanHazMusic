@@ -70,5 +70,49 @@ extension AllTests {
             #expect(PlaylistLayout(playlist: p, showAlbumArt: true).rowOffsets
                     == [0, Layout.albumHeaderRowHeight, Layout.albumHeaderRowHeight + 20, Layout.albumHeaderRowHeight + 40])
         }
+
+        @Test("the cached layout is the one for the playlist and heights asked for")
+        func cachedLayout() {
+            let p = Make.playlist(Make.entries(dir: "A", album: "A", count: 2))
+            let a = PlaylistLayout.cached(for: p, showAlbumArt: true, trackHeight: 20)
+            #expect(a.rowOffsets == PlaylistLayout(playlist: p, showAlbumArt: true, trackHeight: 20).rowOffsets)
+            #expect(PlaylistLayout.cached(for: p, showAlbumArt: true, trackHeight: 30).rowOffsets
+                    == PlaylistLayout(playlist: p, showAlbumArt: true, trackHeight: 30).rowOffsets)
+            #expect(PlaylistLayout.cached(for: p, showAlbumArt: false, trackHeight: 30).rowOffsets
+                    == PlaylistLayout(playlist: p, showAlbumArt: false, trackHeight: 30).rowOffsets)
+            let other = Make.playlist(Make.entries(dir: "B", album: "B", count: 5))
+            #expect(PlaylistLayout.cached(for: other, showAlbumArt: false, trackHeight: 30).rowCount == 6)
+        }
+
+        @Test("the row under an offset")
+        func rowContaining() {
+            let layout = PlaylistLayout(heights: [68, 20, 20])
+            #expect(layout.row(containing: 0) == 0)
+            #expect(layout.row(containing: 70) == 1)
+            #expect(layout.row(containing: 107.5) == 2)
+            #expect(layout.row(containing: 108) == nil)
+            #expect(layout.row(containing: -1) == nil)
+            #expect(PlaylistLayout(heights: []).row(containing: 0) == nil)
+        }
+
+        @Test("the rendered rows move in steps, and only the margin is rendered after a jump")
+        func rowWindow() {
+            let layout = PlaylistLayout(heights: Array(repeating: 20, count: 1000))   // 20 000 points
+            func window(_ minY: CGFloat, _ current: Range<Int>) -> Range<Int> {
+                layout.window(minY: minY, maxY: minY + 400, current: current, margin: 100, overscan: 300)
+            }
+
+            let start = window(2000, 0..<0)
+            #expect(start == 95..<126)                                  // nothing to keep: the margin only
+            #expect(window(2001, start) == start)                       // still enough
+            let placed = window(2030, start)
+            #expect(placed == 86..<137)                                 // ran out: placed with the full overscan
+            #expect(window(2150, placed) == placed)                     // still has the margin around what is seen
+            #expect(window(2250, placed) == 97..<148)                   // the margin ran out: placed again
+            #expect(window(9000, placed) == 445..<476)                  // a jump: the margin only
+            #expect(window(0, 0..<500) == 0..<36)                       // far more than needed: trimmed
+            #expect(PlaylistLayout(heights: []).window(minY: 0, maxY: 400, current: 0..<3, margin: 100,
+                                                       overscan: 300) == 0..<0)
+        }
     }
 }

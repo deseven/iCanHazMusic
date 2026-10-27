@@ -44,7 +44,8 @@ This file is a map plus the few invariants that are easy to break. Everything el
 - **UI may depend on Core, never the other way round.** Core is Foundation only (plus UI-less system frameworks such as CryptoKit, Carbon, AudioToolbox): never import SwiftUI/AppKit there. Whatever needs AppKit (opening URLs, alerts) is handed to Core as a closure.
 - **What is hidden is not done:** a hidden Now Playing component (or the whole block) must not cost work (art loading, waveform analysis). Whoever acts on that registers with `addVisibilityObserver`.
 - The playlist selector and the Now Playing block are custom `SidePanel`s in `PlayerArea`, not `NavigationSplitView`/inspector, on purpose.
-- Keyboard handling is one local `NSEvent` monitor in `VirtualPlaylistView`, no `focusable`/`@FocusState` on purpose. The monitor outlives the view struct: **never capture view values in it**.
+- Keyboard handling is one local `NSEvent` monitor in `VirtualPlaylistView`, no `focusable`/`@FocusState` on purpose; the rows' context menu (an `NSMenu`) is opened from it too. The monitor outlives the view struct: **never capture view values in it**.
+- **Playlist rows must stay light**: scrolling mounts them constantly. No gestures, hover or context menus per row (they are handled once for the whole content), no blocking lookups in a row's `body` (e.g. `LyricsStore.contains` answers from memory, covers are loaded asynchronously by `CoverCache`).
 - Drag reordering and scrolling in `VirtualPlaylistView` are fiddly and not covered by tests: read the comments before changing them.
 - `MigrationActions.askAtLaunch()` runs before any singleton touches the working directory; `NSApp` doesn't exist yet there, use `NSApplication.shared`.
 

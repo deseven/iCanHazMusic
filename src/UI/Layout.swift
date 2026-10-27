@@ -52,8 +52,12 @@ enum Layout {
     static let queueNumberColumnWidth: CGFloat = 44
     /// Cover thumbnails are stored at 2x (see `AppConstants.coverThumbnailPixels`).
     static let coverSize = CGFloat(AppConstants.coverThumbnailPixels) / 2
-    /// Extra points of rows rendered above/below the visible area of the playlist.
-    static let playlistOverscan: CGFloat = 600
+    /// Extra points of rows rendered above/below the visible area of the playlist when its row window is (re)placed.
+    static let playlistOverscan: CGFloat = 500
+    /// The rendered rows are moved only once fewer than this many points of them are left beyond the visible area
+    /// (so every `playlistOverscan - playlistWindowMargin` points of scrolling, not every row). After a jump (the
+    /// scroll bar dragged far, a reveal) just this much is rendered around what is visible.
+    static let playlistWindowMargin: CGFloat = 200
 
     // Now playing block (the width includes the padding; the album art fills the rest)
     static let nowPlayingMinWidth = CGFloat(ConfigLimits.nowPlayingMinWidth)
