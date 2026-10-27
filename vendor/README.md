@@ -20,6 +20,8 @@ Exact sources (git commit, zip hash) are in `UPSTREAM`.
 - What is copied is listed in `update.sh`, with why the rest is left out.
 - Only `Core` code that decodes or describes these formats imports the modules (see `dev-docs/extra-formats-support.md`).
 - The license texts go into the app bundle (`build.sh`: `Contents/Resources/ThirdPartyLicenses`).
+- `.clangd` gives editors (clangd, as in Zed) the targets' flags, so the code opens without bogus errors. Keep it in sync
+  with `Package.swift` when the target settings change.
 
 ## WavPack
 

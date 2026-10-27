@@ -1,0 +1,65 @@
+# clangd knows nothing about SwiftPM targets: without this it opens
+# these files with no include paths or defines and reports errors everywhere. These are the flags of the targets in
+# Package.swift. Paths are relative to the file's own directory (clangd's working directory for files without a
+# compilation database), hence one block per directory. Ours, not upstream's: vendor/update.sh leaves it alone.
+
+If:
+  PathMatch: wavpack/.*
+CompileFlags:
+  Add: [-xc, -std=gnu11, -DENABLE_DSD, -DENABLE_LEGACY, -DHAVE___BUILTIN_CLZ, -I../include, -I../src]
+---
+# Headers that aren't self-contained (they are included after others) get those included first when opened on their
+# own; harmless for the self-contained ones (include guards).
+If:
+  PathMatch: wavpack/src/[^/]*\.h
+CompileFlags:
+  Add: [-includewavpack_local.h]
+---
+If:
+  PathMatch: monkeys-audio/.*
+CompileFlags:
+  Add: [-xc++, -std=c++17, -DPLATFORM_APPLE, -Wno-inconsistent-missing-override]
+---
+If:
+  PathMatch: monkeys-audio/Source/(Shared|MACLib)/[^/]*
+CompileFlags:
+  Add: [-I../Shared, -I../MACLib, -I../MACLib/Old]
+---
+If:
+  PathMatch: monkeys-audio/Source/MACLib/Old/[^/]*
+CompileFlags:
+  Add: [-I../../Shared, -I.., -I.]
+---
+If:
+  PathMatch: monkeys-audio/(Source/.*|shim/include/[^/]*)\.h
+CompileFlags:
+  Add: [-includeAll.h]
+---
+If:
+  PathMatch: monkeys-audio/Source/MACLib/.*\.h
+CompileFlags:
+  Add: [-includeMACLib.h]
+---
+If:
+  PathMatch: monkeys-audio/Source/MACLib/Old/[^/]*\.h
+CompileFlags:
+  Add: [-includeBitArray.h, -includeUnBitArrayBase.h, -includeAntiPredictorOld.h]
+---
+If:
+  PathMatch: monkeys-audio/shim/[^/]*
+CompileFlags:
+  Add: [-I../Source/Shared, -I../Source/MACLib, -I../Source/MACLib/Old, -Iinclude]
+---
+If:
+  PathMatch: monkeys-audio/shim/include/[^/]*
+CompileFlags:
+  Add: [-I../../Source/Shared, -I../../Source/MACLib]
+---
+# Upstream code: report real errors, but not clangd's style hints (unused includes etc.), which nobody is going to fix.
+If:
+  PathMatch: (wavpack|monkeys-audio/Source)/.*
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+  ClangTidy:
+    Remove: '*'
