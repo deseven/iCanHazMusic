@@ -59,7 +59,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 
 #### What is not planned
 - equalizer
-- tags editing, format conversion and other Swiss knife functions
+- tags editing, format conversion and other Swiss Army knife functions
 - advanced foobar2000-level customization
 
 ## Compiling from source
