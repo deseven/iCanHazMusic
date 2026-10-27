@@ -42,6 +42,10 @@ extension AllTests {
             let ogg = try label("playback/lossy.ogg")
             #expect(ogg.hasPrefix("OGG "), "\(ogg)")
             #expect(ogg.hasSuffix("k") && Int(ogg.dropFirst("OGG ".count).dropLast()) != nil, "\(ogg)")
+
+            let opus = try label("playback/lossy.opus")
+            #expect(opus.hasPrefix("OPUS "), "\(opus)")
+            #expect(opus.hasSuffix("k") && Int(opus.dropFirst("OPUS ".count).dropLast()) != nil, "\(opus)")
         }
     }
 }

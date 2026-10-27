@@ -236,7 +236,7 @@ extension AllTests {
             #expect(rig.events == ["finished"])
         }
 
-        @Test("compressed formats play to the end", arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg"])
+        @Test("compressed formats play to the end", arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg", "lossy.opus"])
         func lossy(name: String) async throws {
             let rig = EngineRig()
             rig.engine.start(try Fixtures.url("playback/" + name))

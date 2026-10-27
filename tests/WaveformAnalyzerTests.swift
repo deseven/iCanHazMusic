@@ -153,7 +153,7 @@ extension AllTests {
 
         @Test("a lossy file gives about the same levels with one worker and with several")
         func lossy() throws {
-            for name in ["lossy.mp3", "lossy_vbr.mp3", "lossy.m4a", "lossy.ogg"] {
+            for name in ["lossy.mp3", "lossy_vbr.mp3", "lossy.m4a", "lossy.ogg", "lossy.opus"] {
                 let url = try Fixtures.url("playback/" + name)
                 let one = try #require(analyse(url, workers: 1), Comment(rawValue: name)).waveform.rms
                 let two = try #require(analyse(url, workers: 2), Comment(rawValue: name)).waveform.rms

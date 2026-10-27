@@ -19,6 +19,8 @@ import Foundation
 /// - A track can be a part of the file (`endSeconds`, and a `startSeconds` that is where the part starts, for the tracks of
 ///   a CUE sheet): decoding stops at the end frame, and a part that lies beyond the end of the file fails instead of
 ///   playing its last frame.
+/// - Starting anywhere but at the beginning seeks with `seekPrerolled`, so formats whose decoder needs history (Opus)
+///   are right from the first frame, see `SeekPreroll`.
 /// - A read error in the middle of a file ends the track there (`Result.finished` with a warning); only a file that
 ///   yields no audio at all is a failure.
 /// - Whoever waits in `next()` is never held up by a file that doesn't respond: `cancel()` releases the wait at once,
@@ -247,7 +249,7 @@ final class TrackDecoder: @unchecked Sendable {
             // A position past the end plays the last frame, not nothing.
             start = min(start, file.length - 1)
         }
-        if start > 0 { file.framePosition = start }
+        if start > 0, let readBuffer { file.seekPrerolled(to: start, scratch: readBuffer) }
         opened = true
 
         let channels = format.channelCount == 2 ? "stereo" : "\(format.channelCount) ch -> stereo"

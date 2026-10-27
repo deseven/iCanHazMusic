@@ -184,7 +184,7 @@ extension AllTests {
         }
 
         @Test("every format that can carry lyrics yields them",
-              arguments: ["l_v24.mp3", "l.flac", "l_unsynced.flac", "l.ogg", "l_aac.m4a", "l_alac.m4a", "l.caf"])
+              arguments: ["l_v24.mp3", "l.flac", "l_unsynced.flac", "l.ogg", "l.opus", "l_aac.m4a", "l_alac.m4a", "l.caf"])
         func lyrics(name: String) async throws {
             let r = try await read(name)
             #expect(r.status == .complete)

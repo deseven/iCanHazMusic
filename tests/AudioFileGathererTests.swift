@@ -10,11 +10,11 @@ extension AllTests {
     struct AudioFileGathererTests {
         @Test("supported extensions, case-insensitive")
         func supported() {
-            for name in ["a.mp3", "a.MP3", "a.m4a", "a.m4b", "a.aac", "a.flac", "a.ogg", "a.wav", "a.wave",
-                         "a.aif", "a.aiff", "a.aifc", "a.caf", "Dir/A.FLAC"] {
+            for name in ["a.mp3", "a.MP3", "a.m4a", "a.m4b", "a.aac", "a.flac", "a.ogg", "a.opus", "a.oga", "a.wav",
+                         "a.wave", "a.aif", "a.aiff", "a.aifc", "a.caf", "Dir/A.FLAC", "a.OPUS"] {
                 #expect(AudioFileGatherer.isSupported(URL(fileURLWithPath: "/x/" + name)), "\(name)")
             }
-            for name in ["a.txt", "a.jpg", "a", "a.opus", "a.oga", "a.wma", "a.ape", "a.wv", "mp3", "a.mp3.bak"] {
+            for name in ["a.txt", "a.jpg", "a", "a.wma", "a.ape", "a.wv", "mp3", "a.mp3.bak"] {
                 #expect(!AudioFileGatherer.isSupported(URL(fileURLWithPath: "/x/" + name)), "\(name)")
             }
         }

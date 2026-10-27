@@ -1,24 +1,45 @@
 #!/bin/sh
-# Generates the audio/image fixtures used by the tests into tests/fixtures/generated (git-ignored).
+# The recipe for the audio/image fixtures used by the tests. The files are committed (tests/fixtures/formats, art,
+# broken, playback): run this only to add or change a fixture, not as part of a build.
 #
 #   ./tests/prepare-fixtures.sh
 #
-# Requires ffmpeg (brew install ffmpeg). Everything else is plain POSIX shell.
-# Safe to re-run: the output directory is rebuilt from scratch.
+# Requires ffmpeg (with libmp3lame and libopus, as Homebrew's is) and Monkey's Audio's `mac` (brew install ffmpeg mac).
+# Everything else is plain POSIX shell. The four directories are rebuilt from scratch. With the same tool versions the
+# output is byte for byte the same (ffmpeg runs `bitexact`), so only the fixtures whose recipe changed show up in git;
+# a new ffmpeg may still change every encoded file, so don't regenerate just because a new version is out.
 set -e
 
-if ! command -v ffmpeg >/dev/null 2>&1; then
-    echo "error: ffmpeg is required to generate the test fixtures (brew install ffmpeg)" >&2
-    exit 1
-fi
+for tool in ffmpeg mac; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "error: $tool is required to generate the test fixtures (brew install ffmpeg mac)" >&2
+        exit 1
+    fi
+done
 
 root="$(cd "$(dirname "$0")" && pwd)"
-out="$root/fixtures/generated"
-tmp="$root/fixtures/.generated.tmp"
-rm -rf "$tmp"
+out="$root/fixtures"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/formats" "$tmp/art" "$tmp/broken" "$tmp/playback"
 
-ff() { ffmpeg -v error -y "$@"; }
+# ffmpeg with the given arguments, the last one being the output file; `bitexact` keeps version strings and other
+# varying bits out of the output.
+ff() {
+    ff_n=$#; ff_i=0
+    for ff_arg; do
+        ff_i=$(( ff_i + 1 ))
+        if [ "$ff_i" -eq "$ff_n" ]; then set -- "$@" -fflags +bitexact -flags +bitexact "$ff_arg"; else set -- "$@" "$ff_arg"; fi
+    done
+    shift "$ff_n"
+    ffmpeg -v error -y "$@"
+}
+
+# Monkey's Audio (APE) can't be written by ffmpeg: `mac` compresses a WAV, `-c2000` is its default ("normal") level.
+# ape <input wav> <output> [tags as "Name=value|Name=value"]
+ape() {
+    if [ -n "$3" ]; then mac "$1" "$2" -c2000 -t "$3" >/dev/null 2>&1; else mac "$1" "$2" -c2000 >/dev/null 2>&1; fi
+}
 
 # Every audio fixture is a 2 second sine wave. Tagged ones carry exactly these values
 # (the tests rely on them, see Fixtures.swift):
@@ -37,6 +58,12 @@ ff $sine $T "$f/t.flac"
 ff $sine -ac 2 -c:a vorbis -strict -2 $T "$f/t.ogg"
 ff $sine -c:a libmp3lame -id3v2_version 3 $T "$f/t_v23.mp3"
 ff $sine -c:a libmp3lame -id3v2_version 4 $T "$f/t_v24.mp3"
+ff $sine -c:a libopus $T "$f/t.opus"
+# WavPack and APE carry APEv2 tags (ffmpeg writes them for .wv; for .ape they are given to `mac`)
+ff $sine $T "$f/t.wv"
+ff $sine -map_metadata -1 "$tmp/plain.wav"
+ape "$tmp/plain.wav" "$f/t.ape" "Title=TTitle|Artist=TArtist|Album=TAlbum|Year=2020|Track=3"
+rm "$tmp/plain.wav"
 
 # ---------------------------------------------------------------- mp3 without any tag (also used as a base)
 ff $sine -c:a libmp3lame -write_xing 0 -id3v2_version 0 -map_metadata -1 "$f/plain.mp3"
@@ -92,6 +119,7 @@ Line two
 Line four ünï ☃"
 ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.flac"
 ff $sine -ac 2 -c:a vorbis -strict -2 $T -metadata "lyrics=$LYRICS" "$f/l.ogg"
+ff $sine -c:a libopus $T -metadata "lyrics=$LYRICS" "$f/l.opus"
 ff $sine -c:a aac $T -metadata "lyrics=$LYRICS" "$f/l_aac.m4a"
 ff $sine -c:a alac $T -metadata "lyrics=$LYRICS" "$f/l_alac.m4a"
 ff $sine $T -metadata "lyrics=$LYRICS" "$f/l.caf"
@@ -133,6 +161,15 @@ echo "not an image" > "$a/broken.jpg"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a libmp3lame -c:v copy -id3v2_version 3 -disposition:v attached_pic $T "$f/t_cover.mp3"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a aac -c:v copy -disposition:v attached_pic $T "$f/t_cover.m4a"
 ff $sine -i "$a/cover.jpg" -map 0 -map 1 -c:a flac -c:v copy -disposition:v attached_pic $T "$f/t_cover.flac"
+# ffmpeg can't put a picture into Ogg Opus: the cover goes in as a METADATA_BLOCK_PICTURE comment, which is what
+# opusenc writes: a FLAC picture block (type 3 = front cover, mime, empty description, width, height, depth, colours,
+# length, data; integers big-endian u32) in base64.
+be32() { printf "\\$(printf %03o $(( ($1 >> 24) & 255 )))"; be24 $(( $1 & 16777215 )); }
+picture=$({
+    be32 3; be32 10; printf image/jpeg; be32 0; be32 300; be32 200; be32 24; be32 0
+    be32 "$(wc -c < "$a/cover.jpg" | tr -d ' ')"; cat "$a/cover.jpg"
+} | base64)
+ff $sine -c:a libopus $T -metadata "METADATA_BLOCK_PICTURE=$picture" "$f/t_cover.opus"
 
 # ---------------------------------------------------------------- playback: sample-exact ramps
 # Playback tests compare what the engine renders with the file content, sample by sample. A sine wave would hide
@@ -174,6 +211,8 @@ ramp "$p/a.wav"         44100 2 136710 0     s16 16 -c:a pcm_s16le
 ramp "$p/a.aiff"        44100 2 136710 0     s16 16 -c:a pcm_s16be
 ramp "$p/a.caf"         44100 2 136710 0     s16 16 -c:a pcm_s16le
 ramp "$p/a_alac.m4a"    44100 2 136710 0     s16p 16 -c:a alac
+ramp "$p/a.wv"          44100 2 136710 0     s16p 16 -c:a wavpack
+ape "$p/a.wav" "$p/a.ape"
 # tone <file> <rate> <channels> <frames> <frequency> <ffmpeg sample_fmt> [extra output options...]
 # A sine wave, 0.5 amplitude in the first channel and 0.25 in the second (so swapped channels are noticed).
 # Used where the exact samples can't be predicted (resampling) but the waveform can: the tests compare the
@@ -196,9 +235,11 @@ tone "$p/sine22_mono.flac" 22050 1 44100  1000 s16 -c:a flac
 # lossy formats: length and seeking can only be approximately checked
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a libmp3lame "$p/lossy.mp3"
 # VBR (noise, so the frames differ in size)
-ff -f lavfi -i "anoisesrc=d=3:c=pink:a=0.3" -ac 2 -c:a libmp3lame -q:a 2 "$p/lossy_vbr.mp3"
+ff -f lavfi -i "anoisesrc=d=3:c=pink:a=0.3:seed=1" -ac 2 -c:a libmp3lame -q:a 2 "$p/lossy_vbr.mp3"
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a aac "$p/lossy.m4a"
 ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a vorbis -strict -2 "$p/lossy.ogg"
+# Opus is always 48 kHz; its decoder needs some audio before a seek target to be right there (see TrackDecoder)
+ff -f lavfi -i "sine=d=3:f=440" -ac 2 -c:a libopus "$p/lossy.opus"
 # a FLAC cut in the middle: the header still promises the full length
 head -c 60000 "$p/a.flac" > "$p/truncated.flac"
 
@@ -210,6 +251,8 @@ echo garbage > "$b/garbage.mp3"
 # an MPEG-4 video that pretends to be an mp3
 ff -f lavfi -i testsrc=s=64x64:d=1 -c:v mpeg4 -f mp4 "$b/video.mp3"
 
-rm -rf "$out"
-mv "$tmp" "$out"
+for dir in formats art broken playback; do
+    rm -rf "${out:?}/$dir"
+    mv "$tmp/$dir" "$out/$dir"
+done
 echo "fixtures written to $out"

@@ -249,7 +249,7 @@ extension AllTests {
 
         // MARK: Compressed formats
 
-        @Test("MP3, AAC and Vorbis are decoded in full", arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg"])
+        @Test("MP3, AAC, Vorbis and Opus are decoded in full", arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg", "lossy.opus"])
         func lossy(name: String) async throws {
             let d = await decode(try Fixtures.url("playback/" + name))
             #expect(d.failure == nil)
@@ -260,7 +260,8 @@ extension AllTests {
             #expect(peak(d.samples, in: 0..<d.samples.frameCount) > 0.05)
         }
 
-        @Test("seeking in compressed formats lands where it should", arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg"])
+        @Test("seeking in compressed formats lands where it should",
+              arguments: ["lossy.mp3", "lossy.m4a", "lossy.ogg", "lossy.opus"])
         func lossySeek(name: String) async throws {
             let url = try Fixtures.url("playback/" + name)
             let whole = await decode(url)
@@ -268,6 +269,24 @@ extension AllTests {
             let expected = whole.samples.frameCount - Int(1.5 * 44100)
             // Encoder delay and block sizes allow a little slack; being off by whole blocks or seconds doesn't.
             #expect(abs(half.samples.frameCount - expected) < 2500, "\(name): \(half.samples.frameCount) vs \(expected)")
+        }
+
+        @Test("Opus starts exactly at the frame asked for, and right from the first one (pre-roll)",
+              arguments: [0.25, 1.5, 2.9])
+        func opusSeek(seconds: Double) async throws {
+            // At Opus's own rate, so nothing is resampled and the samples can be compared with the whole decode.
+            let url = try Fixtures.url("playback/lossy.opus")
+            let whole = await decode(url, rate: 48000)
+            let first = Int(seconds * 48000)
+            let part = await decode(url, from: seconds, rate: 48000)
+            #expect(part.failure == nil)
+            #expect(part.samples.frameCount == whole.samples.frameCount - first)
+            // Without the pre-roll the first ~100 ms differ by about the signal's own size (0.125).
+            let count = min(part.samples.frameCount, whole.samples.frameCount - first, 4800)
+            let deviation = maxDeviation(part.samples, from: 0, count: count) {
+                whole.samples[$1][first + $0]
+            }
+            #expect(deviation < 0.001, "\(deviation)")
         }
 
         // MARK: Errors

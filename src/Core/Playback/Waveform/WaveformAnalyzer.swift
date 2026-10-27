@@ -43,7 +43,8 @@ final class WaveformCancellation: @unchecked Sendable {
 ///   scaled so the bands add up to the mean square of the mono signal (a bucket with no frame, in a very short track or
 ///   in the last 4096 frames of one, takes its neighbour's). Bands are log spaced from 40 Hz to 16 kHz (`SpectralLayout`).
 /// - The buckets are split into `workers` contiguous slices; each worker has its own `AVAudioFile`, seeked to the start
-///   of its slice, and reads 4096 frames past the end of it for the last frames of the slice.
+///   of its slice (`seekPrerolled`, so an Opus slice doesn't start with a fade-in), and reads 4096 frames past the end
+///   of it for the last frames of the slice.
 /// - Decoding is nearly all of the cost (the spectrum adds about 15%), see `dev-docs/playback.md` for numbers. The pass
 ///   runs on a queue of its own at `.utility`, not on the Swift concurrency pool: reads blocked on a stalled network share
 ///   would eat its threads.
@@ -200,7 +201,9 @@ enum WaveformAnalyzer {
         // The last frames of the slice need the next `fftSize` frames of the file.
         let readEnd = min(length, endFrame + Int64(fftSize))
         // `framePosition` raises an Objective-C exception outside 0..<length; a slice starts inside by construction.
-        if base + startFrame > 0, base + startFrame < file.length { file.framePosition = base + startFrame }
+        if base + startFrame > 0, base + startFrame < file.length {
+            file.seekPrerolled(to: base + startFrame, scratch: readBuffer)
+        }
 
         var mono = [Float](repeating: 0, count: blockFrames)
         var pending: [Float] = []

@@ -6,7 +6,7 @@ import AVFoundation
 import Foundation
 
 /// The short description of a file's format shown next to a track, e.g. "MP3 CBR 320k", "AAC 256k", "OGG 128k",
-/// "FLAC 24/96", "WAV 16/44.1".
+/// "OPUS 128k", "FLAC 24/96", "WAV 16/44.1".
 ///
 /// - Lossy formats: the name and the average bit rate in kbit/s. For MP3 also whether the packets all have the
 ///   same size (CBR) or not (VBR).
@@ -37,6 +37,8 @@ enum CodecLabel {
             return join(ext, lossless(depth: depth, rate: asbd.mSampleRate))
         case Self.vorbis:
             return join("OGG", kbps(probe.bitRate))
+        case kAudioFormatOpus:
+            return join("OPUS", kbps(probe.bitRate))
         default:
             return join(ext, kbps(probe.bitRate))
         }

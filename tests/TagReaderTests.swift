@@ -26,7 +26,8 @@ extension AllTests {
         }
 
         @Test("every format we support yields complete tags",
-              arguments: ["t_v23.mp3", "t_v24.mp3", "t_v22.mp3", "t.flac", "t.ogg", "t_aac.m4a", "t_alac.m4a", "t.caf"])
+              arguments: ["t_v23.mp3", "t_v24.mp3", "t_v22.mp3", "t.flac", "t.ogg", "t.opus", "t_aac.m4a", "t_alac.m4a",
+                          "t.caf"])
         func fullyTagged(name: String) async throws {
             expectFullyTagged(try await read("formats/" + name))
         }
@@ -358,13 +359,13 @@ extension AllTests {
         }
 
         @Test("embedded artwork is found in every container that has it",
-              arguments: ["t_cover.mp3", "t_cover.m4a", "t_cover.flac"])
+              arguments: ["t_cover.mp3", "t_cover.m4a", "t_cover.flac", "t_cover.opus"])
         func embedded(fixture: String) async throws {
             let source = try await detect([(fixture, "a." + (fixture as NSString).pathExtension)], read: "a." + (fixture as NSString).pathExtension)
             #expect(source == .embedded)
         }
 
-        @Test("files without artwork", arguments: ["t_v23.mp3", "t.flac", "t_aac.m4a"])
+        @Test("files without artwork", arguments: ["t_v23.mp3", "t.flac", "t_aac.m4a", "t.opus"])
         func noArtwork(fixture: String) async throws {
             let ext = (fixture as NSString).pathExtension
             let source = try await detect([(fixture, "a." + ext)], read: "a." + ext)

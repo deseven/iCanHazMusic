@@ -13,7 +13,7 @@ Embedded lyrics from the file are the source of truth, LRCLIB (off by default) t
 
 ## Embedded lyrics
 
-Checked on macOS 26 with generated files (`tests/prepare-fixtures.sh`, `l*` files) and by hand-made ID3 tags:
+Checked on macOS 26 with the test fixtures (`tests/fixtures/formats/l*`, recipe in `tests/prepare-fixtures.sh`) and by hand-made ID3 tags:
 
 | Container | Tag | AudioToolbox | AVFoundation |
 |---|---|---|---|

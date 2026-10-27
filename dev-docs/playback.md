@@ -18,7 +18,15 @@ reproduce with a plain `AVPlayer` and without any app code, so nothing in an app
 
 `AVAudioFile` has neither problem: `length` is the exact number of frames of the file, `framePosition` seeks exactly.
 Verified for FLAC (16 bit 44.1 kHz, 24 bit 96 and 192 kHz), WAV, AIFF, CAF, ALAC and MP3 (sample-exact), AAC (exact
-from about 1 s, tiny differences before that) and Vorbis (every seek lands a constant 20 ms late).
+from about 1 s, tiny differences before that), Vorbis (every seek lands a constant 20 ms late) and Opus (sample-exact,
+but only with a pre-roll, see below).
+
+**Opus needs a pre-roll.** `AVAudioFile` lands on the right frame but starts the Opus decoder there with no history: the
+first ~150 ms after a seek come out faded in and distorted. So every seek (decoder start, waveform slice) goes through
+`AVAudioFile.seekPrerolled`, which starts 0.5 s earlier and drops that audio (`SeekPreroll`: 80 ms, what libopus suggests,
+leaves an error of -21 dB, 250 ms -71 dB, 400 ms none). Without it every seek, restore and CUE track that starts
+mid-file would begin with a fade-in. Its length (exact) and the decode from the start match `opusdec` sample for sample.
+Multichannel Opus doesn't open at all (`'fmt?'`).
 
 ## How it works
 

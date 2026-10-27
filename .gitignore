@@ -12,5 +12,5 @@ Package.resolved
 .env
 dist/
 tmp/
-tests/fixtures/generated/
-tests/fixtures/.generated.tmp/
+# MP3 test fixtures are committed
+!tests/fixtures/**/*.mp3

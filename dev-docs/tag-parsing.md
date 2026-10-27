@@ -2,13 +2,13 @@
 
 Findings from the original tag-parsing proof of concept (since removed; the code lives in `src/Core/Tags/`).
 They explain *why* the reader looks the way it does. Behaviour described here is covered by `tests/`
-(fixtures from `tests/prepare-fixtures.sh`).
+(fixtures in `tests/fixtures`, made by `tests/prepare-fixtures.sh`).
 
 ## Findings
 
 1. **No subprocess needed.** `AudioToolbox` (`AudioFileOpenURL` + `kAudioFilePropertyInfoDictionary`) and
    `AVFoundation` (`AVURLAsset` metadata) read the tags of every container we support (WAV, AIFF, CAF, MP3,
-   AAC/M4A, ALAC, FLAC, OGG Vorbis). WMA/APE/WavPack/MPC are readable by neither. Spotlight (`MDItem`) is
+   AAC/M4A, ALAC, FLAC, OGG Vorbis, OGG Opus). WMA/APE/WavPack/MPC are readable by neither. Spotlight (`MDItem`) is
    useless (file name as title, no artist/album). An `ffprobe` per file was ~2x slower and drags in a binary.
 2. **Per-format routing (`TagReader.Strategy.auto`).** On a NAS, AVFoundation is ~2x faster than AudioFile for
    MP3, AudioFile is ~1.4x faster for FLAC. So `.mp3` goes to AVFoundation, everything else to AudioFile; the
@@ -40,6 +40,7 @@ Samples tagged with title/artist/album/year/track (macOS 26):
 | AAC / ALAC / M4A | complete | complete (`itsk`) | atom keys start with the Latin-1 byte `0xA9` ("(c)") |
 | FLAC | complete | complete (`vorb/*`) | duration slightly off |
 | OGG Vorbis | complete | complete (`vorb/*`) | **duration can be very wrong** |
+| OGG Opus | complete | complete (`vorb/*`) | AudioFile's duration a few ms long; cover is a `METADATA_BLOCK_PICTURE` comment |
 | WAV | title, artist | title, artist (`caaf/info-*`) | ffmpeg writes no album/year/track here |
 | AIFF | title (+ffmpeg's minimal set) | same | |
 | CAF | complete | same | |
@@ -65,9 +66,10 @@ Vorbis `METADATA_BLOCK_PICTURE`), for FLAC through `FlacArtwork`. Folders are li
 
 ## Limitations / open questions
 
-- **OGG Opus / `.oga`**: tags are readable and `AVAudioPlayer` opens `.opus`, but `prepareToPlay()` fails for
-  Opus on macOS 26. Both extensions are excluded from `AudioFileGatherer.supportedExtensions`.
-- WMA/APE/WavPack/MPC need a bundled decoder if ever required.
+- **OGG Opus** (`.opus`, `.oga`) is read like Vorbis. Multichannel Opus (5.1, mapping family 1) opens in neither API,
+  a chained file shows only its first part. Ogg FLAC in an `.oga` has its tags read but opens without audio.
+- WMA/APE/WavPack/MPC are readable by neither API. Decoders for APE and WavPack are vendored (`vendor/`), their
+  integration is planned in `extra-formats-support.md`.
 - `discogs_artist_list` only exists as an ID3 `TXXX` frame (private key in AVFoundation); it is in the artist
   fallback chain but rarely hits.
 - Track/disc "N/M" is reduced to the leading integer; disc numbers are not read.

@@ -41,9 +41,10 @@ enum ReadInput: Sendable {
 enum AudioFileGatherer {
     /// Extensions macOS 15.4+ can open natively (compared case-insensitively).
     /// - WMA/APE/WavPack/MPC etc. are absent: neither AudioToolbox nor AVFoundation opens them.
-    /// - "oga" and "opus" are deliberately excluded (project decision): AVAudioPlayer fails to play Opus.
+    /// - "opus" and "oga": Ogg Opus (mono/stereo; multichannel Opus doesn't open) and Ogg Vorbis. Ogg FLAC in an
+    ///   ".oga" opens without any audio, so its tracks fail to play ("the file has no audio").
     static let supportedExtensions: Set<String> = [
-        "mp3", "m4a", "m4b", "aac", "flac", "ogg",
+        "mp3", "m4a", "m4b", "aac", "flac", "ogg", "opus", "oga",
         "wav", "wave", "aif", "aiff", "aifc", "caf",
     ]
 

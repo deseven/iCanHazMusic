@@ -1,0 +1,3 @@
+# Written by vendor/update.sh, don't edit.
+wavpack 5.9.0 https://github.com/dbry/WavPack commit 5803634a030e2a11dba602ba057b89cc34486c67
+monkeys-audio 1343 https://monkeysaudio.com/files/MAC_1343_SDK.zip sha256 3fd1c60f994daba536902f30b1bebc2235099c8b8a039d8b37d9d27d4827e0ca

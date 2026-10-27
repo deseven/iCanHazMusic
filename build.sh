@@ -123,9 +123,6 @@ do_resolve_deps() {
     swift package resolve
 }
 
-do_prepare_fixtures() {
-    "$loc/tests/prepare-fixtures.sh"
-}
 
 do_run_tests() {
     swift test --filter AllTests
@@ -185,6 +182,10 @@ do_create_bundle() {
     cp "$loc/res/main.icns" "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/res/ui/"*.png "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/LICENSE" "$loc/dist/$name.app/Contents/Resources/"
+    # The vendored decoders are BSD licensed: their notices go with the binary (vendor/README.md).
+    mkdir -p "$loc/dist/$name.app/Contents/Resources/ThirdPartyLicenses"
+    cp "$loc/vendor/wavpack/COPYING" "$loc/dist/$name.app/Contents/Resources/ThirdPartyLicenses/WavPack.txt"
+    cp "$loc/vendor/monkeys-audio/License.txt" "$loc/dist/$name.app/Contents/Resources/ThirdPartyLicenses/MonkeysAudio.txt"
 }
 
 do_codesign() {
@@ -280,9 +281,9 @@ do_upload() {
 # ── Calculate total steps per mode ───────────────────────────────────
 case "$mode" in
     dev)         totalSteps=5 ;;
-    test)        totalSteps=2 ;;
+    test)        totalSteps=1 ;;
     dev-release)
-        totalSteps=12
+        totalSteps=11
         if [ "$can_notarize" = true ]; then
             totalSteps=$((totalSteps + 2))
         fi
@@ -291,7 +292,7 @@ case "$mode" in
         fi
         ;;
     release)
-        totalSteps=11
+        totalSteps=10
         if [ "$can_sign" = true ]; then
             totalSteps=$((totalSteps + 1))
         fi
@@ -311,7 +312,6 @@ do_clean_dist
 
 # `test` mode: run the test suite and finish, no artifacts are produced.
 if [ "$mode" = "test" ]; then
-    run_step "Preparing test fixtures..."         "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
     run_step "Running tests..."                   "tests failed"                              do_run_tests
     echo ""
     echo -e "  ${greenColor}${bold}Tests passed!${noColor}"
@@ -331,7 +331,6 @@ run_step "Creating APP bundle..."                 "failed to create app bundle" 
 run_step "Code-signing APP bundle..."             "failed to code-sign app bundle"           do_codesign
 
 if [ "$mode" != "dev" ]; then
-    run_step "Preparing test fixtures..."      "failed to prepare test fixtures (is ffmpeg installed?)" do_prepare_fixtures
     run_step "Running tests..."                "tests failed"                              do_run_tests
     if [ "$mode" = "release" ]; then
         run_step "Creating distribution ZIP..."    "failed to pack $distrName.zip"            do_create_zip "$distrName.zip"

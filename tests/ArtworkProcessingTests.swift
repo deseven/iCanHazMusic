@@ -369,6 +369,11 @@ extension AllTests {
             let m4aArt = try #require(await AlbumArtProcessor.load(.embedded(m4a)))
             #expect(TestImages.inspect(m4aArt)?.width == 300)
 
+            // A Vorbis comment picture block, which is base64 in the file
+            let opus = try dir.copy("formats/t_cover.opus", to: "a.opus")
+            let opusArt = try #require(await AlbumArtProcessor.load(.embedded(opus)))
+            #expect(TestImages.inspect(opusArt)?.width == 300)
+
             #expect(await AlbumArtProcessor.load(.file(dir.path("missing.jpg"))) == nil)
             let plain = try dir.copy("formats/t_v23.mp3", to: "plain.mp3")
             #expect(await AlbumArtProcessor.load(.embedded(plain)) == nil)

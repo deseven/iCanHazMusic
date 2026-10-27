@@ -1,5 +1,5 @@
 # iCanHazMusic – notes for coding agents
-A native macOS music player (SwiftUI + AppKit, Swift package, no third-party dependencies).
+A native macOS music player (SwiftUI + AppKit, Swift package, minimal dependencies).
 Target: macOS 15.4+, Swift tools 5.10 (Swift 5 language mode).
 
 This file is a map plus the few invariants that are easy to break. Everything else is in the code (doc comments are there): read it rather than relying on this file.
@@ -9,7 +9,8 @@ This file is a map plus the few invariants that are easy to break. Everything el
 |---|---|
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
 | `tests/` | Swift Testing suite, see [Tests](#tests). |
-| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (macOS tag APIs, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, engine internals, state restore), `lyrics.md` (lyrics sources, LRCLIB), `cue.md` (how CUE sheets are read, stored and played). |
+| `vendor/` | WavPack and Monkey's Audio decoders (targets `CWavPack`, `CMonkeysAudio`). **Upstream files are never edited**, they are copied by `vendor/update.sh`; our code is in `vendor/monkeys-audio/shim/`. See `vendor/README.md`. |
+| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (macOS tag APIs, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, engine internals, state restore), `lyrics.md` (lyrics sources, LRCLIB), `cue.md` (how CUE sheets are read, stored and played), `extra-formats-support.md` (plan for WavPack/APE). |
 | `build.sh` | Builds the `.app` bundle in `dist/`. |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
 
@@ -59,13 +60,13 @@ This is the user's real dev data. When testing, prefer seeding/inspecting the fi
 - Full dev build + launch: `./build.sh` (clean build, then **runs the app in the foreground** with `--workdir ~/Library/Application Support/iCanHazMusic-dev`, so the real data stays untouched). It blocks until the app quits: don't use it from an agent, the user normally runs it.
 - Compile check only: `swift build -c debug --arch arm64`.
 - Fast typecheck without SwiftPM: `swiftc -typecheck -parse-as-library -target arm64-apple-macos15.4 $(find src -name '*.swift')`.
-- Tests only: `./build.sh test` (generates the fixtures, then `swift test`). `dev-release` and `release` run the same steps and abort on failure; plain `./build.sh` skips them.
+- Tests only: `./build.sh test` (`swift test`). `dev-release` and `release` run it too and abort on failure; plain `./build.sh` skips it.
 - Scratch experiments go to `tmp/` (git-ignored; never use `dist/`, `build.sh` wipes it); delete them afterwards.
 
 ## Tests
 `swift test` runs the Swift Testing suite in `tests/` (`@testable import iCanHazMusic`). All suites are nested in `AllTests` and run serialized on the main actor; mark new suites `@MainActor @Suite(...)` inside `extension AllTests`.
 
-- Audio/image fixtures are generated, not committed: run `./tests/prepare-fixtures.sh` once (needs `ffmpeg`). Add new fixtures to that script and document them there.
+- Audio/image fixtures are committed (`tests/fixtures`); `tests/prepare-fixtures.sh` is their recipe (needs `ffmpeg` and `mac`, output is byte-identical with the same tool versions). Add or change a fixture there, document it there, and regenerate only for that: a new ffmpeg rewrites every encoded file. `.gitignore` ignores `*.mp3` but not under `tests/fixtures`.
 - Tests never touch the real working directory: stores and services take their locations/dependencies as parameters, tests use `TempDir` (`tests/Support/Fixtures.swift`). **Don't touch `.shared` singletons from tests.**
 - Playback tests run the engine **offline** (`PlaybackEngine(output: .offline(sampleRate:))`, driven by `EngineRig` in `tests/Support`); `PlaybackState(store:engine:tickInterval:)` with `tickInterval: nil` and a manual `tick()`.
 - Not covered: the real output device and the SwiftUI/AppKit layer.
