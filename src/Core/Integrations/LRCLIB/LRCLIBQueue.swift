@@ -16,12 +16,17 @@ enum LRCLIBOutcome: Equatable, Sendable {
 /// Sends the LRCLIB lookups one after the other, in the background, like `ScrobbleQueue` does for the scrobbling services.
 ///
 /// A lookup that fails for a temporary reason is tried again, waiting 1 s, 2 s, 4 s, ... (doubling) between tries
-/// (or as long as LRCLIB asked for with `Retry-After`, if that is more), and given up on after `maxAttempts` tries.
+/// (or as long as LRCLIB asked for with `Retry-After`, at most 2 minutes, see `RetryDelay`), and given up on after
+/// `maxAttempts` tries.
 /// Lookups behind it wait. LRCLIB asks for one request at a time with a pause between them, so `spacing` is waited
 /// after every lookup. A lookup LRCLIB refuses for itself (`.rejected`) is dropped and the queue goes on.
 ///
-/// Only the lookup being tried and the newest one are of interest: what waits behind the former is replaced when
-/// another is added (the user is skipping through tracks, and what played a minute ago needs no lyrics now).
+/// Only the newest lookup is of interest: what waits behind the one being tried is replaced when another is added
+/// (the user is skipping through tracks, and what played a minute ago needs no lyrics now). The one being tried is
+/// not repeated either once a newer one is there: if LRCLIB asked to wait, that is still waited out (it is LRCLIB's
+/// pause, and the newer lookup goes after it), then the old one is dropped.
+/// One queue for everything, not one per track: LRCLIB wants one request at a time, and what it asks to wait for is
+/// meant for all of our requests.
 /// Exception: a *retry* (`enqueue(_:isRetry:)`, a second look for lyrics LRCLIB didn't have yet) is never replaced and
 /// never replaces anything, but it goes after every regular lookup. It still shares the queue, so LRCLIB gets one
 /// request at a time with `spacing` between them whatever the reason for the request.
@@ -31,8 +36,6 @@ enum LRCLIBOutcome: Equatable, Sendable {
 @MainActor
 final class LRCLIBQueue {
     static let maxAttempts = 10
-    /// A `Retry-After` longer than this is not waited for (the try after it is the last chance anyway).
-    static let maxRetryAfter: TimeInterval = 600
 
     private struct Job {
         let id: Int
@@ -126,6 +129,11 @@ final class LRCLIBQueue {
                     finish(job, .failed)
                     return true
                 case .temporary:
+                    if isOutdated(job), error.retryAfter == nil {
+                        Log.info("lrclib: \(label) failed (\(error)) and is outdated, dropped")
+                        finish(job, .failed)
+                        return true
+                    }
                     guard attempt < Self.maxAttempts else {
                         Log.error("lrclib: \(label) failed \(attempt) times (\(error)), dropped")
                         finish(job, .failed)
@@ -134,6 +142,11 @@ final class LRCLIBQueue {
                     let delay = Self.delay(afterAttempt: attempt, retryAfter: error.retryAfter)
                     Log.info("lrclib: \(label) failed (\(error)), try \(attempt + 1)/\(Self.maxAttempts) in \(delay.components.seconds) s")
                     do { try await sleep(delay) } catch { return false }
+                    if isOutdated(job) {
+                        Log.info("lrclib: \(label) is outdated, dropped")
+                        finish(job, .failed)
+                        return true
+                    }
                 }
             } catch {
                 return false
@@ -141,15 +154,18 @@ final class LRCLIBQueue {
         }
     }
 
+    /// A regular lookup is outdated when a newer regular one is waiting. Retries are never outdated.
+    private func isOutdated(_ job: Job) -> Bool {
+        !job.isRetry && jobs.contains { $0.id > job.id && !$0.isRetry }
+    }
+
     private func finish(_ job: Job, _ outcome: LRCLIBOutcome) {
         jobs.removeAll { $0.id == job.id }
         onResult(job.query, outcome)
     }
 
-    /// 1 s after the first try, then twice as long each time; at least what LRCLIB asked for.
+    /// What LRCLIB asked for, otherwise 1 s after the first try and twice as long each time.
     static func delay(afterAttempt attempt: Int, retryAfter: TimeInterval? = nil) -> Duration {
-        let backoff = 1 << min(max(attempt - 1, 0), 30)
-        let asked = Int(min(max(retryAfter ?? 0, 0), maxRetryAfter).rounded(.up))
-        return .seconds(max(backoff, asked))
+        RetryDelay.delay(afterAttempt: attempt, retryAfter: retryAfter)
     }
 }

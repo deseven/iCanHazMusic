@@ -34,9 +34,9 @@ enum ListenBrainzAPI {
 
     /// Like `check`, but a 404 is fine: there was nothing to clear (or the server doesn't have the endpoint, which
     /// compatible servers may not).
-    static func checkClear(status: Int, body: Data) throws {
+    static func checkClear(status: Int, body: Data, retryAfter: TimeInterval? = nil) throws {
         if status == 404 { return }
-        try check(status: status, body: body)
+        try check(status: status, body: body, retryAfter: retryAfter)
     }
 
     private static func submitRequest(listenType: String, track: PlayedTrack, listenedAt: Date?,
@@ -76,7 +76,7 @@ enum ListenBrainzAPI {
 
     /// What the server says about the token: the name of the account it belongs to (nil if the server doesn't
     /// say), or the error.
-    static func parseValidation(status: Int, body: Data) throws -> String? {
+    static func parseValidation(status: Int, body: Data, retryAfter: TimeInterval? = nil) throws -> String? {
         if status == 200 {
             guard let object = json(body), let valid = object["valid"] as? Bool else {
                 throw ScrobbleError(.temporary, "unexpected answer from the server: \(ScrobbleHTTP.snippet(of: body))")
@@ -84,12 +84,13 @@ enum ListenBrainzAPI {
             guard valid else { throw ScrobbleError(.authentication, "the server doesn't accept the user token") }
             return (object["user_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
-        try check(status: status, body: body)
+        try check(status: status, body: body, retryAfter: retryAfter)
         return nil
     }
 
-    /// Succeeds for an accepted listen, throws what the answer stands for otherwise.
-    static func check(status: Int, body: Data) throws {
+    /// Succeeds for an accepted listen, throws what the answer stands for otherwise (`retryAfter`: what the server
+    /// asked for with the answer, goes with a temporary error).
+    static func check(status: Int, body: Data, retryAfter: TimeInterval? = nil) throws {
         if (200..<300).contains(status) { return }
         let detail = message(in: body)
         switch status {
@@ -98,7 +99,7 @@ enum ListenBrainzAPI {
         case 400:
             throw ScrobbleError(.rejected, "the server refused the request: \(detail ?? "HTTP 400")")
         default:
-            throw ScrobbleHTTP.error(forStatus: status, detail: detail)
+            throw ScrobbleHTTP.error(forStatus: status, detail: detail, retryAfter: retryAfter)
         }
     }
 

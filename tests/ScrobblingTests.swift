@@ -249,10 +249,102 @@ extension AllTests {
             #expect(sleeps.seconds == [1, 2, 4, 8, 16, 32, 64, 128, 256])
         }
 
-        @Test("the delay doubles")
+        @Test("the delay doubles, unless the server asked for a time (2 minutes at most)")
         func delays() {
             #expect([1, 2, 3, 4, 10].map { ScrobbleQueue.delay(afterAttempt: $0) }
                 == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(512)])
+            #expect(ScrobbleQueue.delay(afterAttempt: 5, retryAfter: 3) == .seconds(3))
+            #expect(ScrobbleQueue.delay(afterAttempt: 1, retryAfter: 7.2) == .seconds(8))
+            #expect(ScrobbleQueue.delay(afterAttempt: 1, retryAfter: 100_000) == .seconds(120))
+            #expect(ScrobbleQueue.delay(afterAttempt: 3, retryAfter: 0) == .seconds(4))
+        }
+
+        @Test("a retry waits as long as the server asked for, instead of the backoff")
+        func retryAfter() async {
+            let sleeps = SleepRecorder()
+            let client = FakeScrobbleClient { _, index in
+                switch index {
+                case 0: throw ScrobbleError(.temporary, "HTTP 429", retryAfter: 90)
+                case 1: throw ScrobbleError(.temporary, "HTTP 429", retryAfter: 1_000_000)
+                case 2: throw Self.temporary
+                default: return nil
+                }
+            }
+            let queue = makeQueue(client, sleeps: sleeps)
+            queue.enqueue(scrobble("1"), label: "1")
+
+            #expect(await waitUntil { queue.pendingCount == 0 })
+            #expect(sleeps.seconds == [90, 120, 4])
+        }
+
+        @Test("a now playing update that is outdated when it has to be repeated is dropped; a wait the server asked for is kept first")
+        func outdatedNotRepeated() async {
+            func run(retryAfter: TimeInterval?) async -> (calls: [FakeScrobbleClient.Call], sleeps: [Int]) {
+                let sleeps = SleepRecorder()
+                let client = FakeScrobbleClient { call, _ in
+                    if call == .nowPlaying("first") { throw ScrobbleError(.temporary, "HTTP 503", retryAfter: retryAfter) }
+                    return nil
+                }
+                let queue = makeQueue(client, sleeps: sleeps)
+                queue.enqueue(.nowPlaying(ScrobbleTestData.track(title: "first")), label: "np1")
+                queue.enqueue(.nowPlaying(ScrobbleTestData.track(title: "second")), label: "np2")   // the track was switched
+                _ = await waitUntil { queue.pendingCount == 0 }
+                return (client.calls, sleeps.seconds)
+            }
+
+            let plain = await run(retryAfter: nil)
+            #expect(plain.calls == [.nowPlaying("first"), .nowPlaying("second")])      // "first" is not repeated
+            #expect(plain.sleeps.isEmpty)                                              // and nothing is waited for
+
+            let asked = await run(retryAfter: 30)
+            #expect(asked.calls == [.nowPlaying("first"), .nowPlaying("second")])
+            #expect(asked.sleeps == [30])                                              // the pause is the service's
+        }
+
+        @Test("a now playing update that is still current is repeated")
+        func currentRepeated() async {
+            let sleeps = SleepRecorder()
+            let client = FakeScrobbleClient { _, index in
+                if index == 0 { throw ScrobbleError(.temporary, "HTTP 503") }
+                return nil
+            }
+            let queue = makeQueue(client, sleeps: sleeps)
+            queue.enqueue(.nowPlaying(ScrobbleTestData.track(title: "first")), label: "np1")
+            queue.enqueue(scrobble("other"), label: "scrobble of another track")
+            #expect(await waitUntil { queue.pendingCount == 0 })
+            #expect(client.calls == [.nowPlaying("first"), .nowPlaying("first"), .scrobble("other")])
+        }
+
+        @Test("a waiting now playing update is dropped when its track is scrobbled, not when another one is")
+        func scrobbleSupersedes() {
+            let client = FakeScrobbleClient { _, _ in
+                try await Task.sleep(for: .seconds(60))
+                return nil
+            }
+            let queue = makeQueue(client)
+            queue.enqueue(scrobble("x"), label: "x")                                               // in flight
+            queue.enqueue(.nowPlaying(ScrobbleTestData.track(title: "a")), label: "np a")
+            queue.enqueue(scrobble("a"), label: "scrobble a")
+            #expect(queue.pendingCount == 2)                                                       // x, scrobble a
+            queue.enqueue(.nowPlaying(ScrobbleTestData.track(title: "b")), label: "np b")
+            queue.enqueue(scrobble("c"), label: "scrobble c")
+            #expect(queue.pendingCount == 4)                                                       // np b stays
+            queue.cancelAll()
+        }
+
+        @Test("a clearing is dropped by a later update, and a scrobble is never dropped")
+        func supersedeRules() {
+            let track = ScrobbleTestData.track()
+            let scrobbled = ScrobbleQueue.Call.scrobble(track)
+            #expect(ScrobbleQueue.Call.clearNowPlaying.isSuperseded(by: .nowPlaying(track)))
+            #expect(ScrobbleQueue.Call.clearNowPlaying.isSuperseded(by: .clearNowPlaying))
+            #expect(!ScrobbleQueue.Call.clearNowPlaying.isSuperseded(by: scrobbled))
+            #expect(ScrobbleQueue.Call.nowPlaying(track).isSuperseded(by: .clearNowPlaying))
+            #expect(ScrobbleQueue.Call.nowPlaying(track).isSuperseded(by: scrobbled))
+            for call in [scrobbled, .authenticate, .nowPlaying(track), .clearNowPlaying] {
+                #expect(!scrobbled.isSuperseded(by: call))
+                #expect(!ScrobbleQueue.Call.authenticate.isSuperseded(by: call))
+            }
         }
 
         @Test("a request that is refused for itself is dropped without retries")
@@ -451,6 +543,8 @@ extension AllTests {
         func audioscrobblerFlow() async throws {
             let env = try makeEnv([Self.audioscrobbler])
             env.service.trackDidStart(ScrobbleTestData.track(title: "T"))
+            // (A now playing update that is still waiting when its track ends is not sent at all.)
+            #expect(await waitUntil { env.transport.requests.count == 2 })
             env.service.trackDidEnd(ScrobbleTestData.track(title: "T"), playedSeconds: 200)
             #expect(await waitUntil { env.transport.requests.count == 3 })
             #expect(env.transport.requests.map { $0.url?.host } == ["as.example.org", "np.example.org", "sub.example.org"])

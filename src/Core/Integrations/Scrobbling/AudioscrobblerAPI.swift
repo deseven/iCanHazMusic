@@ -79,8 +79,8 @@ enum AudioscrobblerAPI {
 
     // MARK: Answers
 
-    static func parseHandshake(status: Int, body: Data) throws -> AudioscrobblerSession {
-        guard status == 200 else { throw ScrobbleHTTP.error(forStatus: status, detail: bodyDetail(body)) }
+    static func parseHandshake(status: Int, body: Data, retryAfter: TimeInterval? = nil) throws -> AudioscrobblerSession {
+        guard status == 200 else { throw ScrobbleHTTP.error(forStatus: status, detail: bodyDetail(body), retryAfter: retryAfter) }
         let lines = lines(of: body)
         let first = lines.first ?? ""
         switch first {
@@ -108,8 +108,8 @@ enum AudioscrobblerAPI {
     }
 
     /// The answer to a now playing update or a submission.
-    static func parseReply(status: Int, body: Data) throws -> Reply {
-        guard status == 200 else { throw ScrobbleHTTP.error(forStatus: status, detail: bodyDetail(body)) }
+    static func parseReply(status: Int, body: Data, retryAfter: TimeInterval? = nil) throws -> Reply {
+        guard status == 200 else { throw ScrobbleHTTP.error(forStatus: status, detail: bodyDetail(body), retryAfter: retryAfter) }
         let first = lines(of: body).first ?? ""
         switch first {
         case "OK": return .ok

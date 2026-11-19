@@ -12,7 +12,12 @@ enum AppConstants {
     static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
 
     /// What every HTTP request of the app (scrobbling services, LRCLIB, updates) identifies itself with.
+    /// MetaBrainz hosts additionally get `contactURL`, see `userAgent(for:)`.
     static let userAgent = "\(appName)/\(appVersion)"
+
+    /// Where the maintainer can be reached. MetaBrainz (MusicBrainz, ListenBrainz, ...) requires a way to contact the
+    /// author of an app in its `User-Agent`; it is sent to their hosts only.
+    static let contactURL = "https://d7.wtf/contact"
 
     // MARK: - Window IDs
 

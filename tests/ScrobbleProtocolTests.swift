@@ -285,6 +285,55 @@ extension AllTests {
             #expect(info["submission_client_version"] as? String == AppConstants.appVersion)
         }
 
+        @Test("MetaBrainz hosts get the contact URL in the User-Agent, other servers don't")
+        func contactInUserAgent() throws {
+            let withContact = "\(AppConstants.userAgent) (https://d7.wtf/contact)"
+            for host in ["api.listenbrainz.org", "listenbrainz.org", "beta.listenbrainz.org", "labs.api.listenbrainz.org",
+                         "musicbrainz.org", "test.musicbrainz.org", "metabrainz.org",
+                         "API.ListenBrainz.ORG", "bookbrainz.org", "critiquebrainz.org", "acousticbrainz.org"] {
+                let request = URLRequest(appURL: try #require(URL(string: "https://\(host)/1/x")), timeout: 1)
+                #expect(request.value(forHTTPHeaderField: "User-Agent") == withContact, "\(host)")
+            }
+            for host in ["lb.example.org", "lrclib.net", "api.github.com", "example.com", "brainz.org.example.com",
+                         "listenbrainz.org.evil.example", "notlistenbrainz.com", "coverartarchive.org"] {
+                let request = URLRequest(appURL: try #require(URL(string: "https://\(host)/1/x")), timeout: 1)
+                #expect(request.value(forHTTPHeaderField: "User-Agent") == AppConstants.userAgent, "\(host)")
+            }
+
+            let track = ScrobbleTestData.track()
+            let official = try #require(ListenBrainzAPI.scrobbleRequest(track, endpoint: "https://api.listenbrainz.org", token: "TOK"))
+            #expect(official.value(forHTTPHeaderField: "User-Agent") == withContact)
+            let validation = try #require(ListenBrainzAPI.validateRequest(endpoint: "https://api.listenbrainz.org", token: "TOK"))
+            #expect(validation.value(forHTTPHeaderField: "User-Agent") == withContact)
+        }
+
+        @Test("what the server asked to wait for comes with a temporary error, from the answer to the client")
+        func retryAfter() async throws {
+            func error(_ body: () throws -> Void) -> ScrobbleError? {
+                do { try body() } catch let error as ScrobbleError { return error } catch {}
+                return nil
+            }
+            let busy = ScrobbleAnswer.lbError(429, "Slow down")
+            #expect(error { try ListenBrainzAPI.check(status: busy.status, body: busy.body, retryAfter: 42) }?.retryAfter == 42)
+            #expect(error { try ListenBrainzAPI.check(status: 503, body: Data(), retryAfter: 7) }?.retryAfter == 7)
+            #expect(error { try ListenBrainzAPI.check(status: 503, body: Data()) }?.retryAfter == nil)
+            #expect(error { try ListenBrainzAPI.checkClear(status: 429, body: Data(), retryAfter: 5) }?.retryAfter == 5)
+            #expect(error { _ = try ListenBrainzAPI.parseValidation(status: 429, body: Data(), retryAfter: 6) }?.retryAfter == 6)
+            #expect(error { _ = try AudioscrobblerAPI.parseReply(status: 503, body: Data(), retryAfter: 9) }?.retryAfter == 9)
+            #expect(error { _ = try AudioscrobblerAPI.parseHandshake(status: 429, body: Data(), retryAfter: 11) }?.retryAfter == 11)
+            // A refusal is not retried, so there is nothing to wait for.
+            #expect(error { try ListenBrainzAPI.check(status: 400, body: Data(), retryAfter: 42) }?.retryAfter == nil)
+
+            let client = ListenBrainzClient(endpoint: endpoint, token: "TOK",
+                                            transport: HTTPStub(always: HTTPAnswer(status: 429, body: Data(), retryAfter: 120)))
+            do {
+                try await client.scrobble(ScrobbleTestData.track())
+                Issue.record("should fail")
+            } catch let error as ScrobbleError {
+                #expect(error.kind == .temporary && error.retryAfter == 120)
+            }
+        }
+
         @Test("now playing is a playing_now listen without a time, and leaves out what isn't known")
         func nowPlaying() throws {
             let track = ScrobbleTestData.track(album: "", duration: 0)

@@ -6,6 +6,14 @@ import Testing
 @testable import iCanHazMusic
 
 /// What the queue reports.
+private final class AnswerGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var opened = false
+
+    var isOpen: Bool { lock.withLock { opened } }
+    func open() { lock.withLock { opened = true } }
+}
+
 @MainActor
 private final class Results {
     private(set) var all: [(query: LRCLIBQuery, outcome: LRCLIBOutcome)] = []
@@ -254,13 +262,14 @@ extension AllTests {
             #expect(sleeps.seconds == [1])
         }
 
-        @Test("when LRCLIB says how long to wait (429), that is waited if it is more than the backoff")
+        @Test("when LRCLIB says how long to wait (429), that is waited instead of the backoff, for 2 minutes at most")
         func retryAfter() async {
             let transport = HTTPStub { request, index in
                 switch index {
                 case 0: LRCLIBAnswer.tooManyRequests(retryAfter: 30)
-                case 1: LRCLIBAnswer.tooManyRequests(retryAfter: 1)       // the backoff (2 s) is longer
+                case 1: LRCLIBAnswer.tooManyRequests(retryAfter: 1)       // shorter than the backoff (2 s), still what it asked
                 case 2: LRCLIBAnswer.tooManyRequests(retryAfter: 100_000)  // not waited for for ever
+                case 3: LRCLIBAnswer.tooManyRequests()                     // nothing asked: the backoff again (8 s)
                 default: LRCLIBAnswer.found(for: request)
                 }
             }
@@ -269,7 +278,7 @@ extension AllTests {
             let queue = makeQueue(transport, results: results, sleeps: sleeps)
             queue.enqueue(LRCLIBTestData.query(title: "1"))
             #expect(await waitUntil { results.all.count == 1 })
-            #expect(sleeps.seconds == [30, 2, 600])
+            #expect(sleeps.seconds == [30, 1, 120, 8])
         }
 
         @Test("a lookup is tried 10 times at most, then given up on, and the next one is sent")
@@ -291,11 +300,11 @@ extension AllTests {
             #expect(sleeps.seconds == [1, 2, 4, 8, 16, 32, 64, 128, 256])
         }
 
-        @Test("the delay doubles, and is at least what LRCLIB asked for")
+        @Test("the delay doubles, unless LRCLIB asked for a time")
         func delays() {
             #expect([1, 2, 3, 4, 10].map { LRCLIBQueue.delay(afterAttempt: $0) } == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(512)])
             #expect(LRCLIBQueue.delay(afterAttempt: 1, retryAfter: 7.2) == .seconds(8))
-            #expect(LRCLIBQueue.delay(afterAttempt: 5, retryAfter: 3) == .seconds(16))
+            #expect(LRCLIBQueue.delay(afterAttempt: 5, retryAfter: 3) == .seconds(3))
         }
 
         @Test("a lookup that LRCLIB refuses is dropped without retries")
@@ -316,6 +325,54 @@ extension AllTests {
             #expect(sleeps.seconds.isEmpty)
         }
 
+        @Test("a lookup that is outdated when it has to be repeated is dropped; a wait LRCLIB asked for is kept first")
+        func outdatedNotRepeated() async {
+            func run(_ first: HTTPAnswer) async -> (titles: [String], first: LRCLIBOutcome?, sleeps: [Int]) {
+                // The answer to "1" is held back until "2" is queued, so "1" is outdated when it comes.
+                let answered = AnswerGate()
+                let transport = HTTPStub { request, _ in
+                    guard HTTPStub.query(of: request)["track_name"] == "1" else { return LRCLIBAnswer.found(for: request) }
+                    while !answered.isOpen { try await Task.sleep(for: .milliseconds(2)) }
+                    return first
+                }
+                let sleeps = SleepRecorder()
+                let results = Results()
+                let queue = makeQueue(transport, results: results, sleeps: sleeps)
+                queue.enqueue(LRCLIBTestData.query(title: "1"))
+                _ = await waitUntil { transport.requests.count == 1 }
+                queue.enqueue(LRCLIBTestData.query(title: "2"))       // the track was switched
+                answered.open()
+                _ = await waitUntil { results.all.count == 2 }
+                return (transport.titles, results.outcome(of: "1"), sleeps.seconds)
+            }
+
+            let plain = await run(LRCLIBAnswer.serverError)
+            #expect(plain.titles == ["1", "2"] && plain.first == .failed)             // "1" is not repeated
+            #expect(plain.sleeps.isEmpty)                                             // nothing is waited for
+
+            let asked = await run(LRCLIBAnswer.tooManyRequests(retryAfter: 30))
+            #expect(asked.titles == ["1", "2"] && asked.first == .failed)
+            #expect(asked.sleeps == [30])                                             // LRCLIB's pause is kept
+        }
+
+        @Test("a retry that fails is repeated even if regular lookups are waiting: it isn't outdated by them")
+        func retryNotOutdated() async {
+            let gate = GatedSleep()
+            let results = Results()
+            let transport = HTTPStub { request, index in index == 0 ? LRCLIBAnswer.serverError : LRCLIBAnswer.found(for: request) }
+            let queue = LRCLIBQueue(client: LRCLIBClient(transport: transport), spacing: .zero, sleep: gate.sleep) {
+                results.record($0, $1)
+            }
+            queue.enqueue(LRCLIBTestData.query(title: "r"), isRetry: true)
+            #expect(await waitUntil { gate.waiting })                  // "r" failed once and waits for its repeat
+            queue.enqueue(LRCLIBTestData.query(title: "2"))
+
+            gate.release()
+            #expect(await waitUntil { results.all.count == 2 })
+            #expect(transport.titles == ["r", "r", "2"])
+            if case .found = results.outcome(of: "r") {} else { Issue.record("r should be found") }
+        }
+
         @Test("only the lookup in progress and the newest one are kept: what waited behind is replaced")
         func newestWins() async {
             let gate = GatedSleep()
@@ -334,7 +391,8 @@ extension AllTests {
 
             gate.release()
             #expect(await waitUntil { results.all.count == 3 })
-            #expect(transport.titles == ["1", "1", "3"])
+            #expect(transport.titles == ["1", "3"])                              // "1" is outdated after its wait: dropped
+            #expect(results.outcome(of: "1") == .failed)
             if case .found = results.outcome(of: "3") {} else { Issue.record("3 should be found") }
         }
 
@@ -357,7 +415,7 @@ extension AllTests {
 
             gate.release()
             #expect(await waitUntil { results.all.count == 4 })
-            #expect(transport.titles == ["1", "1", "3", "r"])
+            #expect(transport.titles == ["1", "3", "r"])
         }
 
         @Test("a pause is kept after every lookup")

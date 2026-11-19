@@ -21,7 +21,7 @@ struct ListenBrainzClient: ScrobbleClient {
         guard !token.isEmpty else { throw ScrobbleError(.authentication, "there is no user token") }
         guard let request = ListenBrainzAPI.validateRequest(endpoint: endpoint, token: token) else { throw invalidEndpoint }
         let answer = try await ScrobbleHTTP.perform(request, using: transport)
-        return try ListenBrainzAPI.parseValidation(status: answer.status, body: answer.body)
+        return try ListenBrainzAPI.parseValidation(status: answer.status, body: answer.body, retryAfter: answer.retryAfter)
     }
 
     func nowPlaying(_ track: PlayedTrack) async throws {
@@ -37,13 +37,13 @@ struct ListenBrainzClient: ScrobbleClient {
     func clearNowPlaying() async throws {
         guard let request = ListenBrainzAPI.clearNowPlayingRequest(endpoint: endpoint, token: token) else { throw invalidEndpoint }
         let answer = try await ScrobbleHTTP.perform(request, using: transport)
-        try ListenBrainzAPI.checkClear(status: answer.status, body: answer.body)
+        try ListenBrainzAPI.checkClear(status: answer.status, body: answer.body, retryAfter: answer.retryAfter)
     }
 
     private func submit(_ request: URLRequest?) async throws {
         guard let request else { throw invalidEndpoint }
         let answer = try await ScrobbleHTTP.perform(request, using: transport)
-        try ListenBrainzAPI.check(status: answer.status, body: answer.body)
+        try ListenBrainzAPI.check(status: answer.status, body: answer.body, retryAfter: answer.retryAfter)
     }
 
     private var invalidEndpoint: ScrobbleError {

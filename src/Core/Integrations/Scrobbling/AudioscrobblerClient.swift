@@ -56,7 +56,7 @@ actor AudioscrobblerClient: ScrobbleClient {
             throw ScrobbleError(.rejected, "the endpoint isn't a valid URL")
         }
         let answer = try await ScrobbleHTTP.perform(request, using: transport)
-        let fresh = try AudioscrobblerAPI.parseHandshake(status: answer.status, body: answer.body)
+        let fresh = try AudioscrobblerAPI.parseHandshake(status: answer.status, body: answer.body, retryAfter: answer.retryAfter)
         session = fresh
         consecutiveFailures = 0
         return fresh
@@ -70,7 +70,7 @@ actor AudioscrobblerClient: ScrobbleClient {
             if let session { current = session } else { current = try await handshake() }
             do {
                 let answer = try await ScrobbleHTTP.perform(build(current), using: transport)
-                switch try AudioscrobblerAPI.parseReply(status: answer.status, body: answer.body) {
+                switch try AudioscrobblerAPI.parseReply(status: answer.status, body: answer.body, retryAfter: answer.retryAfter) {
                 case .ok:
                     consecutiveFailures = 0
                     return

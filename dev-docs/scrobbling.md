@@ -34,6 +34,17 @@ only unreadable in a backup or a screenshot.
 - A track is announced as now playing when its audio starts (if the service has "submit now playing" on) and scrobbled
   when it is left, after half of its length or 4 minutes, whichever comes first, if it is longer than 30 s
   (`ScrobbleRule`). Tracks without tags are never reported.
+- **Retry-After**: when a server asks to wait (`Retry-After`, seconds or an HTTP date; LRCLIB documents it, MetaBrainz
+  doesn't, so it is honored as a general courtesy; for a 429 or 503 without it MetaBrainz's own `X-RateLimit-Reset-In`,
+  which their docs tell clients to use), `URLSessionTransport` puts it into `HTTPAnswer.retryAfter`, the clients into
+  `ScrobbleError.retryAfter` (temporary errors only), and the queue waits that long **instead of** its backoff, at most
+  2 minutes (`RetryDelay`, shared with `LRCLIBQueue`; the tries are still counted, so 10 at most). If the server asked
+  for more, we try again sooner than it said. Without it the backoff above applies.
+- **Outdated now playing calls are not sent or repeated** (`Call.isSuperseded(by:)`). A now playing update or a
+  clearing is outdated when a later update or clearing is queued (the track was switched, playback stopped), an update
+  also when its own track was scrobbled (it was left). Waiting ones are removed when the newer call is added; the one
+  being tried can't be (it may be on its way), so when it has to be repeated it is dropped instead: at once, or, if the
+  server asked to wait, after that wait (the pause belongs to the service, the next call must keep it too).
 - Every request has a 60 s limit (`ScrobbleHTTP.requestTimeout`: the idle timeout and the one for the whole transfer); a request that hits it counts as a temporary failure and is retried.
 - Testing a connection in the sheet (`ScrobblingService.test`) uses a throwaway client with the values in the sheet and
   touches neither the saved settings nor the running queues.
@@ -55,6 +66,18 @@ only unreadable in a backup or a screenshot.
   with `listen_type` `playing_now` or `single`, both with `Authorization: Token ...`. `additional_info` names the app and
   has the duration and the track number.
 - 401 is an authentication error, 400 a refused request, 429 and 5xx are temporary.
+- MetaBrainz requires a way to contact the author in the `User-Agent` (`Name/version (contact-url)`, requests without
+  it may be blocked). `URLRequest(appURL:)` adds `AppConstants.contactURL` for MetaBrainz
+  hosts only: `*brainz.org` (api.listenbrainz.org, musicbrainz.org, ...; `AppConstants.isMetaBrainzHost`). A
+  self-hosted server gets the plain `iCanHazMusic/{version}`. Any future MetaBrainz request (MusicBrainz lookups)
+  only has to be built with `URLRequest(appURL:)`.
+- Rate limit (their docs: never more than one call per second, the `X-RateLimit-*` headers tell the rest, a 429 is
+  the answer to too many): `URLSessionTransport` spaces out all requests to MetaBrainz hosts, 1.1 s between the starts
+  of two (`RequestSpacer.metaBrainz`, shared by every queue and the connection test, since the limit is per client). It
+  is in the transport so that nothing can forget it; the scrobble, the clear and the next now playing at a track
+  change are what it is for. A 429 or 503 is waited out as described under "Retry-After" below.
+- Not done (yet): no MBIDs are submitted (the tags aren't read for them), `tracknumber` is sent as a number while the
+  docs say string. `X-RateLimit-Limit/Remaining` are not read.
 - When playback stops, `POST {endpoint}/1/playing-now/delete` (empty JSON body, so it clears unconditionally) removes
   the now playing status: some servers don't do it on their own, and it would otherwise stay until the duration of
   the last track has passed. `PlaybackState.halt()` tells the listeners (`playbackDidStop()`) when a track that was

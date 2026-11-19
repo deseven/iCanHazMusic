@@ -18,10 +18,13 @@ struct ScrobbleError: Error, Equatable, Sendable, CustomStringConvertible {
 
     let kind: Kind
     let message: String
+    /// How long the server asked to wait before the next try (`Retry-After`), seconds.
+    var retryAfter: TimeInterval?
 
-    init(_ kind: Kind, _ message: String) {
+    init(_ kind: Kind, _ message: String, retryAfter: TimeInterval? = nil) {
         self.kind = kind
         self.message = message
+        self.retryAfter = retryAfter
     }
 
     var description: String { message }
@@ -70,12 +73,12 @@ enum ScrobbleHTTP {
         return answer
     }
 
-    /// The error for an HTTP status that isn't a success. A busy or broken server is worth another try, anything
-    /// else (a wrong address, for one) isn't.
-    static func error(forStatus status: Int, detail: String? = nil) -> ScrobbleError {
+    /// The error for an HTTP status that isn't a success. A busy or broken server is worth another try (after
+    /// `retryAfter` seconds, if it said), anything else (a wrong address, for one) isn't.
+    static func error(forStatus status: Int, detail: String? = nil, retryAfter: TimeInterval? = nil) -> ScrobbleError {
         let text = detail.map { "HTTP \(status): \($0)" } ?? "HTTP \(status)"
         switch status {
-        case 408, 429, 500...599, 0: return ScrobbleError(.temporary, text)
+        case 408, 429, 500...599, 0: return ScrobbleError(.temporary, text, retryAfter: retryAfter)
         default: return ScrobbleError(.rejected, text)
         }
     }

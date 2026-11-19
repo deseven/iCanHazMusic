@@ -23,7 +23,7 @@ struct LRCLIBError: Error, Equatable, Sendable, CustomStringConvertible {
 
     let kind: Kind
     let message: String
-    /// How long LRCLIB asked to wait (`Retry-After` of a 429), seconds.
+    /// How long LRCLIB asked to wait (`Retry-After`), seconds.
     var retryAfter: TimeInterval?
 
     var description: String { message }
@@ -61,7 +61,7 @@ enum LRCLIBAPI {
 
     // MARK: Answers
 
-    /// The body of a successful answer, or the error the answer stands for. 429 comes with how long to wait.
+    /// The body of a successful answer, or the error the answer stands for. A temporary error comes with how long to wait, if LRCLIB said.
     static func check(_ answer: HTTPAnswer) throws -> Data {
         switch answer.status {
         case 200..<300:
@@ -71,7 +71,7 @@ enum LRCLIBAPI {
         case 400..<500:
             throw LRCLIBError(kind: .rejected, message: "HTTP \(answer.status)\(message(in: answer.body).map { ": " + $0 } ?? "")")
         default:
-            throw LRCLIBError(kind: .temporary, message: "HTTP \(answer.status)")
+            throw LRCLIBError(kind: .temporary, message: "HTTP \(answer.status)", retryAfter: answer.retryAfter)
         }
     }
 

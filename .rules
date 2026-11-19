@@ -41,7 +41,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 
 **Config and caches**
 - Change settings only through `ConfigStore.shared.update { ... }`; limits for validation live in `ConfigLimits.swift`.
-- Every network request is built with `URLRequest(appURL:timeout:)` (sets the `User-Agent`).
+- Every network request is built with `URLRequest(appURL:timeout:)` (sets the `User-Agent`; for MetaBrainz hosts, i.e. `*brainz.org`, it also carries the contact URL they require). `URLSessionTransport` also spaces out requests to those hosts (1 call per second limit, `RequestSpacer`), and queues honor `Retry-After` (`RetryDelay`).
 - Bump `Waveform.formatVersion` when the waveform encoding or layout changes. The app never prunes `waveforms.sqlite`.
 
 **UI**
