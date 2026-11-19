@@ -132,19 +132,23 @@ do_clean_build() {
     swift package clean
 }
 
-do_compile_arm64() {
-    swift build -c "$buildConfig" --arch arm64
+# Dev builds arm64 only; everything else is one universal (arm64+x86_64) build.
+build_arch_flags() {
+    if [ "$mode" = "dev" ]; then echo "--arch arm64"; else echo "--arch arm64 --arch x86_64"; fi
 }
 
-do_compile_x86_64() {
-    swift build -c "$buildConfig" --arch x86_64
+do_compile() {
+    swift build -c "$buildConfig" $(build_arch_flags)
 }
 
-do_create_universal() {
-    lipo -create \
-        "$loc/.build/arm64-apple-macosx/$buildConfig/$name" \
-        "$loc/.build/x86_64-apple-macosx/$buildConfig/$name" \
-        -output "$loc/dist/$name"
+# Where SwiftPM puts the products depends on the toolchain (e.g.
+# .build/out/Products/Release, formerly .build/apple/Products/Release), so ask
+# it instead of guessing: a wrong guess silently packages a stale binary.
+product_path() {
+    local dir
+    dir="$(swift build -c "$buildConfig" $(build_arch_flags) --show-bin-path 2> /dev/null | tail -n 1)"
+    [ -n "$dir" ] || { echo "could not determine the SwiftPM build directory" >&2; return 1; }
+    echo "$dir/$name"
 }
 
 # XORs $1 with the repeated key $2 and prints it as base64: the same scheme as `LastFMCredentials.obfuscated`
@@ -157,12 +161,7 @@ do_create_bundle() {
     mkdir -p "$loc/dist/$name.app/Contents/MacOS"
     mkdir -p "$loc/dist/$name.app/Contents/Resources"
 
-    if [ "$mode" = "dev" ]; then
-        cp "$loc/.build/arm64-apple-macosx/$buildConfig/$name" "$loc/dist/$name.app/Contents/MacOS/$name"
-    else
-        cp "$loc/dist/$name" "$loc/dist/$name.app/Contents/MacOS/$name"
-        rm "$loc/dist/$name"
-    fi
+    cp "$(product_path)" "$loc/dist/$name.app/Contents/MacOS/$name"
 
     cp "$loc/Info.plist" "$loc/dist/$name.app/Contents/Info.plist"
     # Last.fm credentials come from .env, not from the sources (see LastFMCredentials).
@@ -320,12 +319,7 @@ fi
 
 run_step "Resolving dependencies..."            "failed to resolve dependencies"           do_resolve_deps
 run_step "Cleaning build artifacts..."           "failed to clean build artifacts"          do_clean_build
-run_step "Compiling Swift sources (arm64)..."    "failed to compile $shortName for arm64"   do_compile_arm64
-
-if [ "$mode" != "dev" ]; then
-    run_step "Compiling Swift sources (x86_64)..." "failed to compile $shortName for x86_64" do_compile_x86_64
-    run_step "Creating universal binary..."        "failed to create universal binary"        do_create_universal
-fi
+run_step "Compiling Swift sources..."            "failed to compile $shortName"             do_compile
 
 run_step "Creating APP bundle..."                 "failed to create app bundle"              do_create_bundle
 run_step "Code-signing APP bundle..."             "failed to code-sign app bundle"           do_codesign
