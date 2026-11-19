@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeWindowFocus()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
         Task { await MigrationActions.finishAfterLaunch() }
+        Task { await ScrobblingSetupRequest.shared.openPreferencesIfRequested() }
         Task { await PlaybackState.shared.restorePlayback() }
     }
 

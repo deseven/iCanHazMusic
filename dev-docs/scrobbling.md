@@ -66,7 +66,15 @@ only unreadable in a backup or a screenshot.
 ## Legacy Last.fm data
 
 Loading a config that has `integrations.lastfm.session` (or, for the previous, PureBasic version, `lastfm.session` in its
-`settings.json`) sets a flag in `ConfigStore` (`takeLegacyLastFMNotice()`); the login itself is gone from the file right
-after loading, since the config has no place for it. `LastFMRemovalNotice` (shown at launch after the migration's own
-question, so a login from the old version is covered) explains what happened. Nothing is migrated into a scrobbling
-service: Audioscrobbler needs the account password, which we never had.
+`settings.json`) keeps the account name in `ConfigStore` (`takeLegacyLastFMNotice()` returns a `LegacyLastFM.Login`);
+the login itself is gone from the file right after loading, since the config has no place for it. `LastFMRemovalNotice`
+(shown at launch after the migration's own question, so a login from the old version is covered) explains what
+happened and offers two buttons:
+
+- **Set Up Now** puts `LegacyLastFM.suggestedService` (name "Last.fm", Last.fm's endpoint, the account name if it is
+  known, no password) into `ScrobblingSetupRequest`. No window exists yet at that point, so the request waits:
+  `AppDelegate` calls `openPreferencesIfRequested()` after launch (the open action is registered by `MainWindow`),
+  `PreferencesView` switches to the Scrobbling tab and `ScrobbleServiceList` opens the add sheet with the service.
+  The sheet focuses the password field; saving needs it, as the old session key can't be turned into one
+  (Audioscrobbler needs the password, which we never had).
+- **Set Up Later** does nothing; the same service is added by hand in Preferences > Scrobbling.

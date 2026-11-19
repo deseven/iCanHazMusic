@@ -721,19 +721,36 @@ extension AllTests {
 
     @MainActor @Suite("Last.fm removal")
     struct LegacyLastFMTests {
-        @Test("a Last.fm login in the raw config is recognized")
+        @Test("a Last.fm login in the raw config is recognized, with the account name if there is one")
         func detection() {
-            func found(_ json: String) -> Bool { LegacyLastFM.isConfigured(inConfig: Data(json.utf8)) }
-            #expect(found(#"{"integrations": {"lastfm": {"session": "abc", "username": "bob"}}}"#))
-            #expect(!found(#"{"integrations": {"lastfm": {"session": "", "username": "bob"}}}"#))
-            #expect(!found(#"{"integrations": {"lastfm": {}}}"#))
-            #expect(!found(#"{"integrations": {"lrclib": {"enabled": true}}}"#))
-            #expect(!found(#"{"integrations": 5}"#))
-            #expect(!found("{}"))
-            #expect(!found("nope"))
+            func login(_ json: String) -> LegacyLastFM.Login? { LegacyLastFM.login(inConfig: Data(json.utf8)) }
+            #expect(login(#"{"integrations": {"lastfm": {"session": "abc", "username": "bob"}}}"#) == .init(username: "bob"))
+            #expect(login(#"{"integrations": {"lastfm": {"session": "abc", "username": "  "}}}"#) == .init(username: nil))
+            #expect(login(#"{"integrations": {"lastfm": {"session": "abc"}}}"#) == .init(username: nil))
+            #expect(login(#"{"integrations": {"lastfm": {"session": "", "username": "bob"}}}"#) == nil)
+            #expect(login(#"{"integrations": {"lastfm": {}}}"#) == nil)
+            #expect(login(#"{"integrations": {"lrclib": {"enabled": true}}}"#) == nil)
+            #expect(login(#"{"integrations": 5}"#) == nil)
+            #expect(login("{}") == nil)
+            #expect(login("nope") == nil)
         }
 
-        @Test("loading a config with a login removes it from the file and notices it once")
+        @Test("the suggested service is Audioscrobbler on Last.fm's server, with the account name and no password")
+        func suggestion() {
+            let service = LegacyLastFM.suggestedService(for: .init(username: "bob"))
+            #expect(service.name == "Last.fm" && service.type == .audioscrobbler)
+            #expect(service.endpoint == ScrobbleServiceConfig.lastFMEndpoint)
+            #expect(ScrobbleServiceConfig.normalizedEndpoint(service.endpoint) == service.endpoint)
+            #expect(service.username == "bob" && service.secret.isEmpty)
+            #expect(service.problem(among: []) != nil)          // the password is still to be entered
+            var filled = service
+            filled.secret = "pw"
+            #expect(filled.problem(among: []) == nil)
+
+            #expect(LegacyLastFM.suggestedService(for: .init(username: nil)).username.isEmpty)
+        }
+
+        @Test("loading a config with a login removes it from the file and notices it once, with the account name")
         func loading() throws {
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.path("work"))
@@ -743,33 +760,33 @@ extension AllTests {
 
             let store = ConfigStore(paths: paths, saveDelay: .seconds(60))
             #expect(store.config.integrations.lrclib.enabled)         // the rest of the config stays
-            #expect(store.takeLegacyLastFMNotice())
-            #expect(!store.takeLegacyLastFMNotice())
+            #expect(store.takeLegacyLastFMNotice() == .init(username: "bob"))
+            #expect(store.takeLegacyLastFMNotice() == nil)
 
             let saved = try String(contentsOf: paths.configURL, encoding: .utf8)
             #expect(!saved.contains("SESSIONKEY") && !saved.contains("lastfm"))
 
             // The next start doesn't see it any more.
-            #expect(!ConfigStore(paths: paths, saveDelay: .seconds(60)).takeLegacyLastFMNotice())
+            #expect(ConfigStore(paths: paths, saveDelay: .seconds(60)).takeLegacyLastFMNotice() == nil)
         }
 
         @Test("nothing to announce for a fresh start or a config without a login")
         func nothingToSay() throws {
             let dir = try TempDir()
-            #expect(!ConfigStore(paths: AppPaths(workDir: dir.path("fresh")), saveDelay: .seconds(60)).takeLegacyLastFMNotice())
+            #expect(ConfigStore(paths: AppPaths(workDir: dir.path("fresh")), saveDelay: .seconds(60)).takeLegacyLastFMNotice() == nil)
 
             let other = try TempDir()
             try other.write("work/config.json", Data(#"{"integrations": {"lastfm": {"session": "", "username": ""}}}"#.utf8))
-            #expect(!ConfigStore(paths: AppPaths(workDir: other.path("work")), saveDelay: .seconds(60)).takeLegacyLastFMNotice())
+            #expect(ConfigStore(paths: AppPaths(workDir: other.path("work")), saveDelay: .seconds(60)).takeLegacyLastFMNotice() == nil)
         }
 
         @Test("a login of the previous version is noted by the migration")
         func noted() throws {
             let store = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            #expect(!store.takeLegacyLastFMNotice())
-            store.noteLegacyLastFM()
-            #expect(store.takeLegacyLastFMNotice())
-            #expect(!store.takeLegacyLastFMNotice())
+            #expect(store.takeLegacyLastFMNotice() == nil)
+            store.noteLegacyLastFM(username: " alice ")
+            #expect(store.takeLegacyLastFMNotice() == .init(username: "alice"))
+            #expect(store.takeLegacyLastFMNotice() == nil)
         }
     }
 }

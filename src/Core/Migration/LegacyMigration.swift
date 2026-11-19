@@ -30,11 +30,11 @@ enum LegacyMigration {
         var files: [URL]
     }
 
-    /// The old settings have a Last.fm login. It isn't taken over (there is no Last.fm integration any more, see
-    /// `LegacyLastFM`), the user is only told.
-    static func hadLastFM(paths: AppPaths) -> Bool {
+    /// The Last.fm login of the old settings, if there is one. It isn't taken over (there is no Last.fm integration
+    /// any more, see `LegacyLastFM`), the user is only told.
+    static func lastFMLogin(paths: AppPaths) -> LegacyLastFM.Login? {
         (try? Data(contentsOf: paths.workDir.appendingPathComponent(settingsFileName)))
-            .flatMap(LegacySettings.init(json:))?.hadLastFM ?? false
+            .flatMap(LegacySettings.init(json:))?.lastFMLogin
     }
 
     /// Reads the old files. Missing or broken ones give nothing (no settings / no files).
@@ -101,6 +101,7 @@ struct LegacySettings: Equatable {
     var lastFMUser: String?
     /// There was a Last.fm login.
     var hadLastFM: Bool { !(lastFMSession ?? "").isEmpty }
+    var lastFMLogin: LegacyLastFM.Login? { hadLastFM ? LegacyLastFM.Login(username: lastFMUser) : nil }
     /// `use_genius`: lyrics were looked up online; the counterpart is LRCLIB.
     var lookUpLyrics: Bool?
     /// `use_terminal_notifier`: playback notifications were shown (through terminal-notifier); the counterpart is

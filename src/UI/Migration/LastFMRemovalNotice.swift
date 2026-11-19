@@ -6,6 +6,9 @@ import AppKit
 /// Tells the user, once, that the Last.fm integration is gone and what to do about it. Shown at launch when the
 /// config (or the settings of the previous version, see `MigrationActions`) had a Last.fm login: the login is
 /// already dropped by then, so the message doesn't come back at the next start.
+///
+/// "Set Up Now" asks for Preferences > Scrobbling to open with a Last.fm service filled in
+/// (`ScrobblingSetupRequest`), "Set Up Later" leaves it to the user.
 @MainActor
 enum LastFMRemovalNotice {
     private static let width: CGFloat = 440
@@ -13,7 +16,7 @@ enum LastFMRemovalNotice {
     /// Call at launch after `MigrationActions.askAtLaunch()`: the question about the previous version comes first, and
     /// can add a Last.fm login to what is announced here. A modal alert, like the migration's: no window exists yet.
     static func showIfNeeded() {
-        guard ConfigStore.shared.takeLegacyLastFMNotice() else { return }
+        guard let login = ConfigStore.shared.takeLegacyLastFMNotice() else { return }
         Log.info("Last.fm removal notice shown")
 
         let app = NSApplication.shared
@@ -23,12 +26,20 @@ enum LastFMRemovalNotice {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Last.fm scrobbling has been removed"
-        alert.accessoryView = textView(message())
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        alert.accessoryView = textView(message(for: login))
+        alert.addButton(withTitle: "Set Up Now")
+        let later = alert.addButton(withTitle: "Set Up Later")
+        later.keyEquivalent = "\u{1b}"
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            Log.info("Last.fm removal notice: setting up now")
+            ScrobblingSetupRequest.shared.request(LegacyLastFM.suggestedService(for: login))
+        } else {
+            Log.info("Last.fm removal notice: setting up later")
+        }
     }
 
-    private static func message() -> NSAttributedString {
+    private static func message(for login: LegacyLastFM.Login) -> NSAttributedString {
         let body = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let bold = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
         let result = NSMutableAttributedString()
@@ -46,15 +57,22 @@ enum LastFMRemovalNotice {
         add("• Last.fm introduced paid API keys starting the 1st of December 2026 (")
         add("announcement", link: LegacyLastFM.announcementURL)
         add(").\n"
-            + "• As an independent developer I have no intention of paying for access to their API.\n"
+            + "• As an independent, non-profit developer I have no intention of paying for access to their API.\n"
             + "• Even if I did, the API key would ship inside the app, where it can be easily extracted and "
             + "leaked, and there is no real way to protect it.\n"
-            + "• Overall, this is a quite moronic decision by the Last.fm management, and I'm not going to "
+            + "• Overall, this is a hostile action towards third-party apps and services, and I'm not going to "
             + "support it.\n\n")
         add("What to do:\n", font: bold)
         add("Set up scrobbling in Preferences > Scrobbling. You can use the legacy Audioscrobbler API (Last.fm "
             + "still supports it, so your Last.fm account keeps working this way) or ListenBrainz, a free and "
-            + "open alternative.")
+            + "open alternative.\n\n")
+        add("Set Up Now", font: bold)
+        add(" opens Preferences > Scrobbling with a Last.fm service already filled in: its name and endpoint"
+            + (login.username.map { " and your username (\($0))" } ?? "")
+            + ". You only have to enter your password (the same one you use to "
+            + "log in to Last.fm) and save. ")
+        add("Set Up Later", font: bold)
+        add(" leaves it to you, the same can be done any time in Preferences.")
         return result
     }
 

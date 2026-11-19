@@ -8,6 +8,7 @@ import SwiftUI
 /// service in a sheet, - removes the selected one after a confirmation.
 struct ScrobbleServiceList: View {
     private let service = ScrobblingService.shared
+    private let setup = ScrobblingSetupRequest.shared
 
     @State private var selection: UUID?
     @State private var window: NSWindow?
@@ -56,12 +57,20 @@ struct ScrobbleServiceList: View {
             }
         }
         .background(WindowAccessor { window = $0 })
+        .onAppear { openRequestedSetup() }
+        .onChange(of: setup.pending) { openRequestedSetup() }
         .sheet(item: $editing) { edited in
             ScrobbleServiceSheet(service: edited.service, isNew: edited.isNew, others: service.services) { saved in
                 if edited.isNew { service.add(saved) } else { service.update(saved) }
                 selection = saved.id
             }
         }
+    }
+
+    /// A new service somebody has filled in for the user (the Last.fm notice): the sheet opens with it.
+    private func openRequestedSetup() {
+        guard let requested = setup.take() else { return }
+        editing = EditedService(service: requested, isNew: true)
     }
 
     private var selectedService: ScrobbleServiceConfig? {

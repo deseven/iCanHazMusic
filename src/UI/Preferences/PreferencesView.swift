@@ -8,6 +8,7 @@ import SwiftUI
 /// applies it and keeps it in the config.
 struct PreferencesView: View {
     @State private var selectedTab: Tab = .general
+    private let setup = ScrobblingSetupRequest.shared
 
     private enum Tab: String, CaseIterable, Identifiable {
         case general
@@ -98,6 +99,9 @@ struct PreferencesView: View {
             .padding(20)
         }
         .frame(width: Layout.preferencesWidth, height: Layout.preferencesHeight)
+        // A service waiting to be set up (the Last.fm notice): show the tab whose list opens the sheet for it.
+        .onAppear { if setup.pending != nil { selectedTab = .scrobbling } }
+        .onChange(of: setup.pending != nil) { _, waiting in if waiting { selectedTab = .scrobbling } }
     }
 }
 

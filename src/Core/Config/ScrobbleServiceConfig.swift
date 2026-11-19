@@ -39,13 +39,16 @@ struct ScrobbleServiceConfig: Codable, Equatable, Identifiable, Sendable {
         var commonEndpoints: [CommonEndpoint] {
             switch self {
             case .audioscrobbler:
-                [CommonEndpoint(name: "Last.fm", url: "https://post.audioscrobbler.com"),
+                [CommonEndpoint(name: "Last.fm", url: ScrobbleServiceConfig.lastFMEndpoint),
                  CommonEndpoint(name: "Libre.fm", url: "https://turtle.libre.fm")]
             case .listenbrainz:
                 [CommonEndpoint(name: "ListenBrainz", url: "https://api.listenbrainz.org")]
             }
         }
     }
+
+    /// Last.fm's server for the Audioscrobbler protocol.
+    static let lastFMEndpoint = "https://post.audioscrobbler.com"
 
     struct CommonEndpoint: Equatable, Sendable {
         let name: String

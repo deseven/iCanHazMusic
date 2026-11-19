@@ -123,9 +123,9 @@ extension AllTests {
 
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.url)
-            #expect(!LegacyMigration.hadLastFM(paths: paths))
+            #expect(LegacyMigration.lastFMLogin(paths: paths) == nil)
             try dir.write("settings.json", Data(Self.settings.utf8))
-            #expect(LegacyMigration.hadLastFM(paths: paths))
+            #expect(LegacyMigration.lastFMLogin(paths: paths) == .init(username: "someone"))
         }
 
         @Test("missing values change nothing")

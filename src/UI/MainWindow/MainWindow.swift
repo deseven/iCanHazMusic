@@ -32,6 +32,7 @@ struct MainWindow: View {
             .navigationTitle(windowTitle)
             .onAppear {
                 MainWindowOpener.shared.register { openWindow(id: AppConstants.mainWindowID) }
+                ScrobblingSetupRequest.shared.registerOpenAction { openWindow(id: AppConstants.preferencesWindowID) }
             }
     }
 

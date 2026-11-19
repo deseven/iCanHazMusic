@@ -16,6 +16,7 @@ struct ScrobbleServiceSheet: View {
     @State private var testResult: ScrobblingService.TestResult?
     @State private var testTask: Task<Void, Never>?
 
+    @FocusState private var secretFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     init(service: ScrobbleServiceConfig, isNew: Bool, others: [ScrobbleServiceConfig],
@@ -74,6 +75,7 @@ struct ScrobbleServiceSheet: View {
             field(draft.type.secretTitle, hint: secretHint) {
                 SecureField("", text: $draft.secret)
                     .textFieldStyle(.roundedBorder)
+                    .focused($secretFocused)
             }
 
             Toggle("Submit now playing", isOn: $draft.submitNowPlaying)
@@ -124,6 +126,11 @@ struct ScrobbleServiceSheet: View {
             testTask?.cancel()
             testing = false
             testResult = nil
+        }
+        .onAppear {
+            // A service that came filled in (see `ScrobblingSetupRequest`) only misses the secret.
+            guard !draft.name.isEmpty, !draft.endpoint.isEmpty, draft.secret.isEmpty else { return }
+            DispatchQueue.main.async { secretFocused = true }
         }
         .onDisappear { testTask?.cancel() }
     }
