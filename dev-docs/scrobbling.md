@@ -68,13 +68,15 @@ only unreadable in a backup or a screenshot.
 Loading a config that has `integrations.lastfm.session` (or, for the previous, PureBasic version, `lastfm.session` in its
 `settings.json`) keeps the account name in `ConfigStore` (`takeLegacyLastFMNotice()` returns a `LegacyLastFM.Login`);
 the login itself is gone from the file right after loading, since the config has no place for it. `LastFMRemovalNotice`
-(shown at launch after the migration's own question, so a login from the old version is covered) explains what
-happened and offers two buttons:
+(shown once the main window is on screen, `MainWindowOpener.waitUntilShown()`, after the migration's own question, so a login from the old
+version is covered) explains what happened and offers two buttons. The migration's question has to be asked before
+SwiftUI has launched (it decides what the config is), and a modal alert run that early keeps SwiftUI from opening the
+main window; `AppDelegate` then asks for it the way a Dock click does (a reopen event sent through LaunchServices,
+`openMainWindowAfterEarlyAlert`). So the notice can't be run from `App.init()` either, and waits for the window:
 
 - **Set Up Now** puts `LegacyLastFM.suggestedService` (name "Last.fm", Last.fm's endpoint, the account name if it is
-  known, no password) into `ScrobblingSetupRequest`. No window exists yet at that point, so the request waits:
-  `AppDelegate` calls `openPreferencesIfRequested()` after launch (the open action is registered by `MainWindow`),
-  `PreferencesView` switches to the Scrobbling tab and `ScrobbleServiceList` opens the add sheet with the service.
+  known, no password) into `ScrobblingSetupRequest`, which opens the Preferences window as soon as it has the open action (`MainWindow`
+  registers it; the request may come first or second), then `PreferencesView` switches to the Scrobbling tab and `ScrobbleServiceList` opens the add sheet with the service.
   The sheet focuses the password field; saving needs it, as the old session key can't be turned into one
   (Audioscrobbler needs the password, which we never had).
 - **Set Up Later** does nothing; the same service is added by hand in Preferences > Scrobbling.

@@ -192,6 +192,14 @@ final class PlaylistStore {
         return lastPlayedByKey[key]
     }
 
+    /// Returns once the active playlist is in memory (at once if it is). A load that is replaced by another (the
+    /// active playlist changed meanwhile) is waited for as well.
+    func waitUntilLoaded() async {
+        while isLoading, let task = loadTask {
+            await task.value
+        }
+    }
+
     /// The row of the active playlist's last played track (see `setLastPlayed`), if it is loaded and has it.
     var lastPlayedRow: Int? {
         guard !isLoading, let id = lastPlayedByKey[Self.key(activeName)] else { return nil }

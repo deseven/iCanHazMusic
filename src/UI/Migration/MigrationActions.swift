@@ -14,6 +14,10 @@ enum MigrationActions {
 
     private static var pending: Pending?
 
+    /// `askAtLaunch()` showed its alert. Running a modal alert before SwiftUI has launched (it has to be: it decides
+    /// what the config is before anything reads it) keeps SwiftUI from opening the main window by itself.
+    private(set) static var alertWasShown = false
+
     /// Call first thing at launch, before any of the singletons (`ConfigStore.shared`, `PlaylistStore.shared`...) is
     /// used. If the working directory holds the data of the previous version and no `config.json`, asks what to
     /// do. "No" quits the app. Otherwise the app goes on with its usual fresh start (that's what creates the config
@@ -28,6 +32,7 @@ enum MigrationActions {
         app.setActivationPolicy(.regular)
         app.activate()
 
+        alertWasShown = true
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Migrate from the previous version?"
@@ -89,10 +94,8 @@ enum MigrationActions {
         guard !plan.files.isEmpty else { return nil }
 
         // The import needs the window to put its progress sheet on and the playlist loaded.
-        while Dialogs.hostWindow?.isVisible != true || ImportCoordinator.shared.isBusy {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        try? await Task.sleep(for: .milliseconds(300))   // let the window settle
+        await MainWindowOpener.shared.waitUntilShown()
+        await store.waitUntilLoaded()
 
         if plan.settings?.dontGroupByAlbums == true {
             await store.setFlat(true)

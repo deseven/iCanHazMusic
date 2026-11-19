@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // via LaunchServices, the app isn't brought to front on its own and its window opens
         // behind the launching app.
         NSApp.activate()
+        if MigrationActions.alertWasShown { openMainWindowAfterEarlyAlert() }
         MainThreadWatchdog.shared.start()
         observeSleep()
 
@@ -21,9 +22,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SystemMediaControls.shared.start()
         observeWindowFocus()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
-        Task { await MigrationActions.finishAfterLaunch() }
-        Task { await ScrobblingSetupRequest.shared.openPreferencesIfRequested() }
+        Task {
+            // One after the other: the notice is a modal alert, the migration puts a progress sheet on the window.
+            await LastFMRemovalNotice.showIfNeeded()
+            await MigrationActions.finishAfterLaunch()
+        }
         Task { await PlaybackState.shared.restorePlayback() }
+    }
+
+    /// SwiftUI doesn't open the main window of an app that showed a modal alert before it launched (the migration
+    /// prompt): the user would have to click the Dock icon. That click is a "reopen" request answered by opening the
+    /// default window, so send exactly that: opening the app's own bundle makes LaunchServices deliver the reopen
+    /// event to the running app. (Calling the delegate method directly doesn't do it, SwiftUI isn't listening there.)
+    private func openMainWindowAfterEarlyAlert() {
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        Log.info("window: opening the main window after the alert shown at launch")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
     }
 
     /// The playback position is published (once per second) only while one of our windows is on screen; with the

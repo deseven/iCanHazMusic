@@ -3,25 +3,29 @@
 
 import AppKit
 
-/// Tells the user, once, that the Last.fm integration is gone and what to do about it. Shown at launch when the
+/// Tells the user, once, that the Last.fm integration is gone and what to do about it. Shown after launch when the
 /// config (or the settings of the previous version, see `MigrationActions`) had a Last.fm login: the login is
 /// already dropped by then, so the message doesn't come back at the next start.
 ///
 /// "Set Up Now" asks for Preferences > Scrobbling to open with a Last.fm service filled in
 /// (`ScrobblingSetupRequest`), "Set Up Later" leaves it to the user.
+///
+/// It is **not** shown from `App.init()`: a modal alert run there, before SwiftUI has launched, keeps the main window
+/// from ever opening (the user then has to click the Dock icon).
 @MainActor
 enum LastFMRemovalNotice {
     private static let width: CGFloat = 440
 
-    /// Call at launch after `MigrationActions.askAtLaunch()`: the question about the previous version comes first, and
-    /// can add a Last.fm login to what is announced here. A modal alert, like the migration's: no window exists yet.
-    static func showIfNeeded() {
+    /// Call once the app has launched. Waits for the main window to be on screen (so it is up behind the alert and
+    /// stays there), then shows the alert, and opens Preferences if the user wants to set Last.fm up now. The question
+    /// about the previous version (`MigrationActions.askAtLaunch()`) has been answered by then and can have added a
+    /// login to announce.
+    static func showIfNeeded() async {
         guard let login = ConfigStore.shared.takeLegacyLastFMNotice() else { return }
-        Log.info("Last.fm removal notice shown")
 
-        let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        app.activate()
+        await MainWindowOpener.shared.waitUntilShown()
+        Log.info("Last.fm removal notice shown")
+        NSApp.activate()
 
         let alert = NSAlert()
         alert.alertStyle = .critical

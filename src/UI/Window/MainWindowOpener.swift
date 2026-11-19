@@ -25,6 +25,24 @@ final class MainWindowOpener {
         return !window.isVisible && !window.isMiniaturized
     }
 
+    /// The main window, once it is on screen: at once if it already is, otherwise when AppKit says that it became
+    /// visible (`didChangeOcclusionState`, which also covers the window being uncovered or un-minimized). For things
+    /// that must not come before the window, a modal alert at launch for one: run from `App.init()` or before the
+    /// window is up, it keeps SwiftUI from opening the window at all.
+    @discardableResult
+    func waitUntilShown() async -> NSWindow {
+        func shown() -> NSWindow? {
+            guard let window = Dialogs.hostWindow, window.isVisible, window.occlusionState.contains(.visible) else { return nil }
+            return window
+        }
+        if let window = shown() { return window }
+        // Everything runs on the main actor: nothing can be posted between the check above and the first wait.
+        for await _ in NotificationCenter.default.notifications(named: NSWindow.didChangeOcclusionStateNotification) {
+            if let window = shown() { return window }
+        }
+        preconditionFailure("the notification stream doesn't end")
+    }
+
     /// Shows the main window (opening it if it was closed), brings it in front and returns it; `nil` if it didn't
     /// come up.
     @discardableResult

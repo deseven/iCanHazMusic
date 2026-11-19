@@ -98,6 +98,23 @@ extension AllTests {
             #expect(env.store.activePlaylist.trackCount == 2)
         }
 
+        @Test("waitUntilLoaded returns once the active playlist is in memory, also if another one was selected meanwhile")
+        func waitUntilLoaded() async throws {
+            let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
+            let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a", wait: false)
+            #expect(env.store.isLoading)
+            await env.store.waitUntilLoaded()
+            #expect(!env.store.isLoading)
+            #expect(env.store.activePlaylist.trackCount == 3)
+            await env.store.waitUntilLoaded()                  // nothing to wait for: returns at once
+
+            let switching = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a", wait: false)
+            switching.store.setActive("b")
+            #expect(switching.store.isLoading)
+            await switching.store.waitUntilLoaded()
+            #expect(!switching.store.isLoading && switching.store.activeName == "b")
+        }
+
         // MARK: Broken files
 
         @Test("an unparsable playlist is set aside and replaced by an empty one")
