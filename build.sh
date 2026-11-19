@@ -191,7 +191,13 @@ do_create_zip() {
     cd "$loc"
 }
 
+# Note: run_step calls these functions on the left side of `||`, which disables `set -e` inside them, so every
+# command whose failure matters needs an explicit `|| return 1`.
 do_create_dmg() {
+    if ! command -v create-dmg > /dev/null 2>&1; then
+        echo "create-dmg is not installed (brew install create-dmg)"
+        return 1
+    fi
     local dmgStaging="$loc/dist/dmg_staging"
     rm -rf "$dmgStaging"
     mkdir -p "$dmgStaging"
@@ -206,7 +212,7 @@ do_create_dmg() {
         --icon "$name.app" 192 350 \
         --app-drop-link 448 350 \
         "$loc/dist/$distrName.dmg" \
-        "$dmgStaging"
+        "$dmgStaging" || { rm -rf "$dmgStaging"; return 1; }
     rm -rf "$dmgStaging"
 }
 
