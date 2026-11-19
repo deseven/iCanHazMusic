@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         MainThreadWatchdog.shared.start()
         observeSleep()
-        LastFMService.shared.onConnectionLost = { LastFMActions.connectionLost($0) }
+
         PlaybackState.shared.onGiveUp = { PlaybackActions.gaveUp($0) }
         UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
         UpdateService.shared.start()
@@ -63,9 +63,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) {
-        LastFMService.shared.appDidBecomeActive()
-    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         WindowSettings.shared.closeQuits

@@ -30,6 +30,13 @@ enum LegacyMigration {
         var files: [URL]
     }
 
+    /// The old settings have a Last.fm login. It isn't taken over (there is no Last.fm integration any more, see
+    /// `LegacyLastFM`), the user is only told.
+    static func hadLastFM(paths: AppPaths) -> Bool {
+        (try? Data(contentsOf: paths.workDir.appendingPathComponent(settingsFileName)))
+            .flatMap(LegacySettings.init(json:))?.hadLastFM ?? false
+    }
+
     /// Reads the old files. Missing or broken ones give nothing (no settings / no files).
     static func loadPlan(paths: AppPaths) -> Plan {
         let settingsData = try? Data(contentsOf: paths.workDir.appendingPathComponent(settingsFileName))
@@ -84,14 +91,16 @@ enum LegacyMigration {
 
 /// The values of the old `settings.json` that have a counterpart in this version.
 ///
-/// Ignored on purpose: the column widths and `last_played_track_id` (IDs differ now), `fullscreen`, `volume` and the
-/// web server.
+/// Ignored on purpose: the column widths and `last_played_track_id` (IDs differ now), `fullscreen`, `volume`, the
+/// web server and the Last.fm login (`hadLastFM` only says there was one).
 ///
 /// TODO later (no counterpart yet, so they're dropped for now): `playback.stop_at_queue_end`,
 /// `playback.playback_order`.
 struct LegacySettings: Equatable {
     var lastFMSession: String?
     var lastFMUser: String?
+    /// There was a Last.fm login.
+    var hadLastFM: Bool { !(lastFMSession ?? "").isEmpty }
     /// `use_genius`: lyrics were looked up online; the counterpart is LRCLIB.
     var lookUpLyrics: Bool?
     /// `use_terminal_notifier`: playback notifications were shown (through terminal-notifier); the counterpart is
@@ -157,9 +166,7 @@ struct LegacySettings: Equatable {
     /// `screenHeight`: height of the main screen, to turn the old (top left) window origin into ours (bottom left);
     /// without it the position isn't taken over.
     func apply(to config: inout AppConfig, screenHeight: Int?) {
-        if let session = lastFMSession, let user = lastFMUser, !session.isEmpty, !user.isEmpty {
-            config.integrations.lastfm = .init(session: session, username: user)
-        }
+
         if let lookUpLyrics { config.integrations.lrclib.enabled = lookUpLyrics }
         if let playbackNotifications { config.general.playbackNotifications = playbackNotifications }
         if let cursorFollowsPlayback { config.playback.cursorFollowsPlayback = cursorFollowsPlayback }

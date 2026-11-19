@@ -25,7 +25,7 @@ import Observation
 @Observable
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
-                                      listeners: [LastFMService.shared, LyricsService.shared, NotificationService.shared,
+                                      listeners: [ScrobblingService.shared, LyricsService.shared, NotificationService.shared,
                                                                                         WaveformService.shared],
                                       nowPlaying: .shared)
 
@@ -278,7 +278,7 @@ final class PlaybackState {
     /// queued after it, and when it ends playback stops and `onGiveUp` gets this.
     @ObservationIgnored private var giveUpMessage: String?
     /// The current track, until its audio actually starts (`PlaybackEngine.Event.started`): only then are the
-    /// listeners told, so that a file that can't be played is never announced (Last.fm, LRCLIB, notifications).
+    /// listeners told, so that a file that can't be played is never announced (scrobbling, LRCLIB, notifications).
     @ObservationIgnored private var pendingStart: PendingStart?
 
     private struct PendingStart {
@@ -484,7 +484,10 @@ final class PlaybackState {
     /// is gone, the playlist playing was deleted, the output failed).
     func halt() {
         playingFromQueue = false
+        // A track the listeners were told about is playing (`progress` is only there once its audio started).
+        let wasAnnounced = progress != nil && !isQuitting
         endProgress(report: !isQuitting)
+        if wasAnnounced { listeners.forEach { $0.value?.playbackDidStop() } }
         pendingStart = nil
         giveUpMessage = nil
         if status != .stopped { Log.info("playback: stopped") }
@@ -1045,7 +1048,8 @@ final class PlaybackState {
         saveState(position: resumedAt)
 
         let played = PlayedTrack(artist: track.artist, title: track.title, album: album.title,
-                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue)
+                                 duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue,
+                                                                  trackNumber: track.number)
         let logLine = "playback: \(how)\(resume.map { " at \(Self.clock($0.seconds))\($0.paused ? ", paused" : "")" } ?? ""): "
             + "\(track.artist) – \(track.title) [\(album.title)], "
             + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingName ?? "")\", \(track.path)"

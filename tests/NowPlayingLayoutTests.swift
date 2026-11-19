@@ -383,7 +383,7 @@ extension AllTests {
             let covers = CoverStore(url: dir.path("covers.sqlite"), thumbnailPixels: 112)
             let image = Data([0xFF, 0xD8, 0xFF, 0xE0])
             covers.store(image, for: "key")
-            var track = LastFMTestData.track()
+            var track = ScrobbleTestData.track()
             track.coverKey = "key"
 
             let delivery = CoverRecorder()

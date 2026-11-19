@@ -11,7 +11,7 @@ enum AppConstants {
     /// `CFBundleShortVersionString` of the running bundle ("0" when there is none, as in tests and plain `swift build`).
     static let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
 
-    /// What every HTTP request of the app (Last.fm, LRCLIB) identifies itself with.
+    /// What every HTTP request of the app (scrobbling services, LRCLIB, updates) identifies itself with.
     static let userAgent = "\(appName)/\(appVersion)"
 
     // MARK: - Window IDs

@@ -29,7 +29,7 @@ extension NotificationDelivery {
 /// System notifications about playback, for when the app isn't in front: the track that starts and the end of the
 /// playlist (or of the queue, with "Stop at queue end").
 ///
-/// A `PlaybackListener`, like `LastFMService` and `LyricsService`. The notifications replace each other (see
+/// A `PlaybackListener`, like `ScrobblingService` and `LyricsService`. The notifications replace each other (see
 /// `NotificationDelivery`), so the one on screen is always the latest: a track that starts replaces the previous
 /// track's, and the end of the playlist replaces the last track's.
 ///

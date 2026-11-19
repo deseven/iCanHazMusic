@@ -25,7 +25,7 @@ final class UpdateSheetModel {
 }
 
 /// Window-modal sheet that offers a release: its title, the changelog and the choice between skipping that
-/// version, deciding later and updating. Same mechanics as `LastFMAuthSheet`: `run` returns the choice while the
+/// version, deciding later and updating. Same mechanics as `ImportProgressSheet`: `run` returns the choice while the
 /// sheet is still open (it then shows `model.progress` during the installation), `dismiss` closes it.
 @MainActor
 final class UpdateSheet {

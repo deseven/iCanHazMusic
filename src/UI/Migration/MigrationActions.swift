@@ -53,8 +53,11 @@ enum MigrationActions {
             ConfigStore.shared.update { plan.settings?.apply(to: &$0, screenHeight: screenHeight) }
             ConfigStore.shared.flush()
             pending = .migrate(plan)
+            if plan.settings?.hadLastFM == true { ConfigStore.shared.noteLegacyLastFM() }
         case .alertSecondButtonReturn:
             pending = .startFromScratch
+            // Nothing is taken over, but the Last.fm scrobbling the user had still ends with this version.
+            if LegacyMigration.hadLastFM(paths: paths) { ConfigStore.shared.noteLegacyLastFM() }
         default:
             Log.info("migration declined, quitting")
             exit(0)

@@ -618,6 +618,38 @@ extension AllTests {
             #expect(listener.playlistsEnded == ["main"])
         }
 
+        @Test("the listener is told when playback stops, once per stop, after the end of the track, and only for a track that was announced")
+        func listenerHearsStop() async throws {
+            let listener = RecordingListener()
+            let env = try await makeEnv([
+                entry(.a, title: "A1", album: "X", track: 1),
+                entry(.b, title: "A2", album: "X", track: 2),
+            ], listener: listener)
+
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            env.state.stop()                                   // before its audio started: nothing was announced
+            #expect(listener.stops == 0)
+
+            env.state.play(albumIndex: 0, trackIndex: 0)
+            try await env.run(Self.slice)
+            env.state.nextTrack()                              // a track change isn't a stop
+            try await listen(env, seconds: 0.5)
+            #expect(listener.events.suffix(1) == [.started("A2")])
+            #expect(listener.stops == 0)
+            env.state.stop()
+            #expect(listener.stops == 1)
+            #expect(listener.events.suffix(1) == [.ended("A2")])
+            env.state.stop()                                   // already stopped
+            #expect(listener.stops == 1)
+
+            // The playlist running out stops playback too.
+            let last = RecordingListener()
+            let single = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)], listener: last)
+            single.state.play(albumIndex: 0, trackIndex: 0)
+            try await single.run(4 * Self.slice)
+            #expect(last.playlistsEnded == ["main"] && last.stops == 1)
+        }
+
         @Test("a one-track playlist plays and stops")
         func singleTrack() async throws {
             let env = try await makeEnv([entry(.tiny, title: "Only", album: "Solo", track: 1)])

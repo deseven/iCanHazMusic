@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// A track as it was played, for whoever wants to know what the user listens to (Last.fm).
+/// A track as it was played, for whoever wants to know what the user listens to (the scrobbling services).
 struct PlayedTrack: Equatable, Sendable {
     let artist: String
     let title: String
@@ -18,6 +18,8 @@ struct PlayedTrack: Equatable, Sendable {
     var url: URL? = nil
     /// Set if the track is a part of `url` (a track of a CUE sheet).
     var cue: CueSlice? = nil
+    /// Track number from the tags; nil if unknown.
+    var trackNumber: Int? = nil
 
     /// What plays, if known.
     var source: PlaybackSource? {
@@ -49,11 +51,17 @@ protocol PlaybackListener: AnyObject {
     /// The queue was played through by itself and "Stop at queue end" stopped playback (not when the user stopped).
     /// Comes after the `trackDidEnd` of the last queued track.
     func queueDidEnd()
+
+    /// Playback stopped (the user pressed stop, the playlist or the queue ran out, the output failed...) while a
+    /// track that had been announced was playing: nothing plays now. Comes after its `trackDidEnd`. Not sent when
+    /// the app quits (the track is picked up again at the next launch), and not for a stop where no track ever started.
+    func playbackDidStop()
 }
 
 extension PlaybackListener {
     func playlistDidEnd(playlist: String) {}
     func queueDidEnd() {}
+    func playbackDidStop() {}
 }
 
 /// How much of the current track has been listened to, from the positions reported while it plays.
@@ -82,12 +90,11 @@ struct PlayProgress {
         if step > 0, step <= Self.maxStep { played += step }
     }
 
-    /// What counts as listened to, for a track `duration` seconds long. A track that was picked up at the share of
-    /// its length that Last.fm scrobbles at, or later, is taken to have been listened to up to there (the run before
-    /// can't say, and the position is all that was kept); a track picked up earlier counts from scratch.
-    @MainActor
+    /// What counts as listened to, for a track `duration` seconds long. A track that was picked up at the point where
+    /// it is scrobbled (`ScrobbleRule.threshold`), or later, is taken to have been listened to up to there (the run
+    /// before can't say, and the position is all that was kept); a track picked up earlier counts from scratch.
     func listened(ofDuration duration: TimeInterval) -> TimeInterval {
-        guard duration > 0, resumedAt >= duration * LastFMService.scrobbleThreshold else { return played }
+        guard duration > 0, resumedAt >= ScrobbleRule.threshold(forDuration: duration) else { return played }
         return min(played + resumedAt, duration)
     }
 }

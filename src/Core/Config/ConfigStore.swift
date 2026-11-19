@@ -14,6 +14,11 @@ final class ConfigStore {
 
     private(set) var config: AppConfig
 
+    /// A Last.fm login was found in the config that was read (or in the settings of the previous version, see
+    /// `noteLegacyLastFM()`), and not yet announced as removed (`takeLegacyLastFMNotice()`). The login itself is gone
+    /// from the file right after loading: the config no longer has a place for it.
+    private var legacyLastFMNotice = false
+
     private let paths: AppPaths
     private let saveDelay: Duration
     private var saveTask: Task<Void, Never>?
@@ -33,6 +38,17 @@ final class ConfigStore {
         guard updated != config else { return }
         config = updated
         scheduleSave()
+    }
+
+    /// Remembers that the user had a Last.fm login that is not carried over (from the settings of the previous version).
+    func noteLegacyLastFM() {
+        legacyLastFMNotice = true
+    }
+
+    /// Whether the user has to be told that their Last.fm login was removed. True once, until it is noted again.
+    func takeLegacyLastFMNotice() -> Bool {
+        defer { legacyLastFMNotice = false }
+        return legacyLastFMNotice
     }
 
     /// Writes any pending change right now.
@@ -55,6 +71,10 @@ final class ConfigStore {
 
         let existing = try? Data(contentsOf: url)
         if let existing {
+            if LegacyLastFM.isConfigured(inConfig: existing) {
+                legacyLastFMNotice = true
+                Log.info("config: a Last.fm login was found, it is removed (Last.fm scrobbling is not supported any more)")
+            }
             do {
                 let decoded = try JSONDecoder().decode(AppConfig.self, from: existing)
                 config = decoded.validated()

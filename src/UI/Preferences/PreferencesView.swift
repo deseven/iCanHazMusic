@@ -16,6 +16,7 @@ struct PreferencesView: View {
         case playlist
         case nowPlaying
         case search
+        case scrobbling
         case integrations
         case hotkeys
 
@@ -29,6 +30,7 @@ struct PreferencesView: View {
             case .playlist: "Playlist"
             case .nowPlaying: "Now Playing"
             case .search: "Search"
+            case .scrobbling: "Scrobbling"
             case .integrations: "Integrations"
             case .hotkeys: "Hotkeys"
             }
@@ -42,6 +44,7 @@ struct PreferencesView: View {
             case .playlist: "music.note.list"
             case .nowPlaying: "waveform"
             case .search: "magnifyingglass"
+            case .scrobbling: "antenna.radiowaves.left.and.right"
             case .integrations: "puzzlepiece.extension"
             case .hotkeys: "keyboard"
             }
@@ -86,6 +89,7 @@ struct PreferencesView: View {
                 case .playlist: PlaylistTab()
                 case .nowPlaying: NowPlayingTab()
                 case .search: SearchTab()
+                case .scrobbling: ScrobblingTab()
                 case .integrations: IntegrationsTab()
                 case .hotkeys: HotkeysTab()
                 }
@@ -260,25 +264,10 @@ private struct GeneralTab: View {
 }
 
 private struct IntegrationsTab: View {
-    private let lastFM = LastFMService.shared
     @Bindable private var lyrics = LyricsService.shared
-    @State private var window: NSWindow?
 
     var body: some View {
         TabPage {
-            PrefRow(title: "Last.fm", description: lastFMDescription) {
-                Button(lastFM.isConnected ? "Disconnect..." : "Connect...") {
-                    Task {
-                        if lastFM.isConnected {
-                            await LastFMActions.disconnect(on: window)
-                        } else {
-                            await LastFMActions.connect(on: window)
-                        }
-                    }
-                }
-                .disabled(!lastFM.isAvailable || lastFM.isAuthorizing)
-            }
-
             PrefRow(title: "LRCLIB", description: lrclibDescription) {
                 // Shows Off while lyrics support is off; the choice itself is kept for when it is turned on again.
                 Toggle("", isOn: Binding(get: { lyrics.isLRCLIBActive }, set: { lyrics.isLRCLIBEnabled = $0 }))
@@ -287,7 +276,6 @@ private struct IntegrationsTab: View {
                     .disabled(!lyrics.isEnabled)
             }
         }
-        .background(WindowAccessor { window = $0 })
     }
 
     private var lrclibDescription: Text {
@@ -299,22 +287,24 @@ private struct IntegrationsTab: View {
         return text + Text("\nNot working: Lyrics Support is turned off (General).")
             .foregroundStyle(.red)
     }
+}
 
-    private var lastFMDescription: Text {
-        if let username = lastFM.username {
-            var text = AttributedString("Connected as ")
-            var name = AttributedString(username)
-            name.link = LastFMAPI.profileURL(username: username)
-            text += name
-            text += AttributedString(". Tracks you play are sent to Last.fm as now playing and, once you've listened "
-                + "to at least half of them, scrobbled.")
-            return Text(text)
+private struct ScrobblingTab: View {
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "Scrobbling Services",
+                description: "Send what you play to the services you use: the track that plays now (if the service "
+                    + "takes it) and the tracks you've listened to, which is half of a track or 4 minutes of it, "
+                    + "whichever comes first. Audioscrobbler is the legacy API that Last.fm, Libre.fm and many other "
+                    + "servers speak, the ListenBrainz API is an open one that a growing number of services use. Tracks without tags are never sent. "
+                    + "A green checkmark means that the last attempt to reach the service went through, an exclamation "
+                    + "mark that it failed (point at it to see why; it goes away once a call goes through). The last "
+                    + "scrobble time and these marks are not kept between launches."
+            ) {
+                ScrobbleServiceList()
+            }
         }
-        if !lastFM.isAvailable {
-            return Text("Not available: this build has no Last.fm API credentials (see ICHM_LASTFM_* in .env).")
-        }
-        return Text("Send what you play to Last.fm: the track that plays now and the tracks you've listened to "
-            + "(scrobbles). You'll be asked to allow \(AppConstants.appName) in your browser.")
     }
 }
 

@@ -386,31 +386,72 @@ extension AllTests {
             #expect(valid[.volumeUp] == "⌃⌥↑")
         }
 
-        @Test("last.fm is not connected by default; the session and user name are read leniently")
-        func lastFMSection() throws {
-            let defaults = AppConfig().integrations.lastfm
-            #expect(!defaults.isConnected && defaults.session.isEmpty && defaults.username.isEmpty)
-
-            let config = try decode("""
-            {"integrations": {"lastfm": {"session": "abc", "username": "bob"}}}
-            """)
-            #expect(config.integrations.lastfm == AppConfig.Integrations.LastFM(session: "abc", username: "bob"))
-            #expect(config.integrations.lastfm.isConnected)
-            #expect(config.validated() == config)
-
+        @Test("there are no scrobbling services by default, and the integrations section is read leniently")
+        func noScrobblingByDefault() throws {
+            #expect(AppConfig().scrobbling.isEmpty)
+            #expect(try decode("{}").scrobbling.isEmpty)
+            #expect(try decode(#"{"scrobbling": 5}"#).scrobbling.isEmpty)
             #expect(try decode(#"{"integrations": 5}"#).integrations == AppConfig().integrations)
-            #expect(try decode(#"{"integrations": {"lastfm": {"session": 7, "username": "bob"}}}"#)
-                .validated().integrations.lastfm == defaults)
+            // What an old config had is simply not read any more.
+            let old = try decode(#"{"integrations": {"lastfm": {"session": "abc", "username": "bob"}}}"#)
+            #expect(old == AppConfig())
         }
 
-        @Test("a session without a user name, or the other way round, is no connection")
-        func halfConnection() {
-            for half in [AppConfig.Integrations.LastFM(session: "abc", username: ""),
-                         AppConfig.Integrations.LastFM(session: "", username: "bob")] {
-                var config = AppConfig()
-                config.integrations.lastfm = half
-                #expect(config.validated().integrations.lastfm == AppConfig.Integrations.LastFM())
-            }
+        @Test("scrobbling services are saved sorted, with the secret obfuscated, and read back")
+        func scrobblingRoundTrip() throws {
+            var config = AppConfig()
+            config.scrobbling = [
+                ScrobbleServiceConfig(name: "b-lb", type: .listenbrainz, endpoint: "https://api.listenbrainz.org",
+                                      secret: "TOKEN-123", submitNowPlaying: false, enabled: false),
+                ScrobbleServiceConfig(name: "A-last", type: .audioscrobbler, endpoint: "https://post.audioscrobbler.com",
+                                      username: "bob", secret: "pa$$word"),
+            ]
+            let validated = config.validated()
+            #expect(validated.scrobbling.map(\.name) == ["A-last", "b-lb"])
+
+            let data = try #require(ConfigStore.encode(validated))
+            let text = String(decoding: data, as: UTF8.self)
+            #expect(!text.contains("TOKEN-123") && !text.contains("pa$$word"))
+            #expect(text.contains(Obfuscation.obfuscated("TOKEN-123")))
+            #expect(text.contains("\"submit_now_playing\" : false"))
+
+            let back = try JSONDecoder().decode(AppConfig.self, from: data).validated()
+            #expect(back == validated)
+            #expect(back.scrobbling[1].secret == "TOKEN-123" && !back.scrobbling[1].enabled && !back.scrobbling[1].submitNowPlaying)
+        }
+
+        @Test("a scrobbling entry is read leniently: defaults for what is wrong, dropped without a known type")
+        func scrobblingLenient() throws {
+            let config = try decode("""
+            {"scrobbling": [
+              {"type": "listenbrainz", "name": "ok", "endpoint": "https://x.org/", "secret": "%%%not base64",
+               "enabled": "yes", "id": "nope"},
+              {"type": "somethingelse", "name": "unknown type"},
+              {"name": "no type"},
+              7
+            ]}
+            """)
+            #expect(config.scrobbling.count == 1)
+            let service = config.scrobbling[0]
+            #expect(service.name == "ok" && service.type == .listenbrainz)
+            #expect(service.secret.isEmpty)          // can't be read: none
+            #expect(service.enabled && service.submitNowPlaying)
+            #expect(config.validated().scrobbling[0].endpoint == "https://x.org")
+        }
+
+        @Test("validation normalizes the endpoints, and gives a repeated ID a new one")
+        func scrobblingValidated() {
+            let id = UUID()
+            var config = AppConfig()
+            config.scrobbling = [
+                ScrobbleServiceConfig(id: id, name: " one ", type: .audioscrobbler, endpoint: " HTTPS://Example.org/scrobble// "),
+                ScrobbleServiceConfig(id: id, name: "two", type: .listenbrainz, endpoint: "not a url"),
+            ]
+            let validated = config.validated()
+            #expect(validated.scrobbling.map(\.name) == ["one", "two"])
+            #expect(validated.scrobbling[0].endpoint == "https://example.org/scrobble")
+            #expect(validated.scrobbling[1].endpoint == "not a url")        // kept as it is, the user can fix it
+            #expect(validated.scrobbling[0].id != validated.scrobbling[1].id)
         }
 
         @Test("the playlist section is read leniently, with the album art on the left by default")

@@ -30,7 +30,7 @@ extension AllTests {
             let image = Data([0xFF, 0xD8, 0xFF, 0xE0])
             covers.store(image, for: "album-key")
 
-            var track = LastFMTestData.track(artist: "Artist", title: "Title", album: "Album", duration: 185)
+            var track = ScrobbleTestData.track(artist: "Artist", title: "Title", album: "Album", duration: 185)
             track.coverKey = "album-key"
             service.trackDidStart(track)
 
@@ -43,7 +43,7 @@ extension AllTests {
         @Test("a track without cover, album or duration says only what is known")
         func sparseTrack() throws {
             let (service, delivery, _) = try makeService()
-            var track = LastFMTestData.track(album: TagFallback.album, duration: 0)
+            var track = ScrobbleTestData.track(album: TagFallback.album, duration: 0)
             track.coverKey = "nothing-cached"
             service.trackDidStart(track)
 
@@ -55,7 +55,7 @@ extension AllTests {
         @Test("the end of the playlist is announced, the end of a track isn't")
         func playlistEnd() throws {
             let (service, delivery, _) = try makeService()
-            service.trackDidEnd(LastFMTestData.track(), playedSeconds: 100)
+            service.trackDidEnd(ScrobbleTestData.track(), playedSeconds: 100)
             #expect(delivery.delivered.isEmpty)
 
             service.playlistDidEnd(playlist: "Road trip")
@@ -85,7 +85,7 @@ extension AllTests {
 
             service.isEnabled = false
             #expect(!config.config.general.playbackNotifications)
-            service.trackDidStart(LastFMTestData.track())
+            service.trackDidStart(ScrobbleTestData.track())
             service.playlistDidEnd(playlist: "Road trip")
             service.queueDidEnd()
             #expect(delivery.delivered.isEmpty)
@@ -95,7 +95,7 @@ extension AllTests {
             #expect(!restarted.isEnabled)
             restarted.isEnabled = true
             #expect(config.config.general.playbackNotifications)
-            restarted.trackDidStart(LastFMTestData.track())
+            restarted.trackDidStart(ScrobbleTestData.track())
             #expect(delivery.delivered.count == 1)
         }
 

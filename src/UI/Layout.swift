@@ -98,8 +98,14 @@ enum Layout {
     // Import progress sheet
     static let importSheetWidth: CGFloat = 380
 
-    // Last.fm connection sheet
-    static let lastFMSheetWidth: CGFloat = 380
+    // Scrobbling services (Preferences > Scrobbling)
+    static let scrobbleSheetWidth: CGFloat = 460
+    /// A row of the list of services.
+    static let scrobbleRowHeight: CGFloat = 28
+    static let scrobbleListHeight: CGFloat = 240
+    static let scrobbleSwitchColumnWidth: CGFloat = 44
+    static let scrobbleStatusColumnWidth: CGFloat = 165
+    static let scrobbleEditColumnWidth: CGFloat = 30
 
     // Update sheet
     static let updateSheetWidth: CGFloat = 520

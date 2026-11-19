@@ -103,7 +103,7 @@ What the decoders do, as the app uses them (all of it in `tests/`, with fixtures
 - `PlaybackState` keeps the playlist logic (which track follows which, the display) and talks to the engine through
   `start`, `setNext`, `pause`/`resume`, `seek`, `stop` and the events `started`, `advanced`, `finished`, `failed`,
   `deviceError`. `started` comes when the current track's first audio is scheduled (after any start, seek or restart):
-  only then does the track count as playing for the listeners (Last.fm, LRCLIB, notifications) and the log.
+  only then does the track count as playing for the listeners (scrobbling, LRCLIB, notifications) and the log.
 
 ## Files that don't answer
 
@@ -150,14 +150,14 @@ pause, a seek or a quit; every stop clears it, except the one at quit (`stopAndW
 
 The config doesn't (and shouldn't) hold how much of the track was listened to. So:
 
-- Quitting is not the end of the track: no `trackDidEnd` (`endProgress(report: false)`), otherwise Last.fm would get
+- Quitting is not the end of the track: no `trackDidEnd` (`endProgress(report: false)`), otherwise the scrobbling services would get
   the scrobble at quit and a second one after the restore.
-- A restored track is a `PlayProgress(resumedAt:)`. Picked up at >= 50% of its length (`LastFMService.scrobbleThreshold`)
+- A restored track is a `PlayProgress(resumedAt:)`. Picked up at the point where a track is scrobbled (`ScrobbleRule.threshold`: half of its length or 4 minutes, whichever is less)
   it counts as listened to up to that position (`listened(ofDuration:)` = what was heard since + the position); earlier
   it counts from 0. Either way the listening done after the restore adds to it, and it's capped at the track length.
-- The track's `startedAt` (the time Last.fm gets with the scrobble) is back-dated by the position.
+- The track's `startedAt` (the time the services get with the scrobble) is back-dated by the position.
 - The restored track is announced to the listeners when its audio starts (also when it is paused), like any other:
-  Last.fm's "now playing" is sent, lyrics and the waveform are loaded.
+  the "now playing" update is sent, lyrics and the waveform are loaded.
 
 ## Diagnosing hangs
 

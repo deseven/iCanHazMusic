@@ -13,7 +13,7 @@ enum LRCLIBOutcome: Equatable, Sendable {
     case failed
 }
 
-/// Sends the LRCLIB lookups one after the other, in the background, like `LastFMQueue` does for Last.fm.
+/// Sends the LRCLIB lookups one after the other, in the background, like `ScrobbleQueue` does for the scrobbling services.
 ///
 /// A lookup that fails for a temporary reason is tried again, waiting 1 s, 2 s, 4 s, ... (doubling) between tries
 /// (or as long as LRCLIB asked for with `Retry-After`, if that is more), and given up on after `maxAttempts` tries.

@@ -53,7 +53,6 @@ extension AllTests {
             var config = AppConfig()
             legacy.apply(to: &config, screenHeight: 1000)
 
-            #expect(config.integrations.lastfm == .init(session: "abc", username: "someone"))
             #expect(config.integrations.lrclib.enabled)
             #expect(!config.general.playbackNotifications)   // use_terminal_notifier
             #expect(config.playback.cursorFollowsPlayback == false)
@@ -110,11 +109,28 @@ extension AllTests {
             #expect(config.validated() == config)
         }
 
-        @Test("a half Last.fm login and missing values change nothing")
+        @Test("the Last.fm login is not taken over (there is no Last.fm integration), only noticed")
+        func lastFMLogin() throws {
+            let legacy = try parse(Self.settings)
+            #expect(legacy.hadLastFM)
+            var config = AppConfig()
+            let defaults = config
+            try parse(#"{"lastfm": {"user": "someone", "session": "abc"}}"#).apply(to: &config, screenHeight: 1000)
+            #expect(config == defaults)
+
+            #expect(!(try parse(#"{"lastfm": {"user": "someone", "session": ""}}"#)).hadLastFM)
+            #expect(!(try parse("{}")).hadLastFM)
+
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.url)
+            #expect(!LegacyMigration.hadLastFM(paths: paths))
+            try dir.write("settings.json", Data(Self.settings.utf8))
+            #expect(LegacyMigration.hadLastFM(paths: paths))
+        }
+
+        @Test("missing values change nothing")
         func partialSettings() throws {
             var config = AppConfig()
-            try parse(#"{"lastfm": {"user": "someone", "session": ""}}"#).apply(to: &config, screenHeight: 1000)
-            #expect(config == AppConfig())
             try parse("{}").apply(to: &config, screenHeight: 1000)
             #expect(config == AppConfig())
         }

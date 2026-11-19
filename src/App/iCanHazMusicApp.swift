@@ -11,6 +11,8 @@ struct iCanHazMusicApp: App {
         Log.startFileLogging(at: AppPaths.current.logURL)
         // Before anything reads the working directory (the config and playlist stores are created lazily).
         MigrationActions.askAtLaunch()
+        // After it: the previous version's settings may have had a Last.fm login too.
+        LastFMRemovalNotice.showIfNeeded()
     }
 
     var body: some Scene {

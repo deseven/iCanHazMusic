@@ -17,7 +17,7 @@ enum TagFallback {
     static let title = "Unknown Track"
     static let album = "Unknown Album"
 
-    /// A track that has a real artist and title, i.e. one that something outside (Last.fm, LRCLIB) can be asked about.
+    /// A track that has a real artist and title, i.e. one that something outside (scrobbling services, LRCLIB) can be asked about.
     static func isIdentified(artist: String, title: String) -> Bool {
         artist != Self.artist && title != Self.title
     }

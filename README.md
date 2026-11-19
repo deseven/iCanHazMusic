@@ -33,7 +33,7 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 - Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album, volume and search
 - Dock menu with the current track and playback controls
 - System notifications about the playback
-- Last.fm scrobbling and now playing updates
+- Scrobbling and now playing updates through the Audioscrobbler API (Last.fm, Libre.fm and others) and ListenBrainz, any number of services at once
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 
 ### Under the hood
@@ -54,7 +54,7 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 
 ## Roadmap
 - simple web interface and API
-- better Last.fm integration (like tracks, track info, number of plays, etc)
+
 - Subsonic/Navidrome integration
 
 #### What is not planned
@@ -83,6 +83,6 @@ Optional requirements:
 Optional `.env` file in the repo root (git-ignored), read by `build.sh`:
 - `ICHM_SIGNING_IDENTITY` - the codesigning identity (e.g. `Developer ID Application: ...`). Without it the app is signed ad-hoc, which is fine for running locally, but **system notifications won't work** in an ad-hoc signed build.
 - `ICHM_NOTARY_PROFILE` (a `notarytool` keychain profile) or `ICHM_APPLE_ID` + `ICHM_TEAM_ID` + `ICHM_APP_PASSWORD` - notarization of the release builds.
-- `ICHM_LASTFM_API_KEY` + `ICHM_LASTFM_API_SECRET` - your own [Last.fm API](https://www.last.fm/api/account/create) credentials. They are embedded (obfuscated) into the bundle's `Info.plist`; without them the Last.fm integration is disabled.
+
 
 The app keeps its data (config, playlists, caches) in `~/Library/Application Support/iCanHazMusic`; pass `--workdir /some/dir` to the app to use another directory.

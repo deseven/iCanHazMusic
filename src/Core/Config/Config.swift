@@ -416,30 +416,6 @@ struct AppConfig: Codable, Equatable {
     }
 
     struct Integrations: Codable, Equatable {
-        struct LastFM: Codable, Equatable {
-            /// Session key from the authorization; empty = not connected. Only the session is kept, never the
-            /// (short-lived) token it was made from, and no password is ever involved.
-            var session = ""
-            /// Name of the account the session belongs to.
-            var username = ""
-
-            var isConnected: Bool { !session.isEmpty && !username.isEmpty }
-
-            init() {}
-
-            init(session: String, username: String) {
-                self.session = session
-                self.username = username
-            }
-
-            init(from decoder: Decoder) throws {
-                let c = try decoder.container(keyedBy: CodingKeys.self)
-                let d = LastFM()
-                session = c.value(.session, default: d.session)
-                username = c.value(.username, default: d.username)
-            }
-        }
-
         struct LRCLIB: Codable, Equatable {
             /// Look up the lyrics of played tracks on lrclib.net when the file has none embedded.
             var enabled = false
@@ -452,7 +428,6 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
-        var lastfm = LastFM()
         var lrclib = LRCLIB()
 
         init() {}
@@ -460,7 +435,6 @@ struct AppConfig: Codable, Equatable {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Integrations()
-            lastfm = c.value(.lastfm, default: d.lastfm)
             lrclib = c.value(.lrclib, default: d.lrclib)
         }
     }
@@ -476,6 +450,8 @@ struct AppConfig: Codable, Equatable {
     var search = Search()
     var hotkeys = Hotkeys()
     var integrations = Integrations()
+    /// The scrobbling services, sorted by name (`validated()` and `ScrobblingService` keep them that way).
+    var scrobbling: [ScrobbleServiceConfig] = []
     var activePlaylist = AppConfig.defaultPlaylistName
 
     enum CodingKeys: String, CodingKey {
@@ -488,6 +464,7 @@ struct AppConfig: Codable, Equatable {
         case search
         case hotkeys
         case integrations
+        case scrobbling
         case activePlaylist = "active_playlist"
     }
 
@@ -505,6 +482,9 @@ struct AppConfig: Codable, Equatable {
         search = c.value(.search, default: d.search)
         hotkeys = c.value(.hotkeys, default: d.hotkeys)
         integrations = c.value(.integrations, default: d.integrations)
+        // A service that can't be read is left out, the others stay.
+        let services = (try? c.decodeIfPresent([Lossy<ScrobbleServiceConfig>].self, forKey: .scrobbling)) ?? []
+        scrobbling = services.compactMap(\.value)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
 
@@ -573,10 +553,16 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
-        // A session without a user name (or the other way round) is half of a connection: not connected.
-        if !integrations.lastfm.isConnected {
-            result.integrations.lastfm = defaults.integrations.lastfm
-        }
+        // Services are kept normalized and sorted by name; a repeated ID (a hand-edited file) gets a new one.
+        var seenIDs = Set<UUID>()
+        result.scrobbling = scrobbling.map { service in
+            var service = service.normalized
+            if !seenIDs.insert(service.id).inserted {
+                service.id = UUID()
+                seenIDs.insert(service.id)
+            }
+            return service
+        }.sorted(by: ScrobbleServiceConfig.isOrderedBefore)
 
         if let state = playback.state, !state.isValid {
             result.playback.state = defaults.playback.state

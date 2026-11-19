@@ -10,17 +10,19 @@ This file is a map plus the few invariants that are easy to break. Everything el
 | `src/` | The app (single SwiftPM executable target `iCanHazMusic`). |
 | `tests/` | Swift Testing suite, see [Tests](#tests). |
 | `vendor/` | WavPack and Monkey's Audio decoders (targets `CWavPack`, `CMonkeysAudio`). **Upstream files are never edited**, they are copied by `vendor/update.sh`; our code is in `vendor/monkeys-audio/shim/`. See `vendor/README.md`. |
-| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (macOS tag APIs, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, engine internals, state restore), `lyrics.md` (lyrics sources, LRCLIB), `cue.md` (how CUE sheets are read, stored and played), `extra-formats-support.md` (how WavPack/APE are supported and what is left). |
+| `dev-docs/` | Background notes, read the relevant one before touching that area: `tag-parsing.md` (macOS tag APIs, why the reader is built the way it is), `playback.md` (why `AVAudioEngine` and not `AVPlayer`, engine internals, state restore), `lyrics.md` (lyrics sources, LRCLIB), `scrobbling.md` (Audioscrobbler and ListenBrainz services, retries, the removed Last.fm integration), `cue.md` (how CUE sheets are read, stored and played), `extra-formats-support.md` (how WavPack/APE are supported and what is left). |
 | `build.sh` | Builds the `.app` bundle in `dist/`. |
 | `Info.plist`, `res/` | Bundle metadata and resources copied into the bundle by `build.sh`. |
 
 `src/` has three parts: `App/` (entry point, `AppDelegate`, `AppTermination`), `Core/` (logic, grouped by feature: `Config`, `Playlists`, `Import`, `Tags`, `Playback`, `Integrations`, ...) and `UI/` (views and AppKit glue, grouped the same way). One view per file.
 
-- Main entry points: `ConfigStore` (settings), `PlaylistStore` (all playlists, kept in memory), `ImportSession` (files -> tags -> albums), `PlaybackEngine` (audio) and `PlaybackState` (playlist logic on top of the engine), `PlaybackListener` (Last.fm, lyrics, notifications and the waveform follow playback through it).
+- Main entry points: `ConfigStore` (settings), `PlaylistStore` (all playlists, kept in memory), `ImportSession` (files -> tags -> albums), `PlaybackEngine` (audio) and `PlaybackState` (playlist logic on top of the engine), `PlaybackListener` (scrobbling through `ScrobblingService`, lyrics, notifications and the waveform follow playback through it).
 
 ## Worth knowing before you change things
 **General**
-- Last.fm credentials are **not in the sources**: `build.sh` takes them from `.env` and writes them (obfuscated) into the bundle's `Info.plist`. `build.sh` reads `LastFMCredentials.obfuscationKey` from its line in `LastFMAPI.swift`, keep that format. Never put credentials into sources or tests.
+- There is **no Last.fm integration** (Last.fm made its API keys paid): scrobbling is `ScrobblingService` with user-configured Audioscrobbler 1.2.1 and ListenBrainz services (`dev-docs/scrobbling.md`). A config that still has a Last.fm login is recognized by `LegacyLastFM` and the user is told once (`LastFMRemovalNotice`). The app has no API keys of its own; **never put credentials into sources or tests**.
+- Passwords and tokens of scrobbling services are kept in `config.json` XOR-obfuscated (`Obfuscation`), which only keeps them from being readable at a glance. `Obfuscation.key` is not a credential, but changing it makes the saved secrets unreadable.
+- `Info.plist` allows arbitrary loads (`NSAppTransportSecurity`) because scrobbling endpoints may be plain `http://` (a home server).
 - Notifications and self-update need a **signed bundle** (`ICHM_SIGNING_IDENTITY`; ad-hoc without it). Plain `swift build` gives an unbundled executable where they are unavailable.
 - **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: from async main-actor code it hangs the app while something plays. It's also ignored while a sheet is attached, so dismiss sheets first.
 
@@ -34,7 +36,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 - **Files are read through a `PCMSource`** (`Core/Playback/Sources`, picked by `PCMSources.open` from the extension), never `AVAudioFile` directly: `AVAudioFileSource` for what macOS opens, `WavPackSource` and `APESource` (the vendored decoders) for `.wv` and `.ape`, which macOS can't open at all. Only those two import `CWavPack`/`CMonkeysAudio`; tags of these formats (APEv2, `ApeTag`) are plain Swift. A source's `codec` text and the one made at import (`TagReadResult.codec`) must be the same.
 - **A track counts as started only when its audio does** (the engine's `.started` event): listeners, logs and `trackDidEnd` wait for it, a file that can't be played is never announced.
 - **A file that doesn't answer (network share gone) must never stall the feeder** or the main thread.
-- Tracks without tags are never looked up on LRCLIB or sent to Last.fm.
+- Tracks without tags are never looked up on LRCLIB or sent to the scrobbling services.
 - `AppKit` callbacks from the system (media keys, `MPRemoteCommandCenter`) arrive on their own queue: build their closures in `nonisolated` helpers (isolated closures trap).
 
 **Config and caches**

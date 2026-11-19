@@ -417,7 +417,7 @@ extension AllTests {
                 env.state.stop()
                 let played = try #require(listener.ended.first).played
                 if credited {
-                    #expect(played >= RampFile.a.duration * LastFMService.scrobbleThreshold && played >= position,
+                    #expect(played >= ScrobbleRule.threshold(forDuration: RampFile.a.duration) && played >= position,
                             "played \(played) of \(RampFile.a.duration)")
                 } else {
                     #expect(played < 0.2, "played \(played)")
@@ -456,7 +456,7 @@ extension AllTests {
             try await second.run(Self.slice)
             second.state.stop()
             let played = try #require(after.ended.first).played
-            #expect(played >= RampFile.b.duration * LastFMService.scrobbleThreshold, "played \(played)")
+            #expect(played >= ScrobbleRule.threshold(forDuration: RampFile.b.duration), "played \(played)")
         }
     }
 }
