@@ -4,6 +4,9 @@
 import Foundation
 
 /// A track as it was played, for whoever wants to know what the user listens to (the scrobbling services).
+///
+/// `artist`, `title` and `album` are the data: empty when the track has none, which is what gets reported or looked
+/// up (nothing, then). To show them to the user use the `display...` ones.
 struct PlayedTrack: Equatable, Sendable {
     let artist: String
     let title: String
@@ -27,9 +30,13 @@ struct PlayedTrack: Equatable, Sendable {
         return PlaybackSource(url: url, start: cue?.start ?? 0, end: cue?.end)
     }
 
-    /// The track has an artist and a title of its own; without ("Unknown Artist") nobody outside can be told about
-    /// it or asked for its lyrics.
+    /// The track has an artist and a title of its own; without nobody outside can be told about it or asked for
+    /// its lyrics. (The album is optional.)
     var hasTags: Bool { TagFallback.isIdentified(artist: artist, title: title) }
+
+    var displayArtist: String { TagFallback.shownArtist(artist) }
+    var displayAlbum: String { TagFallback.shownAlbum(album) }
+    var displayTitle: String { TagFallback.shownTitle(title, file: cue == nil ? url : nil) }
 }
 
 /// Told by `PlaybackState` when a track starts and when it is left, however that happens (the next track, the user

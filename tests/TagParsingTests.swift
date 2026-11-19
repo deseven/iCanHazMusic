@@ -146,26 +146,37 @@ extension AllTests {
             #expect(tags.duration == 61)
         }
 
-        @Test("missing fields fall back and are listed")
+        @Test("missing fields stay empty and are listed")
         func partial() {
             let (tags, status) = finalize([.title: "T"])
             #expect(status == .partial(fallbacks: ["artist", "album"]))
             #expect(tags.title == "T")
-            #expect(tags.artist == TagFallback.artist)
-            #expect(tags.album == TagFallback.album)
+            #expect(tags.artist.isEmpty)
+            #expect(tags.album.isEmpty)
 
             let (_, onlyTitleMissing) = finalize([.artist: "A", .album: "B"])
             #expect(onlyTitleMissing == .partial(fallbacks: ["title"]))
         }
 
-        @Test("nothing at all is noTags, with all fallbacks applied")
+        @Test("nothing at all is noTags, with everything empty")
         func noTags() {
             let (tags, status) = finalize([.year: "2000", .track: "1"])
             #expect(status == .noTags)
-            #expect(tags.title == TagFallback.title)
-            #expect(tags.artist == TagFallback.artist)
-            #expect(tags.album == TagFallback.album)
+            #expect(tags.title.isEmpty)
+            #expect(tags.artist.isEmpty)
+            #expect(tags.album.isEmpty)
             #expect(tags.year == "2000")
+        }
+
+        @Test("a tag that says what the UI shows for a missing one is a missing one")
+        func placeholderTags() {
+            let (tags, status) = finalize([.title: "Unknown Track", .artist: "Unknown Artist", .album: "Unknown Album"])
+            #expect(status == .noTags)
+            #expect(tags.title.isEmpty && tags.artist.isEmpty && tags.album.isEmpty)
+
+            // Each text is a placeholder of its own field only.
+            let (swapped, _) = finalize([.title: "Unknown Artist", .artist: "Unknown Album", .album: "Unknown Track"])
+            #expect(swapped.title == "Unknown Artist" && swapped.artist == "Unknown Album" && swapped.album == "Unknown Track")
         }
 
         @Test("artist fallback chain: album artist > performer > band > discogs > composer")
@@ -178,7 +189,7 @@ extension AllTests {
                 #expect(status == .complete)
                 fields[field] = nil
             }
-            #expect(finalize(fields).0.artist == TagFallback.artist)
+            #expect(finalize(fields).0.artist.isEmpty)
         }
 
         @Test("a real artist beats every fallback")
@@ -211,7 +222,7 @@ extension AllTests {
             let (tags, status) = TagReader.finalize(raw: raw, failed: "boom")
             #expect(status == .failed("boom"))
             #expect(status.isFailure)
-            #expect(tags.title == TagFallback.title)
+            #expect(tags.title.isEmpty)
             #expect(tags.duration == 5)
 
             #expect(TagReader.finalize(raw: RawTags(), failed: "").1 == .failed("unknown error"))

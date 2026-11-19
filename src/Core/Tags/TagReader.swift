@@ -268,7 +268,8 @@ final class TagReader: Sendable {
             ?? fields[.discogsArtist] ?? fields[.composer]
     }
 
-    /// Applies artist fallback chain, year/track parsing and "Unknown ..." defaults.
+    /// Applies the artist fallback chain and year/track parsing. What is missing stays empty (and is listed in the
+    /// status); "Unknown ..." is only what the UI shows for it (`TagFallback`). A tag that says exactly that counts as missing.
     static func finalize(raw: RawTags, failed: String?) -> (TrackTags, TagReadStatus) {
         var tags = TrackTags()
         tags.duration = raw.duration
@@ -278,12 +279,13 @@ final class TagReader: Sendable {
             return (tags, .failed(failed.isEmpty ? "unknown error" : failed))
         }
 
-        let artist = artist(in: raw.fields)
-
         var fallbacks: [String] = []
-        if let t = raw.fields[.title] { tags.title = t } else { fallbacks.append("title") }
-        if let a = artist { tags.artist = a } else { fallbacks.append("artist") }
-        if let a = raw.fields[.album] { tags.album = a } else { fallbacks.append("album") }
+        tags.title = TagFallback.storedTitle(raw.fields[.title])
+        if tags.title.isEmpty { fallbacks.append("title") }
+        tags.artist = TagFallback.storedArtist(artist(in: raw.fields))
+        if tags.artist.isEmpty { fallbacks.append("artist") }
+        tags.album = TagFallback.storedAlbum(raw.fields[.album])
+        if tags.album.isEmpty { fallbacks.append("album") }
 
         if let y = raw.fields[.year] {
             tags.year = y.range(of: #"\d{4}"#, options: .regularExpression).map { String(y[$0]) } ?? y

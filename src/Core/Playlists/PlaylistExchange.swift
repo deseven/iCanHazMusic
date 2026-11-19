@@ -78,7 +78,7 @@ enum PlaylistExchange {
     }
 
     private static func label(_ entry: TrackEntry) -> String {
-        singleLine("\(entry.artist) - \(entry.title)")
+        singleLine("\(entry.displayArtist) - \(entry.displayTitle)")
     }
 
     private static func singleLine(_ text: String) -> String {

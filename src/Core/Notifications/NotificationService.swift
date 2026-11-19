@@ -96,12 +96,13 @@ final class NotificationService: PlaybackListener {
 
     // MARK: - Texts
 
-    /// Title, then the artist, then the album and the duration.
+    /// Title, then the artist ("Unknown Artist" and the file's name for what the tags don't say), then the album (left
+    /// out if there is none) and the duration.
     static func message(starting track: PlayedTrack) -> NotificationMessage {
         var details: [String] = []
-        if !track.album.isEmpty, track.album != TagFallback.album { details.append(track.album) }
+        if !track.album.isEmpty { details.append(track.album) }
         if track.duration >= 1 { details.append(formatDuration(track.duration)) }
-        return NotificationMessage(title: track.title, subtitle: track.artist, body: details.joined(separator: " · "))
+        return NotificationMessage(title: track.displayTitle, subtitle: track.displayArtist, body: details.joined(separator: " · "))
     }
 
     static func message(playlistEnded playlist: String) -> NotificationMessage {

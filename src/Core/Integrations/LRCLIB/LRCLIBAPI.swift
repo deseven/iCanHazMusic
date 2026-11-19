@@ -7,6 +7,7 @@ import Foundation
 struct LRCLIBQuery: Equatable, Sendable {
     let artist: String
     let title: String
+    /// Empty if the track has none.
     let album: String
     /// Seconds; 0 if unknown.
     let duration: TimeInterval
@@ -105,7 +106,8 @@ enum LRCLIBAPI {
             guard record["instrumental"] as? Bool != true,
                   let lyrics = Lyrics(source: .lrclib, plain: record["plainLyrics"] as? String, lrc: synced) else { continue }
 
-            let sameAlbum = (record["albumName"] as? String).map { comparable($0) == album } ?? false
+            // A track without an album is on no record's album (an empty name isn't one).
+            let sameAlbum = !album.isEmpty && ((record["albumName"] as? String).map { comparable($0) == album } ?? false)
             let rank = [lyrics.isSynced ? 0 : 1, sameAlbum ? 0 : 1, abs((duration ?? query.duration) - query.duration)]
             if best == nil || rank.lexicographicallyPrecedes(best!.rank) { best = (lyrics, rank) }
         }

@@ -11,23 +11,63 @@ enum TagField: String, CaseIterable, Sendable {
     case lyrics
 }
 
-/// Values shown when a tag is missing / unreadable.
+/// What stands for a tag that is missing or unreadable.
+///
+/// **The data (tags, playlists, what is reported to scrobbling services and LRCLIB) holds an empty string for it, never
+/// these texts.** They are for showing to the user only (`shown...`), so the playlist, the queue, notifications, the
+/// Dock menu and so on say "Unknown Artist" while nothing outside is told so.
+///
+/// A tag that literally says one of these texts (some taggers write them) counts as missing (`stored...`), and so do
+/// they in playlist files written before the data was kept empty.
 enum TagFallback {
     static let artist = "Unknown Artist"
     static let title = "Unknown Track"
     static let album = "Unknown Album"
 
-    /// A track that has a real artist and title, i.e. one that something outside (scrobbling services, LRCLIB) can be asked about.
+    // MARK: Data
+
+    /// A track that has an artist and a title of its own, i.e. one that something outside (scrobbling services, LRCLIB)
+    /// can be asked about. Works on the data (empty = missing), not on what is shown.
     static func isIdentified(artist: String, title: String) -> Bool {
-        artist != Self.artist && title != Self.title
+        !artist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func storedArtist(_ text: String?) -> String { stored(text, placeholder: artist) }
+    static func storedTitle(_ text: String?) -> String { stored(text, placeholder: title) }
+    static func storedAlbum(_ text: String?) -> String { stored(text, placeholder: album) }
+
+    /// `text` as the data keeps it: empty if it is missing, blank, or the placeholder of its field.
+    private static func stored(_ text: String?, placeholder: String) -> String {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text != placeholder else { return "" }
+        return text
+    }
+
+    // MARK: Showing
+
+    static func shownArtist(_ artist: String) -> String {
+        artist.isEmpty ? Self.artist : artist
+    }
+
+    static func shownAlbum(_ album: String) -> String {
+        album.isEmpty ? Self.album : album
+    }
+
+    /// A track without a title is called by the name of its file (`file`: the audio file, nil for a track that is a
+    /// part of one, which has no name of its own).
+    static func shownTitle(_ title: String, file: URL?) -> String {
+        guard title.isEmpty else { return title }
+        guard let file else { return Self.title }
+        let name = file.deletingPathExtension().lastPathComponent
+        return name.isEmpty ? Self.title : name
     }
 }
 
-/// Final, display-ready tags. `title`/`artist`/`album` are never empty (fallbacks applied).
+/// Final tags: what the file says. `title`/`artist`/`album` are empty when it says nothing (see `TagFallback`).
 struct TrackTags: Sendable, Equatable {
-    var title: String = TagFallback.title
-    var artist: String = TagFallback.artist
-    var album: String = TagFallback.album
+    var title: String = ""
+    var artist: String = ""
+    var album: String = ""
     var year: String?
     var trackNumber: Int?
     /// Seconds. From AudioFile ("approximate duration") or AVFoundation, whichever backend ran.

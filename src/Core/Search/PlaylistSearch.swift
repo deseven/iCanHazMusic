@@ -39,8 +39,9 @@ struct SearchResult: Identifiable, Equatable {
     }
 }
 
-/// The text of one playlist prepared for searching (see `SearchText`). Immutable: it belongs to one `Playlist`
-/// instance, and a changed playlist needs a new index.
+/// The text of one playlist prepared for searching (see `SearchText`), as it is shown ("Unknown Artist" for a missing
+/// one, the file name for a missing title), so what is on screen is what is found. Immutable: it belongs to one
+/// `Playlist` instance, and a changed playlist needs a new index.
 final class SearchIndex: @unchecked Sendable {
     struct TrackText {
         let title: SearchString
@@ -63,15 +64,15 @@ final class SearchIndex: @unchecked Sendable {
         self.name = name
         self.playlist = playlist
         albums = playlist.albums.map { album in
-            let artist = SearchText.fold(album.artist)
+            let artist = SearchText.fold(album.displayArtist)
             // Without several artists the tracks' artist is the album's: the same folded text is shared.
             return AlbumText(
                 artist: artist,
-                title: SearchText.fold(album.title),
+                title: SearchText.fold(album.displayTitle),
                 hasMultipleArtists: album.hasMultipleArtists,
                 tracks: album.tracks.map {
-                    TrackText(title: SearchText.fold($0.title),
-                              artist: album.hasMultipleArtists ? SearchText.fold($0.artist) : artist)
+                    TrackText(title: SearchText.fold($0.displayTitle),
+                              artist: album.hasMultipleArtists ? SearchText.fold($0.displayArtist) : artist)
                 }
             )
         }
@@ -191,13 +192,13 @@ enum SearchEngine {
                 let index = indexes[candidate.index]
                 let album = index.playlist.albums[candidate.album]
                 return SearchResult(kind: .album, playlist: index.name, trackID: album.tracks.first?.id,
-                                    artist: album.artist, title: album.title, year: album.year)
+                                    artist: album.displayArtist, title: album.displayTitle, year: album.year)
             case .track:
                 let index = indexes[candidate.index]
                 let album = index.playlist.albums[candidate.album]
                 let track = album.tracks[candidate.track]
                 return SearchResult(kind: .track, playlist: index.name, trackID: track.id,
-                                    artist: track.artist, title: track.title, year: nil)
+                                    artist: track.displayArtist, title: track.displayTitle, year: nil)
             }
         }
     }

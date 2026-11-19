@@ -16,9 +16,11 @@ let unassignedTrackID: TrackID = 0
 /// This is also the input of `AlbumBuilder`, so a fresh import and a loaded playlist go through
 /// the same grouping.
 ///
-/// Decoding is lenient: only `path` is required, everything else falls back to the values
-/// the tag reader would have used (a missing `id` is `unassignedTrackID`, which the playlist fills in).
-/// Optional values are omitted from the file when unknown.
+/// Decoding is lenient: only `path` is required, everything else is empty when missing (a missing `id` is
+/// `unassignedTrackID`, which the playlist fills in). An empty `artist`, `album` or `title` means the track has none:
+/// the data never holds "Unknown Artist" and so on, they are only what the UI shows (`TagFallback`); files from before
+/// that have them written out, and they are read as empty. Empty and optional values are omitted from the file.
+/// (A title that is the file's name, which older versions stored for a track without a title tag, is left as it is.)
 ///
 /// A track of a CUE sheet has the pseudo path `/path/to/album.cue:3` (`CuePath`) and a `cue` object saying where its audio
 /// is: `{"file": "/path/to/album.flac", "start": 215.4, "end": 430.1}` (`end` is missing for the last track of a file).
@@ -71,9 +73,7 @@ struct TrackEntry: Codable {
             path: r.url.path,
             artist: r.tags.artist,
             album: r.tags.album,
-            // A missing title is better shown as the file name than as "Unknown Track". (A track of a CUE sheet has
-            // no file name of its own.)
-            title: r.rawFields[.title] != nil || r.cue != nil ? r.tags.title : r.url.deletingPathExtension().lastPathComponent,
+            title: r.tags.title,
             trackNumber: r.tags.trackNumber,
             year: r.tags.year,
             duration: r.tags.duration,
@@ -123,9 +123,9 @@ struct TrackEntry: Codable {
 
         id = (try? c.decodeIfPresent(TrackID.self, forKey: .id)) ?? unassignedTrackID
         self.path = path
-        artist = string(.artist) ?? TagFallback.artist
-        album = string(.album) ?? TagFallback.album
-        title = string(.title) ?? (cue != nil ? TagFallback.title : url.deletingPathExtension().lastPathComponent)
+        artist = TagFallback.storedArtist(string(.artist))
+        album = TagFallback.storedAlbum(string(.album))
+        title = TagFallback.storedTitle(string(.title))
         trackNumber = try? c.decodeIfPresent(Int.self, forKey: .trackNumber)
         year = string(.year)
         duration = try? c.decodeIfPresent(TimeInterval.self, forKey: .duration)
@@ -147,9 +147,9 @@ struct TrackEntry: Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(path, forKey: .path)
-        try c.encode(artist, forKey: .artist)
-        try c.encode(album, forKey: .album)
-        try c.encode(title, forKey: .title)
+        if !artist.isEmpty { try c.encode(artist, forKey: .artist) }
+        if !album.isEmpty { try c.encode(album, forKey: .album) }
+        if !title.isEmpty { try c.encode(title, forKey: .title) }
         try c.encodeIfPresent(trackNumber, forKey: .trackNumber)
         try c.encodeIfPresent(year, forKey: .year)
         try c.encodeIfPresent(duration, forKey: .duration)

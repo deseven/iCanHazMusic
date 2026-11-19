@@ -75,7 +75,7 @@ extension AllTests {
             #expect(track.tagResult(id: 0, from: audioResult(duration: 400)).tags.duration == nil)   // the sheet lies
         }
 
-        @Test("the artist is the track's, else the sheet's performer, else Unknown Artist")
+        @Test("the artist is the track's, else the sheet's performer, else none")
         func artistFallback() {
             let own = cueTrack(artist: "Own", albumArtist: "Sheet").tagResult(id: 0, from: audioResult())
             #expect(own.tags.artist == "Own")
@@ -83,19 +83,19 @@ extension AllTests {
             #expect(sheet.tags.artist == "Sheet")
             #expect(sheet.status == .complete)
             let none = cueTrack(artist: nil, albumArtist: nil).tagResult(id: 0, from: audioResult())
-            #expect(none.tags.artist == TagFallback.artist)
+            #expect(none.tags.artist.isEmpty)
             #expect(none.status == .partial(fallbacks: ["artist"]))
         }
 
-        @Test("missing title and album get the usual fallbacks, and the track is still there")
+        @Test("missing title and album stay empty, and the track is still there")
         func fallbacks() {
             let noTitle = cueTrack(title: nil).tagResult(id: 0, from: audioResult())
-            #expect(noTitle.tags.title == TagFallback.title)
+            #expect(noTitle.tags.title.isEmpty)
             #expect(noTitle.status == .partial(fallbacks: ["title"]))
             #expect(AlbumBuilder.isUsable(noTitle.status))
 
             let noAlbum = cueTrack(album: nil).tagResult(id: 0, from: audioResult())
-            #expect(noAlbum.tags.album == TagFallback.album)
+            #expect(noAlbum.tags.album.isEmpty)
             #expect(noAlbum.status == .partial(fallbacks: ["album"]))
 
             let noYear = cueTrack(year: nil).tagResult(id: 0, from: audioResult())
@@ -107,9 +107,9 @@ extension AllTests {
         func nothingAtAll() {
             let bare = cueTrack(title: nil, artist: nil, albumArtist: nil, album: nil, year: nil)
                 .tagResult(id: 0, from: audioResult())
-            #expect(bare.tags.title == TagFallback.title)
-            #expect(bare.tags.artist == TagFallback.artist)
-            #expect(bare.tags.album == TagFallback.album)
+            #expect(bare.tags.title.isEmpty)
+            #expect(bare.tags.artist.isEmpty)
+            #expect(bare.tags.album.isEmpty)
             #expect(bare.status == .partial(fallbacks: ["title", "artist", "album"]))
             #expect(AlbumBuilder.isUsable(bare.status))
             #expect(!TagFallback.isIdentified(artist: bare.tags.artist, title: bare.tags.title))
@@ -119,9 +119,9 @@ extension AllTests {
         func blank() {
             let result = cueTrack(title: "   ", artist: "\t", albumArtist: "", album: "  ", year: " ")
                 .tagResult(id: 0, from: audioResult())
-            #expect(result.tags.title == TagFallback.title)
-            #expect(result.tags.artist == TagFallback.artist)
-            #expect(result.tags.album == TagFallback.album)
+            #expect(result.tags.title.isEmpty)
+            #expect(result.tags.artist.isEmpty)
+            #expect(result.tags.album.isEmpty)
             #expect(result.tags.year == nil)
         }
 
@@ -185,7 +185,7 @@ extension AllTests {
 
             let bare = cueTrack(track: 4, title: nil, artist: nil, album: nil, year: nil).tagResult(id: 0, from: file)
             #expect(bare.tags.artist == "File Artist" && bare.tags.album == "File Album" && bare.tags.year == "2005")
-            #expect(bare.tags.title == TagFallback.title)   // the file's title is not this track's
+            #expect(bare.tags.title.isEmpty)                // the file's title is not this track's
             #expect(bare.tags.trackNumber == 4)             // the sheet's TRACK, not the file's 9
             #expect(bare.tags.lyrics == nil)
             #expect(bare.status == .partial(fallbacks: ["title"]))
@@ -269,14 +269,16 @@ extension AllTests {
             #expect(entry.directory.path == "/Music/A")
             #expect(entry.codec == "FLAC")
             #expect(entry.cue?.start == 10 && entry.cue?.end == 20)
-            #expect(entry.title == TagFallback.title)   // not "album", which would be the "file name"
+            #expect(entry.title.isEmpty)
+            #expect(entry.displayTitle == TagFallback.title)   // not "album", which would be the "file name"
             #expect(entry.duration == 10)
         }
 
-        @Test("a plain file's entry is untouched: its own file name as the missing title, no cue")
+        @Test("a plain file's entry is untouched: no title in the data (shown as its file name), no cue")
         func plainEntry() {
             let entry = TrackEntry(result: Make.result("/Music/A/Some Song.mp3", title: nil))
-            #expect(entry.title == "Some Song")
+            #expect(entry.title.isEmpty)
+            #expect(entry.displayTitle == "Some Song")
             #expect(entry.cue == nil)
             #expect(entry.url.path == "/Music/A/Some Song.mp3")
             #expect(entry.directory.path == "/Music/A")
@@ -332,8 +334,8 @@ extension AllTests {
             let json = #"{"path":"/m/a.cue:4","cue":{"file":"/m/a.WAV","start":1.5}}"#
             let entry = try JSONDecoder().decode(TrackEntry.self, from: Data(json.utf8))
             #expect(entry.cue == CueSlice(sheet: "/m/a.cue", number: 4, file: "/m/a.WAV", start: 1.5, end: nil))
-            #expect(entry.title == TagFallback.title)
-            #expect(entry.artist == TagFallback.artist && entry.album == TagFallback.album)
+            #expect(entry.title.isEmpty && entry.artist.isEmpty && entry.album.isEmpty)
+            #expect(entry.displayTitle == TagFallback.title && entry.displayArtist == TagFallback.artist)
             #expect(entry.codec == "WAV")
             #expect(entry.id == unassignedTrackID)
         }

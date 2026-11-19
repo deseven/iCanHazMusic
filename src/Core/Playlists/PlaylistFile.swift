@@ -18,7 +18,9 @@ import Foundation
 /// }
 /// ```
 ///
-/// `tracks` is flat and in playlist order; albums are rebuilt on load (see `AlbumBuilder`).
+/// `tracks` is flat and in playlist order; albums are rebuilt on load (see `AlbumBuilder`). `artist`, `album` and
+/// `title` are left out when the track has none (the UI shows "Unknown Artist" and so on, see `TagFallback`); older
+/// files have these texts written out, which are read as missing.
 /// `is_flat`: the playlist isn't grouped into albums (missing = false).
 /// `id` (see `TrackID`) identifies a track in its playlist; `next_id` is the number the next new track gets, so a
 /// number is never used twice. Files from before IDs existed have neither: the playlist numbers the tracks on load.

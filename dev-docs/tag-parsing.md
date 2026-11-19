@@ -31,6 +31,12 @@ They explain *why* the reader looks the way it does. Behaviour described here is
 10. **WavPack and APE open in neither API** (`AudioFile` gives `'typ?'`, `AVURLAsset` "Cannot Open"), and there is no
     in-process way to teach Core Audio a format. Both keep their tags in an APEv2 tag at the end of the file, which is
     parsed by hand (`ApeTag`), the length and format label come from the decoders of `vendor/`.
+11. **A missing title, artist or album stays empty** (`TagReader.finalize`; the status lists what is missing). "Unknown
+    Artist/Track/Album" (`TagFallback`) and the file's name for a missing title are only what the UI shows
+    (`Track.displayTitle` and friends, `TrackDisplay.swift`), so the playlist data is what the file really says, and what
+    scrobbling services and LRCLIB are told is never a placeholder. A tag that literally says one of those texts (some
+    taggers write them) counts as missing, and so do they in playlist files written before this (`TrackEntry` decoding).
+    A title that older versions replaced by the file's name is left as it is in such files.
 
 ## What each API sees
 

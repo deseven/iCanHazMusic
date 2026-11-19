@@ -31,7 +31,8 @@ final class PlaybackState {
 
     enum Status { case stopped, playing, paused }
 
-    /// What the now playing block shows about the current track.
+    /// What the now playing block shows about the current track: the texts as shown to the user ("Unknown Artist"
+    /// for a missing one, see `TagFallback`), not the data.
     struct TrackInfo {
         let artist: String
         let title: String
@@ -1039,7 +1040,7 @@ final class PlaybackState {
 
         store.setLastPlayed(track.id)
         fileInfoChecked = false
-        info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
+        info = TrackInfo(artist: track.displayArtist, title: track.displayTitle, album: album.displayTitle,
                          year: album.year, number: track.number, codec: track.codec)
         let resumedAt = resume?.seconds ?? 0
         position = resumedAt
@@ -1051,7 +1052,7 @@ final class PlaybackState {
                                  duration: track.duration ?? 0, startedAt: Date(), coverKey: album.key, url: track.url, cue: track.cue,
                                                                   trackNumber: track.number)
         let logLine = "playback: \(how)\(resume.map { " at \(Self.clock($0.seconds))\($0.paused ? ", paused" : "")" } ?? ""): "
-            + "\(track.artist) – \(track.title) [\(album.title)], "
+            + "\(track.displayArtist) – \(track.displayTitle) [\(album.displayTitle)], "
             + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingName ?? "")\", \(track.path)"
         pendingStart = PendingStart(track: played, source: track.source, logLine: logLine,
                                     resumedAt: resumedAt, isRestore: resume != nil)
@@ -1080,7 +1081,7 @@ final class PlaybackState {
         var track = finished.track
         if duration > 0 { track.duration = duration }
         let listened = finished.listened(ofDuration: track.duration)
-        Log.info("playback: left \(track.artist) – \(track.title), listened to \(Self.clock(listened)) of \(Self.clock(track.duration))"
+        Log.info("playback: left \(track.displayArtist) – \(track.displayTitle), listened to \(Self.clock(listened)) of \(Self.clock(track.duration))"
             + (report ? "" : ", to be picked up at the next launch"))
         guard report else { return }
         for listener in listeners { listener.value?.trackDidEnd(track, playedSeconds: listened) }
@@ -1095,7 +1096,7 @@ final class PlaybackState {
     private func refreshInfo() {
         guard let pos = currentPos, let playlist = store.playingPlaylist, let track = track(at: pos, in: playlist) else { return }
         let album = playlist.albums[pos.album]
-        info = TrackInfo(artist: track.artist, title: track.title, album: album.title,
+        info = TrackInfo(artist: track.displayArtist, title: track.displayTitle, album: album.displayTitle,
                          year: album.year, number: track.number, codec: track.codec)
         loadArtworkIfNeeded(for: album, playing: pos.track)
     }

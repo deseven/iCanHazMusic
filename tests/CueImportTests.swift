@@ -370,8 +370,10 @@ extension AllTests {
 
             #expect(session.failed == 0 && session.incomplete == 2 && session.successful == 0)
             let album = try #require(outcome.albums.first)
-            #expect(album.title == TagFallback.album && album.artist == TagFallback.artist)
-            #expect(album.tracks.map(\.title) == [TagFallback.title, TagFallback.title])
+            #expect(album.title.isEmpty && album.artist.isEmpty)
+            #expect(album.displayTitle == TagFallback.album && album.displayArtist == TagFallback.artist)
+            #expect(album.tracks.map(\.title) == ["", ""])
+            #expect(album.tracks.map(\.displayTitle) == [TagFallback.title, TagFallback.title])
             #expect(album.tracks.map(\.number) == [1, 2])
         }
 
@@ -564,7 +566,7 @@ extension AllTests {
             let (session, _) = try session()
             let outcome = await session.run(inputs: [dir.url])
             let tracks = try #require(outcome.albums.first?.tracks)
-            #expect(tracks.map(\.title) == [TagFallback.title, TagFallback.title])
+            #expect(tracks.map(\.title) == ["", ""])
             #expect(tracks.allSatisfy { $0.artist == Fixtures.artist && $0.cue != nil })
             #expect(tracks.map(\.number) == [1, 2])
             #expect(outcome.albums[0].title == Fixtures.album)

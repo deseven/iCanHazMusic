@@ -6,9 +6,14 @@ import Foundation
 /// What makes two files one album: the same album tag (case-insensitive) in the same directory.
 /// Also the key of the album's cover in the cover cache.
 enum AlbumKey {
+    /// What an album without a title is keyed by. It is what the title used to be in the data ("Unknown Album"), and
+    /// covers already in the cache (`CoverStore`, which is only filled at import) are stored under it, so it must not
+    /// change.
+    private static let untitled = TagFallback.album.lowercased()
+
     static func make(directory: URL, title: String) -> String {
         // Unit separator: can't be in an album name for real, and (unlike NUL) survives being a SQLite text key.
-        directory.path + "\u{1F}" + title.lowercased()
+        directory.path + "\u{1F}" + (title.isEmpty ? untitled : title.lowercased())
     }
 }
 

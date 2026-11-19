@@ -33,7 +33,9 @@ only unreadable in a backup or a screenshot.
   clears the mark.
 - A track is announced as now playing when its audio starts (if the service has "submit now playing" on) and scrobbled
   when it is left, after half of its length or 4 minutes, whichever comes first, if it is longer than 30 s
-  (`ScrobbleRule`). Tracks without tags are never reported.
+  (`ScrobbleRule`). Tracks without an artist or a title are never reported; what is reported is the playlist **data**
+  (`PlayedTrack`), never what the UI shows for a missing value ("Unknown Artist", the file's name as a title, see
+  `TagFallback`). The album is optional, see below.
 - **Retry-After**: when a server asks to wait (`Retry-After`, seconds or an HTTP date; LRCLIB documents it, MetaBrainz
   doesn't, so it is honored as a general courtesy; for a 429 or 503 without it MetaBrainz's own `X-RateLimit-Reset-In`,
   which their docs tell clients to use), `URLSessionTransport` puts it into `HTTPAnswer.retryAfter`, the clients into
@@ -58,13 +60,14 @@ only unreadable in a backup or a screenshot.
   three failures in a row drop the session; `BADAUTH`, `BANNED` and `BADTIME` are authentication errors (not retried),
   `FAILED` and everything unexpected is temporary.
 - Now playing carries `s,a,t,b,l,n,m`, a submission one track at index 0 (`a[0]...m[0]`, source `P`). The track number is
-  sent when the tags have one, the MusicBrainz ID never (we don't have it).
+  sent when the tags have one, the MusicBrainz ID never (we don't have it). The spec wants every field present and
+  empty if not known, so a track without an album has `b=` / `b[0]=` (never "Unknown Album").
 
 ## ListenBrainz details
 
 - `GET {endpoint}/1/validate-token` (the answer is 200 with `valid` true or false) and `POST {endpoint}/1/submit-listens`
   with `listen_type` `playing_now` or `single`, both with `Authorization: Token ...`. `additional_info` names the app and
-  has the duration and the track number.
+  has the duration and the track number. `release_name` is optional there and left out for a track without an album.
 - 401 is an authentication error, 400 a refused request, 429 and 5xx are temporary.
 - MetaBrainz requires a way to contact the author in the `User-Agent` (`Name/version (contact-url)`, requests without
   it may be blocked). `URLRequest(appURL:)` adds `AppConstants.contactURL` for MetaBrainz

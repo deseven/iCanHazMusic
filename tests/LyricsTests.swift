@@ -99,10 +99,14 @@ extension AllTests {
         @Test("a track needs an artist and a title of its own")
         func identified() {
             #expect(TagFallback.isIdentified(artist: "A", title: "B"))
-            #expect(!TagFallback.isIdentified(artist: TagFallback.artist, title: "B"))
-            #expect(!TagFallback.isIdentified(artist: "A", title: TagFallback.title))
+            #expect(!TagFallback.isIdentified(artist: "", title: "B"))
+            #expect(!TagFallback.isIdentified(artist: "A", title: ""))
+            #expect(!TagFallback.isIdentified(artist: " \n", title: "B"))
+            #expect(TagFallback.isIdentified(artist: "A", title: "B"))
             #expect(LRCLIBTestData.track().hasTags)
-            #expect(!LRCLIBTestData.track(artist: TagFallback.artist).hasTags)
+            #expect(LRCLIBTestData.track(album: "").hasTags)               // the album is optional
+            #expect(!LRCLIBTestData.track(artist: "").hasTags)
+            #expect(!LRCLIBTestData.track(title: "").hasTags)
         }
     }
 
@@ -279,7 +283,7 @@ extension AllTests {
             try dir.copy("formats/l_noartist.flac", to: "01.flac")
             _ = await env.session.run(inputs: [dir.url])
             #expect(env.session.lyricsFound == 0)
-            #expect(!env.lyrics.contains(LyricsKey.make(artist: TagFallback.artist, title: Fixtures.title, album: Fixtures.album)))
+            #expect(!env.lyrics.contains(LyricsKey.make(artist: "", title: Fixtures.title, album: Fixtures.album)))
         }
 
         @Test("LRC text in a file's lyrics tag is kept as synchronised lyrics")
@@ -441,15 +445,15 @@ extension AllTests {
         @Test("tracks without tags are never looked up")
         func untagged() async throws {
             let env = try makeEnv()
-            for untagged in [LRCLIBTestData.track(artist: TagFallback.artist), LRCLIBTestData.track(title: TagFallback.title)] {
+            for untagged in [LRCLIBTestData.track(artist: ""), LRCLIBTestData.track(title: "")] {
                 env.service.trackDidStart(untagged)
                 #expect(env.service.current == nil && env.service.currentKey == nil)
                 env.service.trackDidEnd(untagged, playedSeconds: 10)
             }
             try? await Task.sleep(for: .milliseconds(30))
             #expect(env.transport.requests.isEmpty)
-            #expect(env.service.lyrics(artist: TagFallback.artist, title: "Title", album: "Album") == nil)
-            #expect(!env.service.hasLyrics(artist: "Artist", title: TagFallback.title, album: "Album"))
+            #expect(env.service.lyrics(artist: "", title: "Title", album: "Album") == nil)
+            #expect(!env.service.hasLyrics(artist: "Artist", title: "", album: "Album"))
         }
 
         @Test("a no from LRCLIB is remembered, a failure is not")

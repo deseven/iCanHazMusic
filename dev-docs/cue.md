@@ -41,7 +41,7 @@ flowchart TD
     G -- no --> I["Plain file, real path, no cue"]
     H --> J["Sheet first, file fills the gaps. File title and lyrics only if the track is the only one in its file. Track number is TRACK"]
     I --> K["File first, sheet fills the gaps. Track number from the sheet only if the file has none"]
-    J --> L["Unknown Artist, Track, Album for what is still missing"]
+    J --> L["What is still missing stays empty (the UI shows Unknown Artist, Track, Album)"]
     K --> M{"Title, artist and album all still missing?"}
     M -- yes --> N["No tags: the file is reported as failed"]
     M -- no --> O["Track added"]
@@ -55,7 +55,7 @@ flowchart TD
 | readable | a **part**: pseudo path `x.cue:N`, `cue` slice, album grouped by the sheet's directory; **sheet first** | the **plain file**: its real path, no `cue`, grouped by its own directory; **file first** |
 | can't be read (missing, broken) | every track of it fails (a part, the error names the file) | one failed plain file (the file's own failure) |
 | readable, no tags at all | a part with the sheet's tags (fallbacks for what the sheet lacks) | the plain file, tagged from the sheet |
-| readable, no tags, and the sheet says nothing either | a part, `.partial`, "Unknown ..." (still a track) | the plain file, `.noTags`: **failed**, like any untagged file |
+| readable, no tags, and the sheet says nothing either | a part, `.partial`, everything empty (still a track, shown as "Unknown ...") | the plain file, `.noTags`: **failed**, like any untagged file |
 
 `cutsFile` = more than one track of the sheet in the file, **or** the track starts after 0 (a skipped pregap/silence), **or** it ends
 before the file's end. A track that is its whole file doesn't cut it.
@@ -64,9 +64,9 @@ before the file's end. A track that is its whole file doesn't cut it.
 
 | Field | Sheet cuts: sheet first | Sheet doesn't cut: file first |
 |---|---|---|
-| title | track `TITLE` -> the file's title, **only if the track is its file's only one** -> "Unknown Track" | file's title -> track `TITLE` -> the file's name |
-| artist | track `PERFORMER` -> sheet `PERFORMER` -> file's artist (`artist` > album artist > performer > ...) -> "Unknown Artist" | file's artist -> track `PERFORMER` -> sheet `PERFORMER` -> "Unknown Artist" |
-| album | sheet `TITLE` -> file's album -> "Unknown Album" | file's album -> sheet `TITLE` -> "Unknown Album" |
+| title | track `TITLE` -> the file's title, **only if the track is its file's only one** -> none (shown as "Unknown Track") | file's title -> track `TITLE` -> the file's name |
+| artist | track `PERFORMER` -> sheet `PERFORMER` -> file's artist (`artist` > album artist > performer > ...) -> none ("Unknown Artist") | file's artist -> track `PERFORMER` -> sheet `PERFORMER` -> none ("Unknown Artist") |
+| album | sheet `TITLE` -> file's album -> none ("Unknown Album") | file's album -> sheet `TITLE` -> none ("Unknown Album") |
 | year | `REM DATE` of the track, else of the sheet -> file's year | file's year -> `REM DATE` |
 | track number | the `TRACK` number, always | file's number -> the `TRACK` number |
 | lyrics | the file's, **only if the track is its file's only one** (else none) | the file's |
@@ -79,7 +79,7 @@ before the file's end. A track that is its whole file doesn't cut it.
 |---|---|---|
 | CUETools dummy sheet, one `TRACK`/`FILE`, tagged files (Pink Floyd) | no | plain files, own tags and track numbers, in the sheet's order |
 | One image file + full sheet (EXUMER) | yes | parts with the sheet's titles; artist/album/year from the sheet, gaps from the file |
-| One image file + sheet with no titles | yes | parts titled "Unknown Track"; artist/album/year from the file; numbers from `TRACK` |
+| One image file + sheet with no titles | yes | parts with no title (shown as "Unknown Track"); artist/album/year from the file; numbers from `TRACK` |
 | Full EAC sheet next to already split, tagged files | no | the files' own tags win, the sheet is ignored in effect |
 | Same, files untagged | no | plain files tagged from the sheet |
 | One track, `INDEX 01 00:02:33` (gap prepended) | yes | a part that starts at 2.44 s, sheet first, gaps (artist, title: the only track) from the file |
@@ -118,8 +118,9 @@ queued and shuffled one by one, like any others, and each has an ID of its own.
   file runs to its end. A pregap (`INDEX 00`) therefore ends up at the end of the previous track, and a hidden track before
   track 1's `INDEX 01` is not played. Data tracks, tracks without an index and tracks that would have no length are skipped.
 - Tags: see "When the sheet matters", then the usual rules (`TagReader.finalize`): track `PERFORMER`, else the sheet's, else
-  the file's artist, else "Unknown Artist"; no title = "Unknown Track" (a part has no file name to show); no album = "Unknown
-  Album"; the year from `REM DATE`. A part with no tags at all is kept.
+  the file's artist, else none; no title = none (shown as "Unknown Track": a part has no file name to show); no album =
+  none; the year from `REM DATE`. What is missing stays empty in the data, "Unknown ..." is only what the UI shows
+  (`TagFallback`). A part with no tags at all is kept.
 - Not supported: cue sheets embedded in FLAC (`CUESHEET` block or tag), `PREGAP`/`POSTGAP` silence, `HTOA`.
 
 ## Adding

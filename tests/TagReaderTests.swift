@@ -141,8 +141,8 @@ extension AllTests {
             let onlyArtist = try await read("formats/t_onlyartist.mp3")
             #expect(onlyArtist.status == .partial(fallbacks: ["title", "album"]))
             #expect(onlyArtist.tags.artist == "OnlyArtist")
-            #expect(onlyArtist.tags.title == TagFallback.title)
-            #expect(onlyArtist.tags.album == TagFallback.album)
+            #expect(onlyArtist.tags.title.isEmpty)
+            #expect(onlyArtist.tags.album.isEmpty)
 
             let onlyTitle = try await read("formats/t_onlytitle.mp3")
             #expect(onlyTitle.status == .partial(fallbacks: ["artist", "album"]))
@@ -156,9 +156,9 @@ extension AllTests {
         func noTags(name: String) async throws {
             let r = try await read("formats/" + name)
             #expect(r.status == .noTags)
-            #expect(r.tags.title == TagFallback.title)
-            #expect(r.tags.artist == TagFallback.artist)
-            #expect(r.tags.album == TagFallback.album)
+            #expect(r.tags.title.isEmpty)
+            #expect(r.tags.artist.isEmpty)
+            #expect(r.tags.album.isEmpty)
             #expect((r.tags.duration ?? 0) > 1)
         }
 
@@ -239,11 +239,11 @@ extension AllTests {
             #expect(r.tags.duration == RampFile.a.duration)
         }
 
-        @Test("failed files have fallback tags, no artwork and no sources")
+        @Test("failed files have empty tags, no artwork and no sources")
         func failedShape() async throws {
             let r = await TagReader().readOne(url: try Fixtures.url("broken/garbage.mp3"))
             #expect(r.status.isFailure)
-            #expect(r.tags.title == TagFallback.title)
+            #expect(r.tags.title.isEmpty)
             #expect(r.sources.isEmpty)
             #expect(r.artwork == .none)
             #expect(r.rawFields.isEmpty)

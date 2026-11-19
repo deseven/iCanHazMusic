@@ -8,7 +8,8 @@ import Foundation
 ///
 /// - A track counts as listened to after half of its length or `maxListening` seconds, whichever comes first.
 /// - Tracks that are not longer than `minimumDuration` are never scrobbled.
-/// - A track needs an artist and a title of its own (no "Unknown Artist").
+/// - A track needs an artist and a title of its own (the data, see `TagFallback`: what the UI shows for a missing one
+///   doesn't count). The album is optional: without one it is sent empty (Audioscrobbler) or left out (ListenBrainz).
 enum ScrobbleRule {
     /// A track counts as listened to at this share of its duration.
     static let scrobbleShare = 0.5
@@ -22,12 +23,10 @@ enum ScrobbleRule {
         min(duration * scrobbleShare, maxListening)
     }
 
-    /// The services need at least the artist and the title, and they have to be real ones: a track without tags
-    /// ("Unknown Artist") is nothing to report.
+    /// The services need at least the artist and the title, and they have to be real ones: a track without them
+    /// is nothing to report.
     static func isReportable(_ track: PlayedTrack) -> Bool {
-        !track.artist.trimmingCharacters(in: .whitespaces).isEmpty
-            && !track.title.trimmingCharacters(in: .whitespaces).isEmpty
-            && track.hasTags
+        track.hasTags
     }
 
     static func isScrobbleWorthy(_ track: PlayedTrack, playedSeconds: TimeInterval) -> Bool {

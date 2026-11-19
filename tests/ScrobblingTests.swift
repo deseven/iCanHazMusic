@@ -35,11 +35,70 @@ extension AllTests {
         @Test("a track needs a real artist and title")
         func reportable() {
             #expect(ScrobbleRule.isReportable(ScrobbleTestData.track()))
-            #expect(ScrobbleRule.isReportable(ScrobbleTestData.track(album: TagFallback.album)))   // an unknown album is fine
+            #expect(ScrobbleRule.isReportable(ScrobbleTestData.track(album: "")))   // no album is fine
             #expect(!ScrobbleRule.isReportable(ScrobbleTestData.track(artist: "  ")))
+            #expect(!ScrobbleRule.isReportable(ScrobbleTestData.track(artist: "")))
             #expect(!ScrobbleRule.isReportable(ScrobbleTestData.track(title: "")))
-            #expect(!ScrobbleRule.isReportable(ScrobbleTestData.track(artist: TagFallback.artist)))
-            #expect(!ScrobbleRule.isReportable(ScrobbleTestData.track(title: TagFallback.title)))
+        }
+    }
+
+    // MARK: - Requests
+
+    @MainActor @Suite("Scrobble requests")
+    struct ScrobbleRequestTests {
+        private static let session = AudioscrobblerSession(
+            id: "sid", nowPlayingURL: URL(string: "https://np.example.org/np")!,
+            submissionURL: URL(string: "https://sub.example.org/sub")!)
+
+        /// The form fields of a request, as sent (in order, names as written, values decoded).
+        private func form(_ request: URLRequest) -> [(String, String)] {
+            String(decoding: request.httpBody ?? Data(), as: UTF8.self).split(separator: "&").map { pair in
+                let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                return (String(parts[0]), String(parts[1]).removingPercentEncoding ?? "")
+            }
+        }
+
+        private func value(_ name: String, in fields: [(String, String)]) -> String? {
+            fields.first { $0.0 == name }?.1
+        }
+
+        private func listen(_ request: URLRequest?) throws -> [String: Any] {
+            let body = try #require(request?.httpBody)
+            let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let payload = try #require(json["payload"] as? [[String: Any]])
+            return try #require(payload.first?["track_metadata"] as? [String: Any])
+        }
+
+        @Test("Audioscrobbler: the album is sent, and its field stays there, empty, when there is none")
+        func audioscrobblerAlbum() {
+            let withAlbum = ScrobbleTestData.track(album: "Album", trackNumber: 3)
+            let now = form(AudioscrobblerAPI.nowPlayingRequest(withAlbum, session: Self.session))
+            #expect(value("b", in: now) == "Album" && value("n", in: now) == "3")
+            let scrobble = form(AudioscrobblerAPI.submissionRequest(withAlbum, session: Self.session))
+            #expect(value("b[0]", in: scrobble) == "Album")
+
+            // The protocol wants every field present, empty if not known.
+            let without = ScrobbleTestData.track(album: "")
+            let noAlbumNow = form(AudioscrobblerAPI.nowPlayingRequest(without, session: Self.session))
+            #expect(value("b", in: noAlbumNow) == "")
+            let noAlbumScrobble = form(AudioscrobblerAPI.submissionRequest(without, session: Self.session))
+            #expect(value("b[0]", in: noAlbumScrobble) == "")
+            #expect(!noAlbumScrobble.contains { $0.1 == TagFallback.album })
+        }
+
+        @Test("ListenBrainz: the album is the release name, and left out when there is none")
+        func listenBrainzAlbum() throws {
+            let with = try listen(ListenBrainzAPI.scrobbleRequest(ScrobbleTestData.track(album: "Album"),
+                                                                  endpoint: "https://lb.example.org", token: "t"))
+            #expect(with["release_name"] as? String == "Album")
+            #expect(with["artist_name"] as? String == "Artist" && with["track_name"] as? String == "Title")
+
+            for request in [ListenBrainzAPI.scrobbleRequest(ScrobbleTestData.track(album: ""), endpoint: "https://lb.example.org", token: "t"),
+                            ListenBrainzAPI.nowPlayingRequest(ScrobbleTestData.track(album: ""), endpoint: "https://lb.example.org", token: "t")] {
+                let without = try listen(request)
+                #expect(without["release_name"] == nil)
+                #expect(without["artist_name"] as? String == "Artist")
+            }
         }
     }
 
@@ -639,11 +698,11 @@ extension AllTests {
             env.service.trackDidEnd(track("too short to scrobble", duration: 29), playedSeconds: 29)
             env.service.trackDidEnd(track("no duration", duration: 0), playedSeconds: 500)
             env.service.trackDidEnd(track("no artist", artist: "  "), playedSeconds: 200)
-            env.service.trackDidEnd(track("untagged", artist: TagFallback.artist), playedSeconds: 200)
+            env.service.trackDidEnd(track("untagged", artist: ""), playedSeconds: 200)
             env.service.trackDidEnd(track("half"), playedSeconds: 100)
             env.service.trackDidEnd(track("long track", duration: 1000), playedSeconds: 240)
             env.service.trackDidEnd(track("long track, not yet", duration: 1000), playedSeconds: 239)
-            env.service.trackDidStart(track("untagged", artist: TagFallback.artist))
+            env.service.trackDidStart(track("untagged", artist: ""))
 
             #expect(await waitUntil { env.transport.requests.count == 3 })
             try? await Task.sleep(for: .milliseconds(30))

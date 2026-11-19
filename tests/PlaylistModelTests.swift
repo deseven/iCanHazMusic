@@ -178,6 +178,13 @@ extension AllTests {
             #expect(a.key == "/M/A\u{1F}some album")
             #expect(AlbumKey.make(directory: URL(fileURLWithPath: "/M/B"), title: "x") != AlbumKey.make(directory: URL(fileURLWithPath: "/M/A"), title: "x"))
         }
+
+        @Test("an album without a title keeps the key it had when the data said Unknown Album (covers are cached under it)")
+        func untitledAlbumKey() {
+            let bare = TrackEntry(path: "/M/A/1.mp3", artist: "", album: "", title: "", trackNumber: nil, year: nil,
+                                  duration: nil, codec: "MP3")
+            #expect(Make.albums([bare])[0].key == "/M/A\u{1F}unknown album")
+        }
     }
 
     @MainActor @Suite("TrackEntry")
@@ -186,13 +193,13 @@ extension AllTests {
             try JSONDecoder().decode(TrackEntry.self, from: Data(json.utf8))
         }
 
-        @Test("only the path is required, the rest falls back")
+        @Test("only the path is required, the rest is empty (and shown as Unknown ... / the file name)")
         func lenient() throws {
             let e = try decode(#"{"path": "/Music/Artist/Album/01 Song.flac"}"#)
             #expect(e.path == "/Music/Artist/Album/01 Song.flac")
-            #expect(e.title == "01 Song")
-            #expect(e.artist == TagFallback.artist)
-            #expect(e.album == TagFallback.album)
+            #expect(e.title.isEmpty && e.artist.isEmpty && e.album.isEmpty)
+            #expect(e.displayTitle == "01 Song")
+            #expect(e.displayArtist == TagFallback.artist)
             #expect(e.codec == "FLAC")
             #expect(e.trackNumber == nil)
             #expect(e.year == nil)
@@ -206,15 +213,38 @@ extension AllTests {
             #expect(throws: (any Error).self) { try decode(#"{"path": 5}"#) }
         }
 
-        @Test("values of the wrong type are replaced by the fallbacks")
+        @Test("values of the wrong type are read as missing")
         func wrongTypes() throws {
             let e = try decode(#"{"path": "/a/b.mp3", "artist": 5, "album": "", "title": null, "trackNumber": "x", "year": 2019, "duration": "long"}"#)
-            #expect(e.artist == TagFallback.artist)
-            #expect(e.album == TagFallback.album)
-            #expect(e.title == "b")
+            #expect(e.artist.isEmpty && e.album.isEmpty && e.title.isEmpty)
+            #expect(e.displayTitle == "b")
             #expect(e.trackNumber == nil)
             #expect(e.year == nil)
             #expect(e.duration == nil)
+        }
+
+        @Test("the texts older versions wrote for missing tags are read as missing")
+        func legacyPlaceholders() throws {
+            let old = try decode(#"{"path": "/a/b.mp3", "artist": "Unknown Artist", "album": "Unknown Album", "title": "Unknown Track"}"#)
+            #expect(old.artist.isEmpty && old.album.isEmpty && old.title.isEmpty)
+            // Only the text of the field itself: it is a missing value there, nowhere else.
+            let other = try decode(#"{"path": "/a/b.mp3", "artist": "Unknown Album", "album": "Unknown Track", "title": "Unknown Artist"}"#)
+            #expect(other.artist == "Unknown Album" && other.album == "Unknown Track" && other.title == "Unknown Artist")
+            let blank = try decode(#"{"path": "/a/b.mp3", "artist": "  ", "album": "\t"}"#)
+            #expect(blank.artist.isEmpty && blank.album.isEmpty)
+        }
+
+        @Test("missing artist, album and title are left out of the file")
+        func missingOmitted() throws {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let bare = TrackEntry(path: "/a/b.mp3", artist: "", album: "", title: "", trackNumber: nil, year: nil,
+                                  duration: nil, codec: "MP3")
+            let text = try String(decoding: encoder.encode(bare), as: UTF8.self)
+            #expect(!text.contains("artist") && !text.contains("album") && !text.contains("title"))
+            #expect(!text.contains("Unknown"))
+            let decoded = try JSONDecoder().decode(TrackEntry.self, from: Data(text.utf8))
+            #expect(decoded.artist.isEmpty && decoded.album.isEmpty && decoded.title.isEmpty)
         }
 
         @Test("full entry round-trips; unknown values are omitted from the file")
@@ -239,15 +269,31 @@ extension AllTests {
             #expect(!sparse.contains("duration"))
         }
 
-        @Test("from a tag result: the title falls back to the file name, the codec is the upper-cased extension")
+        @Test("from a tag result: no title stays none (shown as the file name), the codec is the upper-cased extension")
         func fromResult() {
             let tagged = TrackEntry(result: Make.result("/M/A/01 whatever.ogg", title: "Real Title"))
             #expect(tagged.title == "Real Title")
+            #expect(tagged.displayTitle == "Real Title")
             #expect(tagged.codec == "OGG")
 
             let untitled = TrackEntry(result: Make.result("/M/A/01 whatever.Flac", title: nil))
-            #expect(untitled.title == "01 whatever")
+            #expect(untitled.title.isEmpty)
+            #expect(untitled.displayTitle == "01 whatever")
             #expect(untitled.codec == "FLAC")
+        }
+
+        @Test("what is shown for missing values: Unknown Artist and Album, the file's name for a title")
+        func displayValues() {
+            let bare = [TrackEntry(path: "/M/A/Song.mp3", artist: "", album: "", title: "", trackNumber: nil, year: nil,
+                                   duration: nil, codec: "MP3")]
+            let album = Make.albums(bare)[0]
+            #expect(album.title.isEmpty && album.artist.isEmpty && album.tracks[0].title.isEmpty)
+            #expect(album.displayTitle == TagFallback.album && album.displayArtist == TagFallback.artist)
+            #expect(album.tracks[0].displayArtist == TagFallback.artist)
+            #expect(album.tracks[0].displayTitle == "Song")
+
+            let named = Make.albums([Make.entry("/M/A/1.mp3", artist: "Ar", album: "Al", title: "Ti")])[0]
+            #expect(named.displayTitle == "Al" && named.displayArtist == "Ar" && named.tracks[0].displayTitle == "Ti")
         }
 
         @Test("from an album track, with the album's title and year")

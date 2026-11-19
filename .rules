@@ -28,6 +28,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 
 **Playlists and tracks**
 - Refer to tracks by `TrackID` wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.
+- **Missing tags are empty in the data, "Unknown X" exists only on screen.** `TrackTags`, `TrackEntry`, `Track`, `Album` and `PlayedTrack` hold `""` for a missing artist, album or title; whatever is shown (playlist, queue, search, notifications, Dock menu, system Now Playing, logs, export labels) goes through `displayArtist`/`displayTitle`/... (`TrackDisplay.swift`, `TagFallback`; a missing title is shown as the file's name). Whatever is sent or looked up (scrobbling, LRCLIB, lyrics keys) takes the data, so never pass a `display...` value there. Playlist files from before this have the texts written out; `TrackEntry` decoding reads them as missing.
 - A CUE track has the pseudo path `/path/album.cue:N` and a `cue` object, always together. Compare playback sources, never URLs (`dev-docs/cue.md`).
 - Edits that replace the active content go through `PlaylistStore` and tell `PlaybackState.playlistWasReplaced`, so the playing track is found again by ID.
 
@@ -36,7 +37,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 - **Files are read through a `PCMSource`** (`Core/Playback/Sources`, picked by `PCMSources.open` from the extension), never `AVAudioFile` directly: `AVAudioFileSource` for what macOS opens, `WavPackSource` and `APESource` (the vendored decoders) for `.wv` and `.ape`, which macOS can't open at all. Only those two import `CWavPack`/`CMonkeysAudio`; tags of these formats (APEv2, `ApeTag`) are plain Swift. A source's `codec` text and the one made at import (`TagReadResult.codec`) must be the same.
 - **A track counts as started only when its audio does** (the engine's `.started` event): listeners, logs and `trackDidEnd` wait for it, a file that can't be played is never announced.
 - **A file that doesn't answer (network share gone) must never stall the feeder** or the main thread.
-- Tracks without tags are never looked up on LRCLIB or sent to the scrobbling services.
+- Tracks without an artist or a title are never looked up on LRCLIB or sent to the scrobbling services (`PlayedTrack.hasTags`); a missing album is sent empty (Audioscrobbler) or left out (ListenBrainz).
 - `AppKit` callbacks from the system (media keys, `MPRemoteCommandCenter`) arrive on their own queue: build their closures in `nonisolated` helpers (isolated closures trap).
 
 **Config and caches**

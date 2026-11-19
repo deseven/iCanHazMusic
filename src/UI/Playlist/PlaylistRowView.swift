@@ -83,15 +83,13 @@ private struct AlbumHeaderContent: View {
     /// `Artist          Album [tags]`: both texts are cut short when the room runs out, the tags never are.
     private var singleLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(album.artist)
+            Text(album.displayArtist)
                 .font(.system(size: 13, weight: .bold))
                 .lineLimit(1)
             Spacer(minLength: 12)
-            if !album.title.isEmpty {
-                Text(album.title)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-            }
+            Text(album.displayTitle)
+                .font(.system(size: 12))
+                .lineLimit(1)
             tags.fixedSize()
                 .alignmentGuide(.firstTextBaseline) { $0[.firstTextBaseline] + Layout.albumTagBaselineLift }
         }
@@ -104,8 +102,8 @@ private struct AlbumHeaderContent: View {
     /// The three lines: artist, album, tags.
     private func info(alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 0) {
-            Text(album.artist).font(.system(size: 13, weight: .bold))
-            Text(album.title).font(.system(size: 12))
+            Text(album.displayArtist).font(.system(size: 13, weight: .bold))
+            Text(album.displayTitle).font(.system(size: 12))
             tags.padding(.top, 3)
         }
         .lineLimit(1)
@@ -175,7 +173,7 @@ private struct AlbumTag: View {
 /// columns line up on the left).
 private struct TrackRowContent: View {
     let track: Track
-    /// Album title as the lyrics are keyed by it.
+    /// Album title as the lyrics are keyed by it (the data: empty if the album has none).
     let album: String
     /// Compilation albums and flat playlists: "artist – title" instead of just the title.
     let showArtist: Bool
@@ -217,7 +215,7 @@ private struct TrackRowContent: View {
                 .opacity(0.65)
                 .frame(width: style.scaled(Layout.trackNumberColumnWidth), alignment: .trailing)
         case .title:
-            Text(showArtist ? "\(track.artist) – \(track.title)" : track.title)
+            Text(showArtist ? "\(track.displayArtist) – \(track.displayTitle)" : track.displayTitle)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .duration:
@@ -287,7 +285,7 @@ private struct QueueRowContent: View {
                 .monospacedDigit()
                 .opacity(0.65)
                 .frame(width: style.scaled(Layout.queueNumberColumnWidth), alignment: .trailing)
-            Text("\(track.artist) – \(track.title)")
+            Text("\(track.displayArtist) – \(track.displayTitle)")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, style.scaled(12))

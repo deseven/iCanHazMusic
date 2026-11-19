@@ -37,7 +37,7 @@ enum CoverCache {
         let generation = generation
         try? await Task.sleep(for: loadDelay)
         guard !Task.isCancelled,
-              let rendered = await render(key: album.key, artist: album.artist, title: album.title) else { return nil }
+              let rendered = await render(key: album.key, artist: album.displayArtist, title: album.displayTitle) else { return nil }
         let image = NSImage(cgImage: rendered, size: NSSize(width: Layout.coverSize, height: Layout.coverSize))
         if generation == self.generation { cache.setObject(image, forKey: album.key as NSString) }
         return image

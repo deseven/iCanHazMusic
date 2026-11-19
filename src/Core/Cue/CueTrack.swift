@@ -135,8 +135,8 @@ struct CueTrack: Equatable, Sendable {
 
     /// The tag result of this track as a part of its audio file, with the pseudo path of the sheet's track (what
     /// reloading a track that is in a playlist yields, whether the sheet cuts the file or not). The values are merged
-    /// as described at `mergedTags`, through the usual rules for missing tags: "Unknown Artist", "Unknown Track",
-    /// "Unknown Album". What reading the audio file found gives the length of the last track, the artwork, and
+    /// as described at `mergedTags`, through the usual rules for missing tags (they stay empty, see `TagFallback`).
+    /// What reading the audio file found gives the length of the last track, the artwork, and
     /// whether the file can be read at all. A track with no tags at all is still a track.
     func tagResult(id: Int, from file: TagReadResult) -> TagReadResult {
         var raw = mergedTags(with: file)

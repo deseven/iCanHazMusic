@@ -80,7 +80,7 @@ extension AllTests {
 
             #expect(!outcome.aborted)
             #expect(outcome.results.map(\.url.path) == files.map(\.path))
-            #expect(outcome.results.map(\.tags.album) == ["TAlbum", TagFallback.album, "TAlbum"])
+            #expect(outcome.results.map(\.tags.album) == ["TAlbum", "", "TAlbum"])
             #expect(outcome.results.map(\.status.isFailure) == [false, true, false])
             #expect(session.total == 3 && session.processed == 3 && session.failed == 1)
             #expect(session.stage == .updating && session.isFinishing)

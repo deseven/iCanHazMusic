@@ -43,13 +43,26 @@ extension AllTests {
         @Test("a track without cover, album or duration says only what is known")
         func sparseTrack() throws {
             let (service, delivery, _) = try makeService()
-            var track = ScrobbleTestData.track(album: TagFallback.album, duration: 0)
+            var track = ScrobbleTestData.track(album: "", duration: 0)
             track.coverKey = "nothing-cached"
             service.trackDidStart(track)
 
             let sent = try #require(delivery.delivered.first)
             #expect(sent.message.body.isEmpty)
             #expect(sent.cover == nil)
+        }
+
+        @Test("what the tags don't say is shown as Unknown Artist, and the file's name for a missing title")
+        func untagged() throws {
+            let (service, delivery, _) = try makeService()
+            var track = ScrobbleTestData.track(artist: "", title: "", album: "", duration: 0)
+            track.url = URL(fileURLWithPath: "/Music/A/Some Song.mp3")
+            service.trackDidStart(track)
+            #expect(delivery.delivered.first?.message == NotificationMessage(title: "Some Song", subtitle: TagFallback.artist, body: ""))
+
+            track.url = nil
+            service.trackDidStart(track)
+            #expect(delivery.delivered.last?.message.title == TagFallback.title)
         }
 
         @Test("the end of the playlist is announced, the end of a track isn't")
