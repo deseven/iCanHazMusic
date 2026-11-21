@@ -83,6 +83,8 @@ final class PlaybackState {
     private(set) var duration: Double = 0
     /// Original album art cut to a square. The only one kept in memory; nil while loading or if there is none.
     private(set) var artwork: CGImage?
+    /// Where `artwork` came from, to read the original image again (for copying it).
+    private(set) var artworkLookup: PlaybackArtwork.Lookup?
     /// The art of the playing album is being looked up (`artwork` is nil meanwhile).
     private(set) var isLoadingArtwork = false
 
@@ -1109,6 +1111,7 @@ final class PlaybackState {
         guard key != artworkKey else { return }
         artworkKey = key
         artwork = nil
+        artworkLookup = nil
         isLoadingArtwork = true
         artworkTask?.cancel()
 
@@ -1116,10 +1119,12 @@ final class PlaybackState {
         let others = album.tracks.indices.lazy.filter { $0 != trackIndex }.prefix(2).map { album.tracks[$0].url }
         let files = [album.tracks[trackIndex].url] + others
 
+        let lookup = PlaybackArtwork.Lookup(directory: directory, files: files)
         artworkTask = Task { [weak self] in
-            let image = await PlaybackArtwork.load(directory: directory, embeddedFrom: files)
+            let image = await PlaybackArtwork.load(lookup)
             guard !Task.isCancelled, let self, self.artworkKey == key else { return }
             self.artwork = image
+            self.artworkLookup = image == nil ? nil : lookup
             self.isLoadingArtwork = false
         }
     }
@@ -1130,6 +1135,7 @@ final class PlaybackState {
         artworkTask = nil
         artworkKey = nil
         artwork = nil
+        artworkLookup = nil
         isLoadingArtwork = false
     }
 

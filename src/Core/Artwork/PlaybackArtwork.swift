@@ -15,9 +15,27 @@ enum PlaybackArtwork {
     /// Safety net against freak images; real covers are far below this.
     private static let maxPixels = 8192
 
-    /// `embeddedFrom`: the album's files in the order they should be tried for embedded art (the playing one
-    /// first). nil if the album has no usable art.
-    static func load(directory: URL, embeddedFrom files: [URL]) async -> CGImage? {
+    /// Where to look for an album's art: its directory and its files in the order they should be tried for
+    /// embedded art (the playing one first).
+    struct Lookup: Sendable {
+        let directory: URL
+        let files: [URL]
+    }
+
+    /// The art cut to a square. nil if the album has no usable art.
+    static func load(_ lookup: Lookup) async -> CGImage? {
+        await find(lookup)?.image
+    }
+
+    /// The art as found (the bytes of the image file or of the tag's picture, in their own format, uncropped): what
+    /// `load` made its image from, read again.
+    static func loadOriginal(_ lookup: Lookup) async -> Data? {
+        await find(lookup)?.data
+    }
+
+    private static func find(_ lookup: Lookup) async -> (data: Data, image: CGImage)? {
+        let directory = lookup.directory
+        let files = lookup.files
         let listing = (try? await TagReader.offload(timeout: timeout) { ExternalArtwork.scan(directory: directory) }) ?? .empty
 
         var candidates: [AlbumArtJob.Candidate] = []
@@ -33,7 +51,7 @@ enum PlaybackArtwork {
             if Task.isCancelled { return nil }
             guard let data = await AlbumArtProcessor.load(candidate) else { continue }
             let image = await Task.detached(priority: .userInitiated) { square(from: data) }.value
-            if let image { return image }
+            if let image { return (data, image) }
         }
         return nil
     }

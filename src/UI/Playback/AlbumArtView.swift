@@ -9,6 +9,8 @@ import SwiftUI
 /// Clicking the art opens it at its original size in a sheet (`AlbumArtSheet`).
 struct AlbumArtView: View {
     let image: CGImage?
+    /// Where `image` came from, for the sheet's Copy button.
+    let lookup: PlaybackArtwork.Lookup?
     let isStopped: Bool
     let isLoading: Bool
 
@@ -19,8 +21,8 @@ struct AlbumArtView: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
             .onTapGesture {
-                guard !isStopped, !isLoading, let image else { return }
-                AlbumArtSheet.present(image)
+                guard !isStopped, !isLoading, let image, let lookup else { return }
+                AlbumArtSheet.present(image, lookup: lookup)
             }
             .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
     }

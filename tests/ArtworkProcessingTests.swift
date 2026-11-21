@@ -225,12 +225,23 @@ extension AllTests {
             #expect(PlaybackArtwork.square(from: Data("nope".utf8)) == nil)
         }
 
+        @Test("the original is the uncropped file, byte for byte")
+        func originalBytes() async throws {
+            let dir = try TempDir()
+            let png = TestImages.make(width: 90, height: 60)
+            try dir.write("folder.png", png)
+            let lookup = PlaybackArtwork.Lookup(directory: dir.url, files: [])
+            #expect(await PlaybackArtwork.loadOriginal(lookup) == png)
+            #expect(await PlaybackArtwork.load(lookup)?.width == 60)
+            #expect(await PlaybackArtwork.loadOriginal(.init(directory: dir.url.appendingPathComponent("nope"), files: [])) == nil)
+        }
+
         @Test("loads the folder image of an album")
         func loadsFolderImage() async throws {
             let dir = try TempDir()
             try dir.write("01.mp3")
             try dir.copy("art/cover.jpg", to: "cover.jpg")
-            let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.mp3")])
+            let image = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.mp3")]))
             #expect(image?.width == 200)
             #expect(image?.height == 200)
         }
@@ -240,11 +251,11 @@ extension AllTests {
             let dir = try TempDir()
             try dir.copy("formats/t_cover.mp3", to: "01.mp3")         // embedded: 300x200 -> 200
             try dir.write("big.png", TestImages.make(width: 90, height: 90))
-            let embedded = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.mp3")])
+            let embedded = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.mp3")]))
             #expect(embedded?.width == 200)
 
             try dir.write("folder.png", TestImages.make(width: 60, height: 60))
-            let folder = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.mp3")])
+            let folder = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.mp3")]))
             #expect(folder?.width == 60)
         }
 
@@ -252,11 +263,11 @@ extension AllTests {
         func lastResort() async throws {
             let dir = try TempDir()
             try dir.copy("formats/t_v23.mp3", to: "01.mp3")
-            let none = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.mp3")])
+            let none = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.mp3")]))
             #expect(none == nil)
 
             try dir.write("scan.png", TestImages.make(width: 90, height: 90))
-            let any = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.mp3")])
+            let any = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.mp3")]))
             #expect(any?.width == 90)
         }
 
@@ -265,7 +276,7 @@ extension AllTests {
             let dir = try TempDir()
             try dir.write("cover.jpg", Data("not a jpeg".utf8))
             try dir.write("other.png", TestImages.make(width: 70, height: 70))
-            let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [])
+            let image = await PlaybackArtwork.load(.init(directory: dir.url, files: []))
             #expect(image?.width == 70)
         }
 
@@ -273,7 +284,7 @@ extension AllTests {
         func flacEmbedded() async throws {
             let dir = try TempDir()
             try dir.copy("formats/t_cover.flac", to: "01.flac")
-            let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01.flac")])
+            let image = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01.flac")]))
             #expect(image?.width == 200)
         }
 
@@ -281,7 +292,7 @@ extension AllTests {
         func extraFormatEmbedded(ext: String) async throws {
             let dir = try TempDir()
             try dir.copy("formats/t_cover." + ext, to: "01." + ext)
-            let image = await PlaybackArtwork.load(directory: dir.url, embeddedFrom: [dir.path("01." + ext)])
+            let image = await PlaybackArtwork.load(.init(directory: dir.url, files: [dir.path("01." + ext)]))
             #expect(image?.width == 200)
         }
     }

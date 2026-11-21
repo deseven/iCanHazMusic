@@ -12,13 +12,13 @@ enum AlbumArtSheet {
     private static var panel: NSWindow?
     private static var outsideClicks: OutsideClickDismisser?
 
-    static func present(_ image: CGImage) {
+    static func present(_ image: CGImage, lookup: PlaybackArtwork.Lookup) {
         guard panel == nil, let parent = Dialogs.hostWindow, parent.isVisible, parent.attachedSheet == nil else { return }
         // The layout rect, not the content rect: the sheet hangs below the title bar/toolbar, which a full-size
         // content view makes part of the latter.
         let content = parent.contentLayoutRect.size
         let limit = AlbumArtSheetView.imageLimit(inWindowContent: content)
-        let hosting = NSHostingController(rootView: AlbumArtSheetView(image: image, limit: limit, close: dismiss))
+        let hosting = NSHostingController(rootView: AlbumArtSheetView(image: image, lookup: lookup, limit: limit, close: dismiss))
         hosting.sizingOptions = [.preferredContentSize]
         let panel = NSWindow(contentViewController: hosting)
         panel.styleMask = [.titled]
@@ -39,9 +39,14 @@ enum AlbumArtSheet {
 
 struct AlbumArtSheetView: View {
     let image: CGImage
+    /// Where the image came from: Copy reads the original from there.
+    let lookup: PlaybackArtwork.Lookup
     /// The most room the image may take.
     let limit: CGSize
     let close: () -> Void
+
+    @State private var copied = false
+    @State private var copying = false
 
     var body: some View {
         let size = Self.fittedSize(image: CGSize(width: image.width, height: image.height), limit: limit)
@@ -54,6 +59,14 @@ struct AlbumArtSheetView: View {
 
             HStack {
                 Spacer()
+                Button(copied ? "Copied" : "Copy") {
+                    copying = true
+                    Task {
+                        copied = await AlbumArtClipboard.copy(lookup)
+                        copying = false
+                    }
+                }
+                .disabled(copying)
                 Button("Close", action: close)
                     .keyboardShortcut(.cancelAction)
             }

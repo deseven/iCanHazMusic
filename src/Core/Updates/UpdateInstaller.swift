@@ -14,8 +14,8 @@ import Security
 /// The caller has to quit the app afterwards (`AppTermination`; Core doesn't know AppKit). The script doesn't rely
 /// on that: a self-update can't be fixed by a self-update, so a bug in the app's quit path would otherwise strand
 /// every user of that version (it happened in 1.0.0 and 1.1.0). If the app is still running after `QuitTimeouts`,
-/// the script sends SIGTERM, then SIGKILL; that may lose the last moments of config changes and cut the sound off,
-/// which beats a hung app.
+/// the script sends SIGTERM (which the app answers like a quit request, `AppDelegate.quitOnSIGTERM`), then SIGKILL;
+/// that may lose the last moments of config changes and cut the sound off, which beats a hung app.
 enum UpdateInstaller {
     /// How long the installer script waits for the app at each step, see `installerScript`.
     struct QuitTimeouts {

@@ -68,7 +68,7 @@ struct NowPlayingBlock: View {
     private func view(for component: NowPlayingComponent) -> some View {
         switch component {
         case .albumArt:
-            AlbumArtView(image: state.artwork, isStopped: state.isStopped, isLoading: state.isLoadingArtwork)
+            AlbumArtView(image: state.artwork, lookup: state.artworkLookup, isStopped: state.isStopped, isLoading: state.isLoadingArtwork)
                 .aspectRatio(1, contentMode: .fit)   // width-driven, always 1:1
         case .title:
             measured(component) {
