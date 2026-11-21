@@ -5,6 +5,8 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var terminateSignal: DispatchSourceSignal?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // When launched directly (e.g. `build.sh` running the binary from a terminal) instead of
         // via LaunchServices, the app isn't brought to front on its own and its window opens
@@ -13,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if MigrationActions.alertWasShown { openMainWindowAfterEarlyAlert() }
         MainThreadWatchdog.shared.start()
         observeSleep()
+        quitOnSIGTERM()
 
         PlaybackState.shared.onGiveUp = { PlaybackActions.gaveUp($0) }
         UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
@@ -60,6 +63,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         PlaybackState.shared.isWatched = Self.hasVisibleWindow
+    }
+
+    /// `kill <pid>` (build scripts, the updater's installer) quits like Cmd+Q instead of cutting the process off:
+    /// the music fades out and the writes are flushed. A hung main thread never gets to run this, which is what
+    /// the SIGKILL after it is for.
+    private func quitOnSIGTERM() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            Task { @MainActor in
+                // Quitting is ignored while a sheet is attached, see `AppTermination`.
+                for window in NSApp.windows {
+                    if let sheet = window.attachedSheet { window.endSheet(sheet) }
+                }
+                AppTermination.request(reason: "SIGTERM")
+            }
+        }
+        source.resume()
+        terminateSignal = source
     }
 
     /// Sleep and wake go into the log: what goes wrong with devices and network shares often starts there.

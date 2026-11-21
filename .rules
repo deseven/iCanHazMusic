@@ -24,7 +24,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 - Passwords and tokens of scrobbling services are kept in `config.json` XOR-obfuscated (`Obfuscation`), which only keeps them from being readable at a glance. `Obfuscation.key` is not a credential, but changing it makes the saved secrets unreadable.
 - `Info.plist` allows arbitrary loads (`NSAppTransportSecurity`) because scrobbling endpoints may be plain `http://` (a home server).
 - Notifications and self-update need a **signed bundle** (`ICHM_SIGNING_IDENTITY`; ad-hoc without it). Plain `swift build` gives an unbundled executable where they are unavailable.
-- **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: from async main-actor code it hangs the app while something plays. It's also ignored while a sheet is attached, so dismiss sheets first.
+- **The app quits itself only through `AppTermination.request(reason:)`**, never call `terminate` elsewhere: from async main-actor code it hangs the app while something plays. It's also ignored while a sheet is attached, so dismiss sheets first. SIGTERM is handled the same way (`AppDelegate.quitOnSIGTERM`), so `kill <pid>` is a normal quit; only SIGKILL cuts the app off.
 
 **Playlists and tracks**
 - Refer to tracks by `TrackID` wherever a reference must outlive a playlist edit; `(album, track)` positions and row numbers are only valid for one `Playlist` instance.

@@ -263,12 +263,34 @@ do_upload() {
     share "$1"
 }
 
+# Starts the installed app, quitting it first if it is running. Only the copy in /Applications is touched, a `dev`
+# run (from dist/, other path) is left alone.
+do_launch_installed() {
+    local pattern="^/Applications/$name.app/Contents/MacOS/$name"
+    if pgrep -f "$pattern" > /dev/null; then
+        # SIGTERM makes the app quit normally (fade out, flush); only if it doesn't go within 10 s it is killed.
+        pkill -TERM -f "$pattern" || true
+        local waited=0
+        while pgrep -f "$pattern" > /dev/null; do
+            if [ "$waited" -ge 50 ]; then
+                echo "$name didn't quit in time, killing it"
+                pkill -KILL -f "$pattern" || true
+                sleep 1
+                break
+            fi
+            sleep 0.2
+            waited=$((waited + 1))
+        done
+    fi
+    open "/Applications/$name.app"
+}
+
 # ── Calculate total steps per mode ───────────────────────────────────
 case "$mode" in
     dev)         totalSteps=5 ;;
     test)        totalSteps=1 ;;
     dev-release)
-        totalSteps=11
+        totalSteps=12
         if [ "$can_notarize" = true ]; then
             totalSteps=$((totalSteps + 2))
         fi
@@ -337,6 +359,7 @@ if [ "$mode" != "dev" ]; then
         fi
         run_step "Installing to /Applications..."  "failed to copy app to /Applications"     do_install
         run_step "Uploading dev build..."          "failed to upload dev build"               do_upload "$loc/dist/$distrName-dev.zip"
+                run_step "Starting from /Applications..."  "failed to start $name from /Applications"   do_launch_installed
     fi
 fi
 
