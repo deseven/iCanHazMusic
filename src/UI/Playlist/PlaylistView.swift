@@ -15,14 +15,43 @@ struct PlaylistView: View {
     private let settings = PlaylistSettings.shared
 
     var body: some View {
-        PlaylistContentView(playlist: store.activePlaylist, selection: $selection, cursor: $cursor,
-                            revealRow: $revealRow, playingRow: playback.playingRow,
-                            cursorFollowsPlayback: playback.cursorFollowsPlayback,
-                            style: TrackRowStyle(settings), name: store.activeName)
-            .overlay {
-                if !store.isLoading && store.activePlaylist.trackCount == 0 { EmptyPlaylistPlaceholder() }
+        VStack(spacing: 0) {
+            ReadOnlyNotice(id: store.activeID)
+            PlaylistContentView(playlist: store.activePlaylist, selection: $selection, cursor: $cursor,
+                                revealRow: $revealRow, playingRow: playback.playingRow,
+                                cursorFollowsPlayback: playback.cursorFollowsPlayback,
+                                style: TrackRowStyle(settings), id: store.activeID)
+                .overlay {
+                    if !store.isLoading && store.activePlaylist.trackCount == 0 { EmptyPlaylistPlaceholder() }
+                }
+                .id(store.activeID)
+        }
+    }
+}
+
+/// A line above a playlist of a Subsonic server that can't be changed now, with the reason (the user's changes are
+/// disabled, it can still be played).
+private struct ReadOnlyNotice: View {
+    let id: PlaylistID
+    private let remote = SubsonicPlaylists.shared
+
+    var body: some View {
+        if id.isRemote, let reason = remote.readOnlyReason(id) {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.fill")
+                Text("Read-only: \(reason)")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
             }
-            .id(store.activeName)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+        }
     }
 }
 
@@ -46,9 +75,11 @@ struct OpeningCover: View {
 }
 
 /// Shown in the middle of a playlist without tracks (a new one, or one that was emptied). Only the buttons take
-/// clicks; the rest doesn't, and nothing takes drops, so the window's drag and drop works as usual.
+/// clicks; the rest doesn't, and nothing takes drops, so the window's drag and drop works as usual. A playlist of a
+/// Subsonic server takes tracks of that server only (and no files).
 private struct EmptyPlaylistPlaceholder: View {
     private let importer = ImportCoordinator.shared
+    private let store = PlaylistStore.shared
 
     var body: some View {
         VStack(spacing: 14) {
@@ -62,25 +93,35 @@ private struct EmptyPlaylistPlaceholder: View {
             }
             .allowsHitTesting(false)
 
-            HStack(spacing: 10) {
+            if store.activeID.isRemote {
                 Button {
-                    Task { await importer.addDirectory() }
+                    Task { await SubsonicActions.addFromSubsonic() }
                 } label: {
-                    Label("Add Directory...", systemImage: "folder.badge.plus")
+                    Label("Add from Subsonic...", systemImage: "plus")
                 }
-                Button {
-                    Task { await importer.addFiles() }
-                } label: {
-                    Label("Add File(s)...", systemImage: "plus")
+                .controlSize(.large)
+                .disabled(importer.isBusy || !SubsonicActions.canAdd)
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await importer.addDirectory() }
+                    } label: {
+                        Label("Add Directory...", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        Task { await importer.addFiles() }
+                    } label: {
+                        Label("Add File(s)...", systemImage: "plus")
+                    }
                 }
-            }
-            .controlSize(.large)
-            .disabled(importer.isBusy)
+                .controlSize(.large)
+                .disabled(importer.isBusy)
 
-            Text("Or just drop audio files or folders anywhere on this window.")
-                .font(.callout)
-                .multilineTextAlignment(.center)
-                .allowsHitTesting(false)
+                Text("Or just drop audio files or folders anywhere on this window.")
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .allowsHitTesting(false)
+            }
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: 380)
@@ -96,12 +137,12 @@ private struct PlaylistContentView: View {
     let playingRow: Int?
     let cursorFollowsPlayback: Bool
     let style: TrackRowStyle
-    let name: String
+    let id: PlaylistID
 
     var body: some View {
         VirtualPlaylistView(playlist: playlist, selection: $selection, cursor: $cursor, revealRow: $revealRow,
                             playingRow: playingRow, cursorFollowsPlayback: cursorFollowsPlayback,
-                            style: style, playlistName: name) { row in
+                            style: style, playlistID: id) { row in
             PlaybackState.shared.play(row: row)
         }
         .background(Color(nsColor: .textBackgroundColor))

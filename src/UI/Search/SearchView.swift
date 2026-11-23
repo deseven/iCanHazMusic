@@ -131,7 +131,7 @@ private struct SearchRow: View {
             }
             if showsPlaylist, result.kind != .playlist {
                 WidthCap(maxWidth: 160) {
-                    Tag(text: result.playlist, tint: .playlistLabel, isSelected: isSelected)
+                    Tag(text: result.playlistName, tint: .playlistLabel, isSelected: isSelected)
                 }
             }
         }

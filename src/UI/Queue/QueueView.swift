@@ -20,7 +20,7 @@ struct QueueView: View {
         VirtualPlaylistView(playlist: Self.playlist(of: shown), selection: $selection, cursor: $cursor,
                             revealRow: $revealRow, playingRow: nil, cursorFollowsPlayback: false,
                             style: TrackRowStyle(settings), queue: shown.map(\.entry),
-                            showsQueuePlaylists: store.names.count > 1) { _ in }
+                            showsQueuePlaylists: store.count > 1) { _ in }
             .background(Color(nsColor: .textBackgroundColor))
             .overlay {
                 if shown.isEmpty { EmptyQueuePlaceholder() }
@@ -36,7 +36,7 @@ struct QueueView: View {
     /// The queued tracks that are still in their playlists, with what is known about them.
     private static func rows(of entries: [QueueEntry], in store: PlaylistStore) -> [(entry: QueueEntry, track: Track)] {
         entries.compactMap { entry in
-            store.playlist(named: entry.playlist)?.track(id: entry.id).map { (entry, $0) }
+            store.playlist(entry.playlist)?.track(id: entry.id).map { (entry, $0) }
         }
     }
 
@@ -46,8 +46,10 @@ struct QueueView: View {
         let albums = rows.enumerated().map { index, row in
             let track = Track(id: index + 1, url: row.track.url, number: nil, title: row.track.title,
                               artist: row.track.artist, duration: row.track.duration, codec: row.track.codec,
-                              cue: row.track.cue)
-            return Album(directory: URL(fileURLWithPath: row.track.path, isDirectory: false).deletingLastPathComponent(), artist: row.track.artist, title: "",
+                              cue: row.track.cue, subsonic: row.track.subsonic)
+            let directory = row.track.subsonic?.albumURL
+                ?? URL(fileURLWithPath: row.track.path, isDirectory: false).deletingLastPathComponent()
+            return Album(directory: directory, artist: row.track.artist, title: "",
                          year: nil, hasMultipleArtists: false, tracks: [track])
         }
         return Playlist(albums: albums, isFlat: true)

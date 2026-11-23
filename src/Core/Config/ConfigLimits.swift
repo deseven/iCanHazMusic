@@ -43,4 +43,9 @@ enum ConfigLimits {
     // Tag parsing: files read at the same time. 0 = automatic (see `TagReader.defaultConcurrency`).
     static let tagParsingConcurrencyAuto = 0
     static let tagParsingConcurrencyOptions = [tagParsingConcurrencyAuto, 1, 2, 4, 8, 16, 32]
+
+    // Downloaded files of a Subsonic connection that are kept (`SubsonicCacheSize`), in GB, between "none" and "unlimited".
+    static let subsonicCacheMinGB = 1
+    static let subsonicCacheMaxGB = 100
+    static let subsonicCacheDefaultGB = 5
 }

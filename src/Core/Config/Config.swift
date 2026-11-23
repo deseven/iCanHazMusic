@@ -452,6 +452,8 @@ struct AppConfig: Codable, Equatable {
     var integrations = Integrations()
     /// The scrobbling services, sorted by name (`validated()` and `ScrobblingService` keep them that way).
     var scrobbling: [ScrobbleServiceConfig] = []
+    /// The Subsonic connections, sorted by name (`validated()` and `SubsonicService` keep them that way).
+    var subsonic: [SubsonicConnectionConfig] = []
     var activePlaylist = AppConfig.defaultPlaylistName
 
     enum CodingKeys: String, CodingKey {
@@ -465,6 +467,7 @@ struct AppConfig: Codable, Equatable {
         case hotkeys
         case integrations
         case scrobbling
+        case subsonic
         case activePlaylist = "active_playlist"
     }
 
@@ -485,6 +488,8 @@ struct AppConfig: Codable, Equatable {
         // A service that can't be read is left out, the others stay.
         let services = (try? c.decodeIfPresent([Lossy<ScrobbleServiceConfig>].self, forKey: .scrobbling)) ?? []
         scrobbling = services.compactMap(\.value)
+        let connections = (try? c.decodeIfPresent([Lossy<SubsonicConnectionConfig>].self, forKey: .subsonic)) ?? []
+        subsonic = connections.compactMap(\.value)
         activePlaylist = c.value(.activePlaylist, default: d.activePlaylist)
     }
 
@@ -563,6 +568,16 @@ struct AppConfig: Codable, Equatable {
             }
             return service
         }.sorted(by: ScrobbleServiceConfig.isOrderedBefore)
+
+        var seenConnectionIDs = Set<UUID>()
+        result.subsonic = subsonic.map { connection in
+            var connection = connection.normalized
+            if !seenConnectionIDs.insert(connection.id).inserted {
+                connection.id = UUID()
+                seenConnectionIDs.insert(connection.id)
+            }
+            return connection
+        }.sorted(by: SubsonicConnectionConfig.isOrderedBefore)
 
         if let state = playback.state, !state.isValid {
             result.playback.state = defaults.playback.state

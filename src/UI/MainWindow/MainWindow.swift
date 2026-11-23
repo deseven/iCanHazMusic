@@ -11,9 +11,14 @@ struct MainWindow: View {
     private let windowSettings = WindowSettings.shared
     @Environment(\.openWindow) private var openWindow
 
-    /// The app name, followed by the active playlist's name if there are several playlists to tell apart.
+    /// The app name, followed by the active playlist's name if there are several playlists to tell apart (and for a
+    /// playlist of a Subsonic server its connection).
     private var windowTitle: String {
-        store.names.count > 1 ? "\(AppConstants.appName) • \(store.activeName)" : AppConstants.appName
+        guard store.count > 1 else { return AppConstants.appName }
+        let id = store.activeID
+        let name = store.displayName(of: id)
+        guard let connection = store.connectionName(of: id) else { return "\(AppConstants.appName) • \(name)" }
+        return "\(AppConstants.appName) • \(name) • \(connection)"
     }
 
     var body: some View {

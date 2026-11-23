@@ -12,7 +12,9 @@ struct SearchResult: Identifiable, Equatable {
 
     let kind: Kind
     /// The playlist it is in (or is).
-    let playlist: String
+    let playlist: PlaylistID
+    /// What the playlist is called (with its connection for a remote one, see `PlaylistStore.qualifiedName`).
+    let playlistName: String
     /// The track; for an album its first track. `nil` for a playlist. It is how the result is found again if the
     /// playlist has changed since (positions aren't stable).
     let trackID: TrackID?
@@ -23,14 +25,14 @@ struct SearchResult: Identifiable, Equatable {
     /// Album only.
     let year: String?
 
-    var id: String { "\(kind.rawValue)\u{1F}\(playlist)\u{1F}\(trackID ?? 0)" }
+    var id: String { "\(kind.rawValue)\u{1F}\(playlist.text)\u{1F}\(trackID ?? 0)" }
 
     /// What the result line shows next to the kind: the name of a playlist, "Artist – Title" for a track,
     /// "Artist – Album (Year)" for an album.
     var text: String {
         switch kind {
         case .playlist:
-            return playlist
+            return playlistName
         case .track:
             return "\(artist) – \(title)"
         case .album:
@@ -56,11 +58,14 @@ final class SearchIndex: @unchecked Sendable {
         let tracks: [TrackText]
     }
 
+    let id: PlaylistID
+    /// What the playlist is called in the results.
     let name: String
     let playlist: Playlist
     let albums: [AlbumText]
 
-    init(name: String, playlist: Playlist) {
+    init(id: PlaylistID, name: String, playlist: Playlist) {
+        self.id = id
         self.name = name
         self.playlist = playlist
         albums = playlist.albums.map { album in
@@ -112,10 +117,11 @@ enum SearchEngine {
         let order: Int
     }
 
-    /// `playlistNames`: all playlists, also those that have no index (yet). `preferred`: the playlist whose entries
-    /// come first.
-    static func search(_ query: String, indexes: [SearchIndex], playlistNames: [String], preferred: String?,
-                       options: SearchOptions = SearchOptions(), limit: Int = defaultLimit) -> [SearchResult] {
+    /// `playlists`: all playlists with what they are called, also those that have no index (yet). `preferred`: the
+    /// playlist whose entries come first.
+    static func search(_ query: String, indexes: [SearchIndex], playlists: [(id: PlaylistID, name: String)],
+                       preferred: PlaylistID?, options: SearchOptions = SearchOptions(),
+                       limit: Int = defaultLimit) -> [SearchResult] {
         let words = SearchText.tokens(of: query)
         guard !words.isEmpty else { return [] }
 
@@ -129,15 +135,16 @@ enum SearchEngine {
 
         let fuzzy = options.fuzzy
 
-        if options.playlists, playlistNames.count > 1 {
+        if options.playlists, playlists.count > 1 {
             let wanted = SearchText.normalized(words)
-            for (i, name) in playlistNames.enumerated() where SearchText.normalized(SearchText.tokens(of: name)) == wanted {
+            for (i, playlist) in playlists.enumerated()
+            where SearchText.normalized(SearchText.tokens(of: playlist.name)) == wanted {
                 add(FieldMatch(isExact: true, score: 0), group: Self.playlistGroup, kind: .playlist, index: i)
             }
         }
 
         for (n, index) in indexes.enumerated() {
-            let group = index.name == preferred ? 0 : 1
+            let group = index.id == preferred ? 0 : 1
             let isFlat = index.playlist.isFlat
             for (a, album) in index.albums.enumerated() {
                 // What each word finds in the album's own fields, which all its tracks share. Without album
@@ -186,18 +193,20 @@ enum SearchEngine {
         return candidates.prefix(limit).map { candidate in
             switch candidate.kind {
             case .playlist:
-                return SearchResult(kind: .playlist, playlist: playlistNames[candidate.index], trackID: nil,
+                let playlist = playlists[candidate.index]
+                return SearchResult(kind: .playlist, playlist: playlist.id, playlistName: playlist.name, trackID: nil,
                                     artist: "", title: "", year: nil)
             case .album:
                 let index = indexes[candidate.index]
                 let album = index.playlist.albums[candidate.album]
-                return SearchResult(kind: .album, playlist: index.name, trackID: album.tracks.first?.id,
+                return SearchResult(kind: .album, playlist: index.id, playlistName: index.name,
+                                    trackID: album.tracks.first?.id,
                                     artist: album.displayArtist, title: album.displayTitle, year: album.year)
             case .track:
                 let index = indexes[candidate.index]
                 let album = index.playlist.albums[candidate.album]
                 let track = album.tracks[candidate.track]
-                return SearchResult(kind: .track, playlist: index.name, trackID: track.id,
+                return SearchResult(kind: .track, playlist: index.id, playlistName: index.name, trackID: track.id,
                                     artist: track.displayArtist, title: track.displayTitle, year: nil)
             }
         }
@@ -212,12 +221,13 @@ final class PlaylistSearcher {
 
     private struct Entry {
         let playlist: Playlist
+        let name: String
         let task: Task<SearchIndex, Never>
     }
 
     private let store: PlaylistStore
     private let settings: SearchSettings
-    private var entries: [String: Entry] = [:]
+    private var entries: [PlaylistID: Entry] = [:]
 
     /// `settings`: what the searches look at; the default is every kind of result with fuzzy matching.
     init(store: PlaylistStore, settings: SearchSettings? = nil) {
@@ -228,9 +238,9 @@ final class PlaylistSearcher {
     /// Starts making the indexes that are missing or out of date, so the first search doesn't wait for them.
     func prepare() {
         let snapshot = store.loadedPlaylists
-        let current = Set(snapshot.map(\.name))
-        for name in entries.keys where !current.contains(name) { entries[name] = nil }
-        for (name, playlist) in snapshot { _ = index(name: name, playlist: playlist) }
+        let current = Set(snapshot.map(\.id))
+        for id in entries.keys where !current.contains(id) { entries[id] = nil }
+        for (id, playlist) in snapshot { _ = index(id: id, playlist: playlist) }
     }
 
     /// The results for `query` over the playlists that are in memory (the others are found by name only).
@@ -239,21 +249,23 @@ final class PlaylistSearcher {
         guard !SearchText.tokens(of: query).isEmpty else { return [] }
         prepare()
         var indexes: [SearchIndex] = []
-        for (name, playlist) in store.loadedPlaylists {
-            indexes.append(await index(name: name, playlist: playlist).value)
+        for (id, playlist) in store.loadedPlaylists {
+            indexes.append(await index(id: id, playlist: playlist).value)
         }
-        let names = store.names
-        let preferred = store.playingName ?? store.activeName
+        let playlists = store.ids.map { (id: $0, name: store.qualifiedName(of: $0)) }
+        let preferred = store.playingID ?? store.activeID
         return await Task.detached(priority: .userInitiated) {
-            SearchEngine.search(query, indexes: indexes, playlistNames: names, preferred: preferred, options: options,
+            SearchEngine.search(query, indexes: indexes, playlists: playlists, preferred: preferred, options: options,
                                 limit: limit)
         }.value
     }
 
-    private func index(name: String, playlist: Playlist) -> Task<SearchIndex, Never> {
-        if let entry = entries[name], entry.playlist === playlist { return entry.task }
-        let task = Task.detached(priority: .userInitiated) { SearchIndex(name: name, playlist: playlist) }
-        entries[name] = Entry(playlist: playlist, task: task)
+    /// The index of a playlist's content (made again when the content or the playlist's name changed).
+    private func index(id: PlaylistID, playlist: Playlist) -> Task<SearchIndex, Never> {
+        let name = store.qualifiedName(of: id)
+        if let entry = entries[id], entry.playlist === playlist, entry.name == name { return entry.task }
+        let task = Task.detached(priority: .userInitiated) { SearchIndex(id: id, name: name, playlist: playlist) }
+        entries[id] = Entry(playlist: playlist, name: name, task: task)
         return task
     }
 }

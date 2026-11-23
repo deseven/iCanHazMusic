@@ -13,13 +13,13 @@ enum PlaylistActions {
     /// by typing the extension).
     static func exportActive() async {
         let playlist = store.activePlaylist
-        guard playlist.trackCount > 0, let window = await MainWindowOpener.shared.show() else { return }
+        guard !store.activeID.isRemote, playlist.trackCount > 0, let window = await MainWindowOpener.shared.show() else { return }
 
         let panel = NSSavePanel()
         panel.message = "Export the playlist to a file"
         panel.prompt = "Export"
         panel.canCreateDirectories = true
-        let picker = ExportFormatPicker(panel: panel, name: store.activeName)
+        let picker = ExportFormatPicker(panel: panel, name: store.displayName(of: store.activeID))
         panel.accessoryView = picker.view
         guard await panel.beginSheetModal(for: window) == .OK, var url = panel.url else { return }
 
@@ -38,7 +38,7 @@ enum PlaylistActions {
             Log.info("exported \(playlist.trackCount - export.skipped) tracks to \(url.path), \(export.skipped) skipped")
             if export.skipped > 0 {
                 let n = export.skipped
-                await Dialogs.showInfo("\(n) \(n == 1 ? "entry was" : "entries were") not exported, format is unsupported.",
+                await Dialogs.showInfo("\(n) \(n == 1 ? "entry was" : "entries were") not exported: tracks of CUE sheets and from Subsonic servers can't be written to these formats.",
                                        title: "Export Incomplete")
             }
         } catch {
@@ -47,22 +47,30 @@ enum PlaylistActions {
         }
     }
 
-    static func create() async {
+    /// Makes a new playlist: on this Mac (`connection` nil) or on a Subsonic server.
+    static func create(on connection: UUID? = nil) async {
+        let service = SubsonicService.shared
+        let place = connection.map { " on \(service.displayName(of: $0))" } ?? ""
         guard let input = await Dialogs.promptForText(
             title: "New Playlist",
-            message: "Enter a name for the new playlist:",
+            message: "Enter a name for the new playlist\(place):",
             placeholder: "Playlist name",
             confirmTitle: "Create"
         ) else { return }
 
         do {
-            try store.create(named: input)
+            if let connection {
+                try await SubsonicPlaylists.shared.createPlaylist(named: input, on: connection)
+            } else {
+                try store.create(named: input)
+            }
         } catch {
-            await Dialogs.showError(error.localizedDescription)
+            await Dialogs.showError(describe(error))
         }
     }
 
-    static func rename(_ name: String) async {
+    static func rename(_ id: PlaylistID) async {
+        let name = store.displayName(of: id)
         guard let input = await Dialogs.promptForText(
             title: "Rename Playlist",
             message: "Enter a new name for “\(name)”:",
@@ -72,30 +80,94 @@ enum PlaylistActions {
         ) else { return }
 
         do {
-            try await store.rename(name, to: input)
+            if id.isRemote {
+                try await SubsonicPlaylists.shared.renamePlaylist(id, to: input)
+            } else if let local = id.localName {
+                try await store.rename(local, to: input)
+            }
         } catch {
-            await Dialogs.showError(error.localizedDescription)
+            await Dialogs.showError(describe(error))
         }
     }
 
-    static func delete(_ name: String) async {
-        guard store.names.count > 1 else {
-            await Dialogs.showError(PlaylistError.lastPlaylist.localizedDescription)
-            return
+    static func delete(_ id: PlaylistID) async {
+        let name = store.displayName(of: id)
+        let message: String
+        if id.isRemote {
+            let server = store.connectionName(of: id) ?? "the server"
+            message = "Are you sure you want to delete “\(name)”? It is deleted on \(server) as well, and so are the copy of it kept here and the files downloaded for its songs. This can't be undone."
+        } else {
+            guard store.names.count > 1 else {
+                await Dialogs.showError(PlaylistError.lastPlaylist.localizedDescription)
+                return
+            }
+            message = "Are you sure you want to delete “\(name)”? This can't be undone."
         }
 
         guard await Dialogs.confirm(
             title: "Delete Playlist",
-            message: "Are you sure you want to delete “\(name)”? This can't be undone.",
+            message: message,
             confirmTitle: "Delete",
             destructive: true
         ) else { return }
 
         do {
-            try await store.delete(name)
+            if id.isRemote {
+                try await SubsonicPlaylists.shared.deletePlaylist(id)
+            } else if let local = id.localName {
+                try await store.delete(local)
+            }
         } catch {
-            await Dialogs.showError(error.localizedDescription)
+            await Dialogs.showError(describe(error))
         }
+    }
+
+    /// "Download All Tracks Automatically" on or off for a playlist of a server. Turning it on is confirmed first: the
+    /// files take room that the cache size doesn't limit.
+    static func setAutoDownload(_ enabled: Bool, for id: PlaylistID) async {
+        guard id.isRemote, store.remoteInfo(id) != nil else { return }
+        if enabled {
+            let name = store.displayName(of: id)
+            let server = store.connectionName(of: id) ?? "the server"
+            let count = store.playlist(id)?.trackCount ?? store.remoteInfo(id)?.songCount ?? 0
+            let tracks = count > 0 ? "all \(count) track(s)" : "all tracks"
+            guard await Dialogs.confirm(
+                title: "Download All Tracks Automatically",
+                message: "This downloads \(tracks) of “\(name)” from \(server) now, and the tracks added to it later as they come. "
+                    + "The files are kept on this Mac for as long as this is on: the cache size of the connection doesn't apply "
+                    + "to them (they don't count towards it either), so they take as much disk space as the tracks need.\n\n"
+                    + "Turning it off makes them ordinary downloads again, which the cache size applies to: they are deleted "
+                    + "when the cache is full, or right away if the connection has no cache.",
+                confirmTitle: "Download All"
+            ) else { return }
+        }
+        await SubsonicAutoDownloads.shared.setEnabled(enabled, for: id)
+    }
+
+    /// "Don't group by albums" off or on for the active playlist. Grouping a playlist of a server can reorder its tracks,
+    /// and the new order is saved on the server: the user is asked first.
+    static func setFlat(_ flat: Bool) async {
+        let id = store.activeID
+        if !flat, let info = store.remoteInfo(id), info.isOwnEditable {
+            guard store.canEdit(id) else {
+                let reason = SubsonicPlaylists.shared.readOnlyReason(id) ?? "it can't be changed now"
+                await Dialogs.showError("Grouping by albums can reorder the tracks, which can't be saved on the server now: \(reason).",
+                                        title: "Can't Group")
+                return
+            }
+            let server = store.connectionName(of: id) ?? "the server"
+            guard await Dialogs.confirm(
+                title: "Group by Albums",
+                message: "Grouping puts the tracks of an album together, which can reorder the tracks of “\(info.name)”. The new order is saved on \(server) as well.",
+                confirmTitle: "Group"
+            ) else { return }
+        }
+        await store.setFlat(flat)
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let error = error as? SubsonicError { return SubsonicService.sentence(error.message) }
+        return error.localizedDescription
     }
 }
 

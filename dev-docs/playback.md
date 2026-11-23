@@ -105,6 +105,23 @@ What the decoders do, as the app uses them (all of it in `tests/`, with fixtures
   `deviceError`. `started` comes when the current track's first audio is scheduled (after any start, seek or restart):
   only then does the track count as playing for the listeners (scrobbling, LRCLIB, notifications) and the log.
 
+## Tracks that aren't files
+
+A Subsonic song has no file: its `PlaybackSource.url` is `subsonic://...` and `PlaybackEngine` (given a `SourceFetching`) makes each
+slot's decoder hold a `SourceLease` on the local copy that `SubsonicDownloads` makes; the decoder waits for it before opening
+it (`TrackDecoder.fetchIfNeeded`, outside the decoder timeout), and the next track is fetched `prefetchLead` before the current
+one ends. How that works, and why a restart takes the lease for the new slot before dropping the old ones: `subsonic.md`.
+
+## Waiting for the audio (`TrackLoad`)
+
+While the current track's first audio isn't there yet (a start, a seek) or decoding fell behind the playhead (a slow share),
+`PlaybackEngine.load` says so, and the status column of the playing row shows a spinner instead of the play symbol
+(`TrackLoad.indeterminate`). While a Subsonic song downloads and the server has announced its size (`Content-Length`), it
+is a ring filled with the download (`.progress`, from `SourceLease.progress()`, fed by `SubsonicTransfer`'s progress
+callback). Disk reads can't be measured, so those only get the spinner. `PlaybackState.load` copies it in `tick()` (and on
+`started`), which is also the debounce: a track that starts within a tick never flashes a spinner. The row's
+`PlayingStatusIcon` reads it itself, so a change redraws only that icon.
+
 ## Files that don't answer
 
 A file on a network share that went away (SMB mounts are hard mounts by default) can block `AVAudioFile`'s open or read

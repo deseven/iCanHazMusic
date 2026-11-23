@@ -51,22 +51,32 @@ private struct AppCommands: Commands {
     private let importer = ImportCoordinator.shared
     private let playback = PlaybackState.shared
     private let store = PlaylistStore.shared
+    private let subsonic = SubsonicService.shared
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            // Files are added to the active playlist, which isn't what the queue view shows.
+            // Files are added to the active playlist: one of this Mac (and not the queue view that may be shown in its
+            // place). Tracks of a server go to a playlist of that server.
             let showsQueue = store.isQueueShown && playback.queue.isEnabled
             Button("Add Directory...") {
                 Task { await importer.addDirectory() }
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
-            .disabled(importer.isBusy || showsQueue)
+            .disabled(!importer.canAddFiles)
 
             Button("Add File(s)...") {
                 Task { await importer.addFiles() }
             }
             .keyboardShortcut("o", modifiers: .command)
-            .disabled(importer.isBusy || showsQueue)
+            .disabled(!importer.canAddFiles)
+
+            // Only when there is a server to add from.
+            if subsonic.hasEnabledConnections {
+                Button("Add from Subsonic...") {
+                    Task { await SubsonicActions.addFromSubsonic() }
+                }
+                .disabled(importer.isBusy || showsQueue || !SubsonicActions.canAdd)
+            }
         }
         CommandMenu("Playlist") {
             Button("Search") { SearchPanel.shared.toggle() }
@@ -78,21 +88,23 @@ private struct AppCommands: Commands {
             let showsQueue = store.isQueueShown && playback.queue.isEnabled
             Toggle("Don't group by albums", isOn: Binding(
                 get: { store.activePlaylist.isFlat },
-                set: { flat in Task { await store.setFlat(flat) } }
+                set: { flat in Task { await PlaylistActions.setFlat(flat) } }
             ))
             .disabled(importer.isBusy || showsQueue)
 
             Divider()
 
+            // Playlist files are for the playlists of this Mac.
+            let isRemote = store.activeID.isRemote
             Button("Import playlist...") {
                 Task { await importer.importPlaylists() }
             }
-            .disabled(importer.isBusy || showsQueue)
+            .disabled(importer.isBusy || showsQueue || isRemote)
 
             Button("Export playlist...") {
                 Task { await PlaylistActions.exportActive() }
             }
-            .disabled(importer.isBusy || showsQueue || store.activePlaylist.trackCount == 0)
+            .disabled(importer.isBusy || showsQueue || isRemote || store.activePlaylist.trackCount == 0)
         }
         CommandMenu("Playback") {
             // The same commands as the buttons of the now playing block, in the same order.

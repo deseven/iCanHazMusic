@@ -24,9 +24,9 @@ import Observation
 @MainActor
 @Observable
 final class PlaybackState {
-    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(), configStore: .shared,
-                                      listeners: [ScrobblingService.shared, LyricsService.shared, NotificationService.shared,
-                                                                                        WaveformService.shared],
+    static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(fetcher: SubsonicDownloads.shared), configStore: .shared,
+                                      listeners: [ScrobblingService.shared, SubsonicScrobbler.shared, LyricsService.shared,
+                                                  NotificationService.shared, WaveformService.shared],
                                       nowPlaying: .shared)
 
     enum Status { case stopped, playing, paused }
@@ -55,7 +55,7 @@ final class PlaybackState {
     /// (`pos` is then where it was found, and is looked up again when it starts).
     private struct Target: Equatable {
         var pos: Position
-        var playlist: String?
+        var playlist: PlaylistID?
         var queued: QueueEntry?
 
         var foreign: Bool { playlist != nil }
@@ -79,6 +79,9 @@ final class PlaybackState {
     /// The position as something that moves by itself while playing, for views that show it continuously: unlike
     /// `position` it only changes on pause, resume, seek, a new track, or when it has drifted from the engine.
     private(set) var anchor = PositionAnchor.stopped
+    /// What the current track is waiting for before its audio comes out (shown in place of the play symbol), nil while
+    /// it plays or nothing does. Refreshed by `tick()`, so a track that starts at once never shows up as loading.
+    private(set) var load: TrackLoad?
     /// Seconds. 0 while stopped or unknown.
     private(set) var duration: Double = 0
     /// Original album art cut to a square. The only one kept in memory; nil while loading or if there is none.
@@ -220,9 +223,9 @@ final class PlaybackState {
     /// The current track as a queue entry (the playing playlist's name and the track's ID), if one plays. It is never
     /// in the queue.
     var playingEntry: QueueEntry? {
-        guard status != .stopped, let pos = currentPos, let name = store.playingName,
+        guard status != .stopped, let pos = currentPos, let playing = store.playingID,
               let id = track(at: pos, in: store.playingPlaylist)?.id else { return nil }
-        return QueueEntry(playlist: name, id: id)
+        return QueueEntry(playlist: playing, id: id)
     }
 
     /// The queue has a track that can be played (so the play button has something to start while stopped).
@@ -399,16 +402,16 @@ final class PlaybackState {
 
     /// Starts a track of any playlist that is in memory: that playlist is opened first. With `wholeAlbum` it is the
     /// first track of the album the track is in. Does nothing if the playlist or the track isn't there (any more).
-    func play(trackID: TrackID, inPlaylist name: String, wholeAlbum: Bool = false) {
-        guard let playlist = store.playlist(named: name), let pos = playlist.position(of: trackID) else { return }
-        store.setActive(name)
+    func play(trackID: TrackID, inPlaylist id: PlaylistID, wholeAlbum: Bool = false) {
+        guard let playlist = store.playlist(id), let pos = playlist.position(of: trackID) else { return }
+        store.setActive(id)
         play(albumIndex: pos.album, trackIndex: wholeAlbum ? 0 : pos.track)
     }
 
     /// Opens a playlist and starts it from its first track (an empty one is only opened).
-    func play(playlist name: String) {
-        guard store.exists(name) else { return }
-        store.setActive(name)
+    func play(playlist id: PlaylistID) {
+        guard store.exists(id) else { return }
+        store.setActive(id)
         guard !store.isLoading, store.activePlaylist.trackCount > 0 else { return }
         play(albumIndex: 0, trackIndex: 0)
     }
@@ -497,6 +500,7 @@ final class PlaybackState {
         status = .stopped
         engine.stop()
         stopTicking()
+        load = nil
         currentPos = nil
         nextPos = nil
         shuffleNext = nil
@@ -704,8 +708,8 @@ final class PlaybackState {
     private func queueTarget() -> Target? {
         guard queue.isEnabled else { return nil }
         for entry in queue.entries {
-            guard let list = store.playlist(named: entry.playlist), let pos = list.position(of: entry.id) else { continue }
-            return Target(pos: pos, playlist: entry.playlist == store.playingName ? nil : entry.playlist, queued: entry)
+            guard let list = store.playlist(entry.playlist), let pos = list.position(of: entry.id) else { continue }
+            return Target(pos: pos, playlist: entry.playlist == store.playingID ? nil : entry.playlist, queued: entry)
         }
         return nil
     }
@@ -723,7 +727,7 @@ final class PlaybackState {
     @discardableResult
     private func saveState(position seconds: Double? = nil) -> Bool {
         guard let configStore else { return false }
-        guard restoresState, status != .stopped, let pos = currentPos, let name = store.playingName,
+        guard restoresState, status != .stopped, let pos = currentPos, let playing = store.playingID,
               let id = track(at: pos, in: store.playingPlaylist)?.id else {
             configStore.update { $0.playback.state = nil }
             return false
@@ -732,7 +736,8 @@ final class PlaybackState {
         // Not a number JSON can hold, or not a position at all: the start of the track is the safe answer.
         let position = time.isFinite ? (max(time, 0) * 1000).rounded() / 1000 : 0
         savedPosition = position
-        let state = AppConfig.Playback.SavedState(playlist: name, trackID: id, position: position, paused: status == .paused)
+        let state = AppConfig.Playback.SavedState(playlist: playing.text, trackID: id, position: position,
+                                                  paused: status == .paused)
         configStore.update { $0.playback.state = state }
         return true
     }
@@ -746,7 +751,8 @@ final class PlaybackState {
     func restorePlayback() async {
         guard restoresState, status == .stopped, let configStore,
               let saved = configStore.config.playback.state else { return }
-        let playlist = await store.readPlaylist(named: saved.playlist)
+        let savedID = PlaylistID(text: saved.playlist)
+        let playlist = await store.readPlaylist(savedID)
         // Stop forgets the state, as does turning the setting off.
         guard status == .stopped, configStore.config.playback.state == saved else { return }
         guard let playlist, let pos = playlist.position(of: saved.trackID), track(at: pos, in: playlist) != nil else {
@@ -754,7 +760,7 @@ final class PlaybackState {
             configStore.update { $0.playback.state = nil }
             return
         }
-        begin(Target(pos: pos, playlist: saved.playlist), resume: Resume(seconds: saved.position, paused: saved.paused))
+        begin(Target(pos: pos, playlist: savedID), resume: Resume(seconds: saved.position, paused: saved.paused))
     }
 
     // MARK: - Engine queue
@@ -772,16 +778,16 @@ final class PlaybackState {
         if !afterFailure { failures = 0 }
         giveUpMessage = nil
         var target = target
-        if let entry = target.queued, let pos = store.playlist(named: entry.playlist)?.position(of: entry.id) {
+        if let entry = target.queued, let pos = store.playlist(entry.playlist)?.position(of: entry.id) {
             target.pos = pos   // the playlist may have changed since the target was made
-            target.playlist = entry.playlist == store.playingName ? nil : entry.playlist
+            target.playlist = entry.playlist == store.playingID ? nil : entry.playlist
         }
-        if let name = target.playlist {
-            guard let list = store.playlist(named: name), track(at: target.pos, in: list) != nil else {
+        if let id = target.playlist {
+            guard let list = store.playlist(id), track(at: target.pos, in: list) != nil else {
                 halt()
                 return
             }
-            store.playbackStarted(in: name)
+            store.playbackStarted(in: id)
         }
         guard let playlist = store.playingPlaylist, let track = track(at: target.pos, in: playlist) else {
             halt()
@@ -790,7 +796,7 @@ final class PlaybackState {
 
         let pos = target.pos
         playingFromQueue = false
-        if let name = store.playingName, queue.started(QueueEntry(playlist: name, id: track.id)) {
+        if let playing = store.playingID, queue.started(QueueEntry(playlist: playing, id: track.id)) {
             playingFromQueue = true
         }
         currentPos = pos
@@ -832,6 +838,7 @@ final class PlaybackState {
         switch event {
         case .started(let source):
             if pendingStart?.source == source { announceStart() }
+            updateLoad()
             alignAnchor(to: Self.seconds(engine.position))
         case .advanced:
             advanceToNext()
@@ -851,7 +858,7 @@ final class PlaybackState {
                 halt()
                 listeners.forEach { $0.value?.queueDidEnd() }
             } else {
-                let playlist = store.playingName
+                let playlist = store.playingID.map { store.displayName(of: $0) }
                 Log.info("playback: reached the end of playlist \"\(playlist ?? "")\"")
                 halt()
                 if let playlist { listeners.forEach { $0.value?.playlistDidEnd(playlist: playlist) } }
@@ -860,7 +867,7 @@ final class PlaybackState {
             if wasCurrent, let pending = pendingStart, pending.isRestore, pending.source == source {
                 // The track of the last run can't be played (a share that isn't there yet, a file that is gone): music
                 // isn't started from the tracks after it, which would only fail one after the other.
-                Log.error("playback: can't restore, staying stopped (\(source.url.path): \(message))")
+                Log.error("playback: can't restore, staying stopped (\(Self.describe(source)): \(message))")
                 halt()
                 return
             }
@@ -890,12 +897,18 @@ final class PlaybackState {
         }
     }
 
+    /// What a source is called in a message: the path of the file, or the song and its server.
+    private static func describe(_ source: PlaybackSource) -> String {
+        guard let ref = source.url.subsonicRef else { return source.url.path }
+        return "\(SubsonicService.shared.displayName(of: ref.connection)) (Subsonic), song \(ref.songID)"
+    }
+
     /// Too many tracks in a row couldn't be played: stop trying. `stopNow`: nothing plays, playback stops at once;
     /// otherwise the current track (which plays fine, only the ones after it failed) plays to its end first.
     private func giveUp(lastFailed source: PlaybackSource, message: String, stopNow: Bool) {
         let count = Self.maxConsecutiveFailures
         Log.error("playback: giving up, \(count) tracks in a row couldn't be played")
-        let text = "\(count) tracks in a row couldn't be played. The last one was:\n\n\(source.url.path)\n\n"
+        let text = "\(count) tracks in a row couldn't be played. The last one was:\n\n\(Self.describe(source))\n\n"
             + "\(message.prefix(1).uppercased())\(message.dropFirst())."
         if stopNow {
             halt()
@@ -910,17 +923,17 @@ final class PlaybackState {
     /// The engine moved on by itself at the end of a track, which is the gapless transition.
     private func advanceToNext() {
         guard var next = nextPos else { return }
-        if let entry = next.queued, let pos = store.playlist(named: entry.playlist)?.position(of: entry.id) {
+        if let entry = next.queued, let pos = store.playlist(entry.playlist)?.position(of: entry.id) {
             next.pos = pos   // the playlist may have changed since the engine was given this track
         }
-        if let name = next.playlist {
+        if let id = next.playlist {
             // The track the cursor asked for or the queue has next is in another playlist: playback moves over to it.
             // (If that changed since, what plays isn't what it was meant to be: stop.)
-            guard track(at: next.pos, in: store.playlist(named: name))?.source == nextSource else {
+            guard track(at: next.pos, in: store.playlist(id))?.source == nextSource else {
                 halt()
                 return
             }
-            store.playbackStarted(in: name)
+            store.playbackStarted(in: id)
         }
         playingFromQueue = false
         if let entry = next.queued {
@@ -947,6 +960,7 @@ final class PlaybackState {
         engine.poll()
         guard status != .stopped else { return }   // the poll may have ended playback
 
+        updateLoad()
         if let exact = engine.duration, exact > 0, abs(exact - duration) > 0.01 { duration = exact }
         checkFileInfo()
         let time = engine.position
@@ -958,6 +972,14 @@ final class PlaybackState {
         guard isWatched else { return }
         publishPosition(time)
         alignAnchor(to: time)
+    }
+
+    /// Takes over what the engine is waiting for; only a change is published (the row of the playing track watches it).
+    /// Progress moves in whole percents.
+    private func updateLoad() {
+        var new = engine.load
+        if case .progress(let fraction) = new { new = .progress((fraction * 100).rounded(.down) / 100) }
+        if new != load { load = new }
     }
 
     /// How far the position may be from where the anchor extrapolates before the anchor is replaced.
@@ -1034,6 +1056,7 @@ final class PlaybackState {
     private func trackDidChange(how: String, audible: Bool = false, resume: Resume? = nil) {
         endProgress()
         pendingStart = nil
+        load = nil   // what the track before waited for is over; the next `tick()` looks at this one
         // The request is served
         if cursorRequested, store.playingIsActive, cursorTarget()?.pos == currentPos { cursorRequested = false }
         guard let pos = currentPos, let playlist = store.playingPlaylist,
@@ -1055,7 +1078,7 @@ final class PlaybackState {
                                                                   trackNumber: track.number)
         let logLine = "playback: \(how)\(resume.map { " at \(Self.clock($0.seconds))\($0.paused ? ", paused" : "")" } ?? ""): "
             + "\(track.displayArtist) – \(track.displayTitle) [\(album.displayTitle)], "
-            + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingName ?? "")\", \(track.path)"
+            + "\(track.codec.isEmpty ? "format unknown" : track.codec), playlist \"\(store.playingID.map { store.displayName(of: $0) } ?? "")\", \(track.path)"
         pendingStart = PendingStart(track: played, source: track.source, logLine: logLine,
                                     resumedAt: resumedAt, isRestore: resume != nil)
         if audible { announceStart() }
@@ -1119,15 +1142,25 @@ final class PlaybackState {
         let others = album.tracks.indices.lazy.filter { $0 != trackIndex }.prefix(2).map { album.tracks[$0].url }
         let files = [album.tracks[trackIndex].url] + others
 
-        let lookup = PlaybackArtwork.Lookup(directory: directory, files: files)
+        var lookup = PlaybackArtwork.Lookup(directory: directory, files: files)
+        // An album of a Subsonic server has its cover there, not in a folder or in the files.
+        if let ref = album.tracks.lazy.compactMap(\.subsonic).first(where: { $0.coverArt != nil }), let art = ref.coverArt {
+            let connection = ref.connection
+            lookup.remote = { await SubsonicService.shared.coverArt(connection: connection, id: art, size: Self.remoteArtworkSize) }
+        }
+        let finalLookup = lookup
         artworkTask = Task { [weak self] in
-            let image = await PlaybackArtwork.load(lookup)
+            let image = await PlaybackArtwork.load(finalLookup)
             guard !Task.isCancelled, let self, self.artworkKey == key else { return }
             self.artwork = image
-            self.artworkLookup = image == nil ? nil : lookup
+            self.artworkLookup = image == nil ? nil : finalLookup
             self.isLoadingArtwork = false
         }
     }
+
+    /// The size (pixels, longer side) the cover of a Subsonic album is asked for: more than the now playing block and the
+    /// sheet that enlarges it show.
+    private static let remoteArtworkSize = 1200
 
     /// Lets go of the art, and of the work to load it.
     private func dropArtwork() {
@@ -1205,7 +1238,7 @@ final class PlaybackState {
 
     /// The playlist a target is in.
     private func playlist(of target: Target) -> Playlist? {
-        if let name = target.playlist { return store.playlist(named: name) }
+        if let id = target.playlist { return store.playlist(id) }
         return store.playingPlaylist
     }
 
@@ -1215,7 +1248,7 @@ final class PlaybackState {
         let rows = store.activePlaylist.rows
         guard rows.indices.contains(row) else { return nil }
         return Target(pos: Position(album: rows[row].albumIndex, track: rows[row].trackIndex ?? 0),
-                      playlist: store.playingIsActive ? nil : store.activeName)
+                      playlist: store.playingIsActive ? nil : store.activeID)
     }
 
     /// The track that plays after `pos` in playlist order: the next one of the album, else the first of the

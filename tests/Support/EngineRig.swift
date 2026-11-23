@@ -22,9 +22,9 @@ final class EngineRig {
     /// Called for every event, after it was recorded.
     var react: ((PlaybackEngine.Event) -> Void)?
 
-    init(rate: Double = 44100, lookahead: Double = 60) {
+    init(rate: Double = 44100, lookahead: Double = 60, fetcher: (any SourceFetching)? = nil) {
         self.rate = rate
-        engine = PlaybackEngine(output: .offline(sampleRate: rate), lookahead: lookahead)
+        engine = PlaybackEngine(output: .offline(sampleRate: rate), lookahead: lookahead, fetcher: fetcher)
         engine.onEvent = { [weak self] event in
             self?.record(event)
             self?.react?(event)

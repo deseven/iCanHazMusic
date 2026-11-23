@@ -27,6 +27,10 @@ import Foundation
 ///   releases its wait at once, and one that doesn't deliver within `decoderTimeout` fails (or ends its track there).
 /// - After `pauseReleaseDelay` of pause the output is let go of (`releaseIdleOutput`): a running output keeps the Mac
 ///   from sleeping and holds the device; resuming starts it again from the same position.
+/// - A track that isn't in a file of this Mac (a Subsonic song) is played from the local copy a `SourceFetching` makes of
+///   it: every slot's decoder holds a lease on it (the lease of a replaced slot is taken over by the new one, so a
+///   seek doesn't download the track again), and the track that comes next is fetched `prefetchLead` seconds before
+///   the current one ends, long before its decoder is made.
 ///
 /// Everything here runs on the main actor; decoding happens on the decoders' queues.
 @MainActor
@@ -80,6 +84,10 @@ final class PlaybackEngine {
     /// is given up: it fails if nothing of it was played yet, else its track ends there.
     var decoderTimeout: Double = 10
 
+    /// How many seconds before the end of the current track the download of the next one (if it has to be fetched, see
+    /// `SourceFetching`) is started. A track shorter than this is fetched as soon as it is queued.
+    var prefetchLead: Double = 60
+
     /// UID of the output device (`AudioOutputDevices`); empty = the system's default, followed when it changes. It is
     /// looked up only when the output is started, and a device that isn't there then is dropped for the system default
     /// (`Event.outputDeviceLost`). A change while the output runs restarts it from the same position.
@@ -131,6 +139,10 @@ final class PlaybackEngine {
     private var engine = AVAudioEngine()
     private var node = AVAudioPlayerNode()
     private let output: Output
+    /// Makes the files of tracks that aren't on this Mac (nil: there are none).
+    private let fetcher: (any SourceFetching)?
+    /// The claim on the file of the next track, taken `prefetchLead` before it is needed (see `updatePrefetch`).
+    private var prefetch: (source: PlaybackSource, lease: SourceLease)?
     /// The device the engine's output is pinned to (UID); empty = it follows the system default.
     private var boundDeviceUID = ""
 
@@ -152,6 +164,8 @@ final class PlaybackEngine {
         var restart: Restart
         var duration: Double?
         var codec: String?
+        /// The claim on the file of a track that has to be fetched, so that a long pause doesn't lose the download.
+        var lease: SourceLease?
     }
     private var parked: Parked?
     private var idleTask: Task<Void, Never>?
@@ -176,9 +190,10 @@ final class PlaybackEngine {
     /// change), the player node's timeline is gone and `position` can no longer be computed.
     private var lastPosition: (slot: Slot, seconds: Double)?
 
-    init(output: Output = .device, lookahead: Double = 5) {
+    init(output: Output = .device, lookahead: Double = 5, fetcher: (any SourceFetching)? = nil) {
         self.output = output
         self.lookahead = lookahead
+        self.fetcher = fetcher
         switch output {
         case .device:
             sampleRate = 44100
@@ -249,6 +264,23 @@ final class PlaybackEngine {
     /// Audio of the current track has been handed to the player (see `Event.started`).
     var hasCurrentAudio: Bool {
         pendingRestart == nil && !pendingStop && (parked != nil || slots.first?.hasScheduled == true)
+    }
+
+    /// What the current track is waiting for, or nil when its audio is coming out (or there is none): its first audio
+    /// after a start or a seek, or more of it when decoding fell behind the playhead (a slow file). The download of a
+    /// track that has to be fetched is measured; anything else can't be.
+    var load: TrackLoad? {
+        guard isActive, isWaitingForAudio else { return nil }
+        // Not the lease of the slot that is about to be replaced.
+        guard pendingRestart == nil, let fraction = slots.first?.decoder.heldLease?.progress() else { return .indeterminate }
+        return .progress(fraction)
+    }
+
+    private var isWaitingForAudio: Bool {
+        if !hasCurrentAudio { return true }
+        // Playing, and the player has run through everything decoded so far while the track isn't all decoded.
+        guard wantsPlaying, parked == nil, let slot = slots.first, !slot.decodeFinished else { return false }
+        return currentFrame() >= scheduledEnd
     }
 
     /// Exact length of the current track in seconds, once its file has been opened.
@@ -431,6 +463,9 @@ final class PlaybackEngine {
     }
 
     private func performRestart(_ restart: Restart) {
+        // The download of a parked track is kept until the new slot has claimed it.
+        let held = parked
+        defer { withExtendedLifetime(held) {} }
         parked = nil
         guard prepareOutput() else {
             teardown()
@@ -439,16 +474,20 @@ final class PlaybackEngine {
         }
         let seconds = restart.seconds ?? position
         slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
+        // The new slot claims the file before the old ones let go of it: a seek must not download the track again.
+        let slot = makeSlot(source: restart.source, seconds: seconds)
         cancelSlots()
         scheduledEnd = 0
         frozenFrame = 0
-        slots = [makeSlot(source: restart.source, seconds: seconds)]
+        slots = [slot]
         startFeeding()
     }
 
     private func makeSlot(source: PlaybackSource, seconds: Double) -> Slot {
+        let lease = fetcher.flatMap { $0.handles(source.url) ? $0.acquire(source.url) : nil }
         let decoder = TrackDecoder(url: source.url, startSeconds: source.start + seconds, endSeconds: source.end,
-                                   isPart: !source.isWholeFile, outputFormat: format, resampleQuality: resampleQuality)
+                                   isPart: !source.isWholeFile, outputFormat: format, resampleQuality: resampleQuality,
+                                   lease: lease)
         return Slot(source: source, startSeconds: seconds, decoder: decoder)
     }
 
@@ -473,6 +512,7 @@ final class PlaybackEngine {
         fadeFramesRemaining = 0
         slowCalls.measure("AVAudioPlayerNode.stop") { node.stop() }
         cancelSlots()
+        prefetch = nil
         scheduledEnd = 0
         frozenFrame = 0
         pendingRestart = nil
@@ -512,7 +552,8 @@ final class PlaybackEngine {
         idleTask = nil
         guard !wantsPlaying, !pendingStop, pendingRestart == nil, parked == nil, !fadeInFlight,
               let slot = slots.first else { return }
-        parked = Parked(restart: Restart(source: slot.source, seconds: position), duration: slot.duration, codec: slot.codec)
+        parked = Parked(restart: Restart(source: slot.source, seconds: position), duration: slot.duration, codec: slot.codec,
+                        lease: slot.decoder.heldLease)
         feedTask?.cancel()
         boundaryTask?.cancel()
         feedTask = nil
@@ -671,6 +712,7 @@ final class PlaybackEngine {
 
     /// Decodes and schedules one chunk if there is room. Returns whether it made progress.
     private func feedStep() async -> Bool {
+        updatePrefetch()
         guard pendingRestart == nil, !pendingStop, let slot = feedTarget(), !slot.isDecoding else { return false }
         guard Double(scheduledEnd - currentFrame()) < lookahead * sampleRate else { return false }
 
@@ -693,7 +735,7 @@ final class PlaybackEngine {
             if slot.scheduledFrames == 0 {
                 fail(slot, message: warning ?? "no audio")
             } else {
-                if let warning { Log.error("\(slot.source.url.path): \(warning)") }
+                if let warning { Log.error("\(slot.source.logPath): \(warning)") }
                 armBoundaryTimer()
             }
         case .failed(let message):
@@ -701,6 +743,21 @@ final class PlaybackEngine {
             fail(slot, message: message)
         }
         return true
+    }
+
+    /// Claims the file of the next track (which starts its download) once the current one is `prefetchLead` seconds from
+    /// its end, and lets go of it when the next track changes. The decoder of the next track, made much later, finds
+    /// the file there.
+    private func updatePrefetch() {
+        guard let fetcher, let next = nextSource, fetcher.handles(next.url) else {
+            prefetch = nil
+            return
+        }
+        if prefetch?.source == next { return }
+        prefetch = nil
+        guard pendingRestart == nil, !pendingStop, parked == nil, slots.count == 1,
+              let current = slots.first, let duration = current.duration else { return }
+        if duration - position <= prefetchLead { prefetch = (next, fetcher.acquire(next.url)) }
     }
 
     private func schedule(_ buffer: AVAudioPCMBuffer, in slot: Slot) {
@@ -711,7 +768,7 @@ final class PlaybackEngine {
             if now > scheduledEnd {
                 if slot.hasScheduled {
                     slot.gapFrames += now - scheduledEnd
-                    Log.error("audio underrun in \(slot.source.url.lastPathComponent): \(Int((Double(now - scheduledEnd) / sampleRate * 1000).rounded())) ms of silence (decoding too slow, slow disk or share?)")
+                    Log.error("audio underrun in \(slot.source.url.isFileURL ? slot.source.url.lastPathComponent : slot.source.logPath): \(Int((Double(now - scheduledEnd) / sampleRate * 1000).rounded())) ms of silence (decoding too slow, slow disk or share?)")
                 }
                 scheduledEnd = now
             }
@@ -737,7 +794,7 @@ final class PlaybackEngine {
         let wasCurrent = slots.first === slot
         slots.removeAll { $0 === slot }
         slot.decoder.cancel()
-        Log.error("can't play \(slot.source.url.path): \(message)")
+        Log.error("can't play \(slot.source.logPath): \(message)")
         if wasCurrent {
             teardown(keepOutput: true)
         } else {

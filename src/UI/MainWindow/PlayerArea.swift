@@ -18,7 +18,7 @@ struct PlayerArea: View {
     @State private var revealRow: Int?
     /// The playlist whose opening is complete: its content is in and scrolled to its row. Until it is the active one
     /// the playlist is hidden behind a spinner, so the user doesn't see it being filled and scrolled.
-    @State private var openedName: String?
+    @State private var openedID: PlaylistID?
 
     /// Widths the user asked for by dragging the dividers. The effective widths are these values
     /// clamped to what the current window size allows (so they "come back" when the window grows).
@@ -61,7 +61,7 @@ struct PlayerArea: View {
                     } else {
                         PlaylistView(selection: $selection, cursor: Bindable(playback).cursorRow, revealRow: $revealRow)
                             .overlay {
-                                if openedName != store.activeName { OpeningCover() }
+                                if openedID != store.activeID { OpeningCover() }
                             }
                     }
                 }
@@ -80,7 +80,7 @@ struct PlayerArea: View {
             .animation(Layout.sidePanelAnimation, value: swapped)
         }
         .frame(minWidth: minWidth(showsSelector: showsSelector, showsBlock: showsBlock))
-        .onChange(of: store.activeName) { _, _ in
+        .onChange(of: store.activeID) { _, _ in
             // Rows of the old playlist mean nothing in the new one, which is still being read. (One that is ready
             // at once is dealt with by `playlistOpened`.)
             guard store.isLoading else { return }
@@ -91,7 +91,7 @@ struct PlayerArea: View {
         .onChange(of: revealRow) { _, row in
             if row == nil { finishOpening() }   // the view has scrolled to the row
         }
-        .task(id: store.activeName) {
+        .task(id: store.activeID) {
             // Safety net: the view must never stay hidden if it didn't report back.
             try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled { finishOpening(after: .zero) }
@@ -159,10 +159,10 @@ struct PlayerArea: View {
     /// Shows the playlist (it is the active one, in place and scrolled), a moment later so SwiftUI has drawn the rows
     /// at the new scroll position first. Does nothing while the playlist is still being read.
     private func finishOpening(after delay: Duration = .milliseconds(60)) {
-        guard openedName != store.activeName, !store.isLoading else { return }
+        guard openedID != store.activeID, !store.isLoading else { return }
         Task { @MainActor in
             try? await Task.sleep(for: delay)
-            if !store.isLoading { openedName = store.activeName }
+            if !store.isLoading { openedID = store.activeID }
         }
     }
 

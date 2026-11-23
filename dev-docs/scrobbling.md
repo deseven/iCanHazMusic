@@ -7,6 +7,8 @@ key it could protect). Scrobbling is generic instead: any number of user-configu
   accepts it, so do Libre.fm (`https://turtle.libre.fm`) and many self-hosted servers;
 - **ListenBrainz** (`https://api.listenbrainz.org`, or a compatible server).
 
+(Subsonic servers get the scrobbles of their own songs through the same `ScrobbleQueue`, see `subsonic.md`; they are not services of this list.)
+
 Code: `src/Core/Integrations/Scrobbling/`, settings of one service in `Core/Config/ScrobbleServiceConfig.swift`, UI in
 `UI/Preferences/ScrobbleService*.swift` (Preferences > Scrobbling).
 

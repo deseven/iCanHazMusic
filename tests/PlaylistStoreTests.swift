@@ -51,7 +51,7 @@ extension AllTests {
         func createsMain() async throws {
             let env = try await makeEnv()
             #expect(env.store.names == ["main"])
-            #expect(env.store.activeName == "main")
+            #expect(env.store.activeID == "main")
             #expect(env.exists("main"))
             #expect(env.store.activePlaylist.trackCount == 0)
         }
@@ -71,20 +71,20 @@ extension AllTests {
         func configuredActive() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
             let env = try await makeEnv(playlists: ["one": json, "two": PlaylistStoreTests.emptyJSON], active: "one")
-            #expect(env.store.activeName == "one")
+            #expect(env.store.activeID == "one")
             #expect(env.store.activePlaylist.trackCount == 3)
         }
 
         @Test("the configured name matches regardless of letter case")
         func configuredCase() async throws {
             let env = try await makeEnv(playlists: ["Rock": Self.emptyJSON], active: "rock")
-            #expect(env.store.activeName == "Rock")
+            #expect(env.store.activeID == "Rock")
         }
 
         @Test("falls back to the first playlist when the configured one is gone, and says so in the config")
         func missingActive() async throws {
             let env = try await makeEnv(playlists: ["b": Self.emptyJSON, "a": Self.emptyJSON], active: "zzz")
-            #expect(env.store.activeName == "a")
+            #expect(env.store.activeID == "a")
             #expect(env.config.config.activePlaylist == "a")
         }
 
@@ -112,7 +112,7 @@ extension AllTests {
             switching.store.setActive("b")
             #expect(switching.store.isLoading)
             await switching.store.waitUntilLoaded()
-            #expect(!switching.store.isLoading && switching.store.activeName == "b")
+            #expect(!switching.store.isLoading && switching.store.activeID == "b")
         }
 
         // MARK: Broken files
@@ -208,7 +208,7 @@ extension AllTests {
             #expect(name == "Jazz")
             #expect(env.exists("Jazz"))
             #expect(env.store.names == ["Jazz", "main"])
-            #expect(env.store.activeName == "Jazz")
+            #expect(env.store.activeID == "Jazz")
             #expect(env.config.config.activePlaylist == "Jazz")
             await settle(env.store)
             #expect(env.store.activePlaylist.trackCount == 0)
@@ -240,14 +240,14 @@ extension AllTests {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 4))
             let env = try await makeEnv(playlists: ["a": json, "b": json, "c": Self.emptyJSON], active: "b", wait: false)
             #expect(env.store.isLoading)
-            #expect(env.store.playlist(named: "a") == nil)
+            #expect(env.store.playlist("a") == nil)
             await settle(env.store)
 
             #expect(env.store.activePlaylist.trackCount == 4)
-            #expect(env.store.loadedPlaylists.map(\.name) == ["a", "b", "c"])
-            #expect(env.store.playlist(named: "A")?.trackCount == 4)
-            #expect(env.store.playlist(named: "c")?.trackCount == 0)
-            #expect(env.store.playlist(named: "b") === env.store.activePlaylist)
+            #expect(env.store.loadedPlaylists.map(\.id) == ["a", "b", "c"])
+            #expect(env.store.playlist("A")?.trackCount == 4)
+            #expect(env.store.playlist("c")?.trackCount == 0)
+            #expect(env.store.playlist("b") === env.store.activePlaylist)
         }
 
         @Test("switching to a playlist that is in memory shows it at once, and nothing is dropped")
@@ -258,7 +258,7 @@ extension AllTests {
             let opened = env.store.openCount
 
             env.store.setActive("full")
-            #expect(env.store.activeName == "full")
+            #expect(env.store.activeID == "full")
             #expect(!env.store.isLoading)
             #expect(env.store.activePlaylist.trackCount == 4)
             #expect(env.store.openCount == opened + 1)
@@ -266,9 +266,9 @@ extension AllTests {
             let full = env.store.activePlaylist
 
             env.store.setActive("EMPTY")
-            #expect(env.store.activeName == "empty")
+            #expect(env.store.activeID == "empty")
             #expect(env.store.activePlaylist.trackCount == 0)
-            #expect(env.store.playlist(named: "full") === full)   // still in memory, not shown
+            #expect(env.store.playlist("full") === full)   // still in memory, not shown
 
             env.store.setActive("full")
             #expect(env.store.activePlaylist === full)           // taken as it is, not read again
@@ -279,12 +279,12 @@ extension AllTests {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 4))
             let env = try await makeEnv(playlists: ["full": json, "empty": Self.emptyJSON], active: "empty", wait: false)
             env.store.setActive("full")
-            #expect(env.store.activeName == "full")
+            #expect(env.store.activeID == "full")
             #expect(env.store.isLoading)
             #expect(env.store.activePlaylist.trackCount == 0)
             await settle(env.store)
             #expect(env.store.activePlaylist.trackCount == 4)
-            #expect(env.store.loadedPlaylists.map(\.name) == ["empty", "full"])   // the one left behind follows
+            #expect(env.store.loadedPlaylists.map(\.id) == ["empty", "full"])   // the one left behind follows
         }
 
         @Test("changes to a playlist that isn't shown are kept in memory and written")
@@ -294,7 +294,7 @@ extension AllTests {
             env.store.playbackStarted()
             env.store.setActive("b")
             env.store.updateTrack(id: 1, duration: 77, codec: "X")
-            #expect(env.store.playlist(named: "a")?.track(id: 1)?.duration == 77)
+            #expect(env.store.playlist("a")?.track(id: 1)?.duration == 77)
             #expect(env.store.activePlaylist.trackCount == 0)
             env.store.setActive("a")
             #expect(env.store.activePlaylist.track(id: 1)?.duration == 77)
@@ -305,18 +305,18 @@ extension AllTests {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 2))
             let env = try await makeEnv(playlists: ["a": json, "b": json, "c": Self.emptyJSON], active: "a")
             try await env.store.rename("b", to: "bee")
-            #expect(env.store.playlist(named: "b") == nil)
-            #expect(env.store.playlist(named: "bee")?.trackCount == 2)
+            #expect(env.store.playlist("b") == nil)
+            #expect(env.store.playlist("bee")?.trackCount == 2)
             try await env.store.delete("c")
-            #expect(env.store.playlist(named: "c") == nil)
-            #expect(env.store.loadedPlaylists.map(\.name) == ["a", "bee"])
+            #expect(env.store.playlist("c") == nil)
+            #expect(env.store.loadedPlaylists.map(\.id) == ["a", "bee"])
         }
 
         @Test("unknown playlists are ignored")
         func unknownActive() async throws {
             let env = try await makeEnv()
             env.store.setActive("nope")
-            #expect(env.store.activeName == "main")
+            #expect(env.store.activeID == "main")
             #expect(!env.store.isLoading)
         }
 
@@ -335,7 +335,7 @@ extension AllTests {
             env.store.setActive("a")
             env.store.setActive("b")
             await settle(env.store)
-            #expect(env.store.activeName == "b")
+            #expect(env.store.activeID == "b")
             #expect(env.store.activePlaylist.trackCount == 0)
         }
 
@@ -383,7 +383,7 @@ extension AllTests {
             await env.store.append(albums, to: "unknown")
             await env.store.append([], to: "a")
             #expect(env.store.activePlaylist.trackCount == 0)
-            #expect(env.store.playlist(named: "b")?.trackCount == 0)
+            #expect(env.store.playlist("b")?.trackCount == 0)
 
             // Not in memory yet: the playlist is still being read.
             let loading = try await makeEnv(playlists: ["a": Self.emptyJSON, "b": Self.emptyJSON], active: "a", wait: false)
@@ -546,20 +546,20 @@ extension AllTests {
                 "two": try playlistJSON(Make.entries(dir: "B", album: "B", count: 2)),
             ], active: "one", wait: false)
             #expect(env.store.isLoading)
-            #expect(env.store.playlist(named: "two") == nil)
+            #expect(env.store.playlist("two") == nil)
 
-            let two = await env.store.readPlaylist(named: "TWO")          // not the active one, not read yet
+            let two = await env.store.readPlaylist("TWO")          // not the active one, not read yet
             #expect(two?.trackCount == 2)
-            #expect(env.store.playlist(named: "two")?.trackCount == 2)    // in memory now
+            #expect(env.store.playlist("two")?.trackCount == 2)    // in memory now
 
-            let one = await env.store.readPlaylist(named: "one")          // the active one: waits for its load
+            let one = await env.store.readPlaylist("one")          // the active one: waits for its load
             #expect(one?.trackCount == 3)
             #expect(!env.store.isLoading)
             #expect(env.store.activePlaylist === one)
 
-            #expect(await env.store.readPlaylist(named: "nope") == nil)
+            #expect(await env.store.readPlaylist("nope") == nil)
             await settle(env.store)
-            #expect(await env.store.readPlaylist(named: "two") === env.store.playlist(named: "two"))
+            #expect(await env.store.readPlaylist("two") === env.store.playlist("two"))
         }
 
         // MARK: Last played
@@ -748,11 +748,11 @@ extension AllTests {
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "b")
             let store = env.store
             await settle(store)
-            let id = try #require(store.playlist(named: "a")?.albums.first?.tracks[1].id)
+            let id = try #require(store.playlist("a")?.albums.first?.tracks[1].id)
             let opened = store.openCount
 
             store.reveal(trackID: id, inPlaylist: "a")
-            #expect(store.activeName == "a")
+            #expect(store.activeID == "a")
             #expect(store.openCount == opened + 1)
             #expect(store.takeReveal() == 2)                // row 0 is the album header
             #expect(store.takeReveal() == nil)
@@ -775,7 +775,7 @@ extension AllTests {
             try await env.store.rename("main", to: "Favourites")
 
             #expect(env.store.names == ["Favourites"])
-            #expect(env.store.activeName == "Favourites")
+            #expect(env.store.activeID == "Favourites")
             #expect(env.config.config.activePlaylist == "Favourites")
             #expect(!env.exists("main"))
             #expect(env.exists("Favourites"))
@@ -800,7 +800,7 @@ extension AllTests {
             let env = try await makeEnv()
             try await env.store.rename("main", to: "MAIN")
             #expect(env.store.names == ["MAIN"])
-            #expect(env.store.activeName == "MAIN")
+            #expect(env.store.activeID == "MAIN")
             let names = try FileManager.default.contentsOfDirectory(atPath: env.playlistsDir.path)
             #expect(names == ["MAIN.json"])
         }
@@ -826,7 +826,7 @@ extension AllTests {
             let env = try await makeEnv(playlists: ["a": Self.emptyJSON, "b": Self.emptyJSON], active: "a")
             try await env.store.rename("b", to: "c")
             #expect(env.store.names == ["a", "c"])
-            #expect(env.store.activeName == "a")
+            #expect(env.store.activeID == "a")
         }
 
         // MARK: Delete
@@ -837,7 +837,7 @@ extension AllTests {
             try await env.store.delete("b")
             #expect(env.store.names == ["a"])
             #expect(!env.exists("b"))
-            #expect(env.store.activeName == "a")
+            #expect(env.store.activeID == "a")
         }
 
         @Test("deleting the active playlist activates the first remaining one")
@@ -847,7 +847,7 @@ extension AllTests {
             #expect(env.store.activePlaylist.trackCount == 2)
             try await env.store.delete("b")
             await settle(env.store)
-            #expect(env.store.activeName == "a")
+            #expect(env.store.activeID == "a")
             #expect(env.store.activePlaylist.trackCount == 0)
             #expect(env.config.config.activePlaylist == "a")
         }
@@ -888,7 +888,7 @@ extension AllTests {
 
             #expect(store.playingPlaylist == nil)
             store.playbackStarted()
-            #expect(store.playingName == "a")
+            #expect(store.playingID == "a")
             #expect(store.playingPlaylist === playlistA)
 
             store.setActive("b")
@@ -910,7 +910,7 @@ extension AllTests {
             store.playbackStarted()
             store.setActive("b")
             store.playbackEnded()
-            #expect(store.playingName == nil)
+            #expect(store.playingID == nil)
             #expect(store.playingPlaylist == nil)
 
             store.setActive("a")
@@ -922,7 +922,7 @@ extension AllTests {
         func playbackNotWhileLoading() async throws {
             let env = try await makeEnv(wait: false)
             env.store.playbackStarted()
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
             await settle(env.store)
         }
 
@@ -931,7 +931,7 @@ extension AllTests {
             let env = try await makeEnv()
             env.store.playbackStarted()
             try await env.store.rename("main", to: "renamed")
-            #expect(env.store.playingName == "renamed")
+            #expect(env.store.playingID == "renamed")
             #expect(env.store.playingPlaylist != nil)
         }
 

@@ -28,6 +28,10 @@ import Foundation
 ///   and a call that gets no answer within its `timeout` gives up (`.failed` if nothing was delivered yet, else
 ///   `.finished` with a warning, i.e. the track ends there). The blocked read itself can't be interrupted: it
 ///   finishes in the background whenever the system lets it, and its result is dropped.
+/// - A track that isn't in a file of this Mac (a song on a Subsonic server) comes with a `SourceLease`: the first
+///   `next()` waits for the file to be downloaded (that wait has no timeout of its own, the download has its own limits, and
+///   `cancel()` ends it at once), then the local file is read like any other. The decoder holds the lease until it is
+///   cancelled or gone, which is when the file is deleted (if nobody else holds one).
 final class TrackDecoder: @unchecked Sendable {
     /// One piece of audio, ready to be scheduled on the player node.
     struct Chunk: @unchecked Sendable {
@@ -62,9 +66,15 @@ final class TrackDecoder: @unchecked Sendable {
     private let resampleQuality: ResampleQuality
     private let queue = DispatchQueue(label: "wtf.d7.icanhazmusic.decoder", qos: .userInitiated)
 
-    /// Guards `cancelled`, `waiting` and `delivered`, which are touched from the caller, the queue and timers.
+    /// Guards `cancelled`, `waiting`, `delivered`, `lease`, `fetch` and `localFile`, which are touched from the caller, the
+    /// queue and timers.
     private let stateLock = NSLock()
     private var cancelled = false
+    /// The claim on the file of a remote track (nil for a file of this Mac, and after `cancel()`).
+    private var lease: SourceLease?
+    private var fetch: Task<URL, Error>?
+    /// The file the remote track was downloaded to.
+    private var localFile: URL?
     /// The `next()` call in progress.
     private var waiting: Waiter?
     /// Some audio has been handed out.
@@ -89,8 +99,9 @@ final class TrackDecoder: @unchecked Sendable {
     /// `startSeconds` and `endSeconds` are positions in the file. `isPart`: the track is a part of the file, so one that
     /// is not in the file at all is an error (a whole file starts at its last frame at the latest).
     init(url: URL, startSeconds: Double, endSeconds: Double? = nil, isPart: Bool = false, outputFormat: AVAudioFormat,
-         resampleQuality: ResampleQuality = .default) {
+         resampleQuality: ResampleQuality = .default, lease: SourceLease? = nil) {
         self.url = url
+        self.lease = lease
         self.startSeconds = max(0, startSeconds)
         self.endSeconds = endSeconds
         self.isPart = isPart || endSeconds != nil
@@ -105,8 +116,22 @@ final class TrackDecoder: @unchecked Sendable {
         cancelled = true
         let waiter = waiting
         waiting = nil
+        let fetch = self.fetch
+        self.fetch = nil
+        let released = lease
+        lease = nil
         stateLock.unlock()
+        fetch?.cancel()
         waiter?.resume(.finished(warning: nil))
+        _ = released   // let go of the file (here, not when the decoder is finally freed)
+    }
+
+    /// The lease of the file this decoder reads (nil for a local file, or once cancelled): what whoever replaces it
+    /// with a new decoder for the same track hands on, so that the file isn't deleted in between.
+    var heldLease: SourceLease? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return lease
     }
 
     private var isCancelled: Bool {
@@ -118,7 +143,8 @@ final class TrackDecoder: @unchecked Sendable {
     /// The next chunk of audio. Calls are meant to be made one after the other, not concurrently.
     /// `timeout`: seconds to wait for the file at most; after that the decoder gives up for good (see above).
     func next(timeout: Double? = nil) async -> Result {
-        await withCheckedContinuation { continuation in
+        if let early = await fetchIfNeeded() { return early }
+        return await withCheckedContinuation { continuation in
             let waiter = Waiter(continuation)
             stateLock.lock()
             guard !cancelled else {
@@ -144,6 +170,48 @@ final class TrackDecoder: @unchecked Sendable {
                 waiter.resume(result)
             }
         }
+    }
+
+    /// Waits for the download of a remote track (once). `nil`: the file is there (or the track is a local one);
+    /// otherwise what `next()` is to return: the failure, or the end if the decoder was cancelled.
+    private func fetchIfNeeded() async -> Result? {
+        enum Plan {
+            case finished
+            case ready
+            case wait(Task<URL, Error>)
+        }
+        let plan: Plan = stateLock.withLock {
+            if cancelled { return .finished }
+            guard let lease, localFile == nil else { return .ready }
+            if let fetch { return .wait(fetch) }
+            let task = Task { try await lease.file() }
+            fetch = task
+            return .wait(task)
+        }
+        switch plan {
+        case .finished:
+            return .finished(warning: nil)
+        case .ready:
+            return nil
+        case .wait(let task):
+            do {
+                let file = try await task.value
+                stateLock.withLock { localFile = file }
+                return nil
+            } catch is CancellationError {
+                return .finished(warning: nil)
+            } catch {
+                stateLock.withLock { cancelled = true }
+                return .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// The file to read: the local copy of a remote track, or `url`.
+    private var fileURL: URL {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return localFile ?? url
     }
 
     /// The call `waiter` stands for got no answer in time: the file is given up.
@@ -202,7 +270,7 @@ final class TrackDecoder: @unchecked Sendable {
                 try open()
             } catch {
                 finished = true
-                if !FileManager.default.fileExists(atPath: url.path) {
+                if !FileManager.default.fileExists(atPath: fileURL.path) {
                     return .failed("file not found (moved, renamed, or volume unavailable?)")
                 }
                 return .failed(error.localizedDescription)
@@ -220,7 +288,7 @@ final class TrackDecoder: @unchecked Sendable {
     }
 
     private func open() throws {
-        let file = try PCMSources.open(url: url)
+        let file = try PCMSources.open(url: fileURL)
         let format = file.processingFormat
         guard file.length > 0, format.sampleRate > 0 else { throw DecoderError("the file has no audio") }
 
@@ -259,7 +327,7 @@ final class TrackDecoder: @unchecked Sendable {
             : "resampled to \(Int(outputFormat.sampleRate)) Hz (\(resampleQuality.rawValue) quality)"
         var from = start > 0 ? ", from \(String(format: "%.1f", Double(start) / format.sampleRate)) s" : ""
         if endFrame < file.length { from += " to \(String(format: "%.1f", Double(endFrame) / format.sampleRate)) s" }
-        Log.info("decoder: opened \(url.path): \(codec), \(Int(format.sampleRate)) Hz, \(channels), "
+        Log.info("decoder: opened \(url.isFileURL ? url.path : url.absoluteString): \(codec), \(Int(format.sampleRate)) Hz, \(channels), "
             + "\(String(format: "%.1f", fileDuration)) s, \(conversion)\(from)")
     }
 

@@ -17,6 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSleep()
         quitOnSIGTERM()
 
+        _ = SubsonicService.shared   // pings the servers of the enabled connections
+        _ = SubsonicDownloads.shared   // trims the cache of downloaded songs to its size, clears what has no cache
+        SubsonicPlaylists.shared.onProblem = { SubsonicActions.playlistProblem(title: $0, message: $1) }
+        SubsonicPlaylists.shared.onCoversStored = { CoverCache.reset() }
+        SubsonicPlaylists.shared.watcher = SubsonicAutoDownloads.shared   // downloads the playlists that are to be kept
+        SubsonicPlaylists.shared.start()   // shows the playlists of the servers and keeps them up to date
         PlaybackState.shared.onGiveUp = { PlaybackActions.gaveUp($0) }
         UpdateService.shared.onUpdateFound = { UpdateActions.updateFound($0) }
         UpdateService.shared.start()
@@ -111,9 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Stop the music first (it fades out; being cut off in the middle of the sound pops) and let a playlist
         // write that's still in flight finish.
         let playback = PlaybackState.shared
-        guard !playback.isStopped || PlaylistStore.shared.hasPendingWrites else { return .terminateNow }
+        let remote = SubsonicPlaylists.shared
+        guard !playback.isStopped || PlaylistStore.shared.hasPendingWrites || remote.hasPendingEdits else { return .terminateNow }
         Task {
             await playback.stopAndWait()
+            await remote.flushEdits()   // what is on its way to a server
             await PlaylistStore.shared.flushWrites()
             NSApp.reply(toApplicationShouldTerminate: true)
         }
@@ -122,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ConfigStore.shared.flush()
+        SubsonicDownloads.shared.cleanUpAtQuit()
         Log.info("App terminated")
     }
 }

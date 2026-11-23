@@ -51,6 +51,10 @@ enum AppConstants {
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
 ///   .cache/waveforms.sqlite  what the visual seekbar styles show about the tracks played with them (loudness, spectrum, sections), made again on demand
+///   .cache/subsonic/{connection id}/
+///       downloads/           the downloaded files of Subsonic songs (`SubsonicDownloads`): kept up to the connection's cache size, or (no cache) deleted as soon as nothing needs them and at launch and quit
+///       playlists/           the playlists of the server as they were seen last (`RemotePlaylistIndex`), what is shown until the server answers
+///   (the directory of a connection is deleted with the connection)
 /// ```
 struct AppPaths {
     /// Name of the default working directory inside Application Support (the previous version used the same one,
@@ -71,6 +75,22 @@ struct AppPaths {
     let coverCacheURL: URL
     let lyricsCacheURL: URL
     let waveformCacheURL: URL
+    /// What is kept of the Subsonic connections, a directory per connection (`subsonicDir(of:)`).
+    let subsonicCacheDir: URL
+
+    static let subsonicDownloadsDirName = "downloads"
+    static let subsonicPlaylistsDirName = "playlists"
+
+    /// What is kept of one connection (`root`: `subsonicCacheDir`). The name is the UUID as Foundation writes it.
+    static func subsonicDir(of connection: UUID, in root: URL) -> URL {
+        root.appendingPathComponent(connection.uuidString, isDirectory: true)
+    }
+
+    /// The cached playlists of a connection.
+    func subsonicPlaylistsDir(of connection: UUID) -> URL {
+        Self.subsonicDir(of: connection, in: subsonicCacheDir)
+            .appendingPathComponent(Self.subsonicPlaylistsDirName, isDirectory: true)
+    }
 
     init(workDir: URL) {
         self.workDir = workDir
@@ -81,6 +101,7 @@ struct AppPaths {
         coverCacheURL = cacheDir.appendingPathComponent("covers.sqlite")
         lyricsCacheURL = cacheDir.appendingPathComponent("lyrics.sqlite")
         waveformCacheURL = cacheDir.appendingPathComponent("waveforms.sqlite")
+        subsonicCacheDir = cacheDir.appendingPathComponent("subsonic", isDirectory: true)
     }
 
     static var defaultWorkDir: URL {

@@ -4,8 +4,9 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// Entry points for adding files to the active playlist (File menu, drag and drop) and for re-reading the tags of
-/// files that are in it. Runs one `ImportSession` at a time behind a modal progress sheet.
+/// Entry points for adding files to the active playlist (File menu, drag and drop; only for a playlist of this Mac, a
+/// playlist of a Subsonic server takes tracks of its server, see `addSubsonic`) and for re-reading the tags of files that
+/// are in it. Runs one `ImportSession` at a time behind a modal progress sheet.
 @MainActor
 @Observable
 final class ImportCoordinator {
@@ -14,8 +15,17 @@ final class ImportCoordinator {
     /// The running import, if any. Menu items and drops are ignored while this is set.
     private(set) var session: ImportSession?
 
+    /// The running addition of Subsonic tracks, if any (the same: nothing else starts while it is set).
+    private(set) var subsonicSession: SubsonicImportSession?
+
     /// An import is running, or the active playlist is still loading (adding to it would be unsafe).
-    var isBusy: Bool { session != nil || PlaylistStore.shared.isLoading }
+    var isBusy: Bool { session != nil || subsonicSession != nil || PlaylistStore.shared.isLoading }
+
+    /// Files can be added to the shown playlist: it is one of this Mac and not the queue that is shown in its place.
+    var canAddFiles: Bool {
+        let store = PlaylistStore.shared
+        return !isBusy && !store.activeID.isRemote && !(store.isQueueShown && PlaybackState.shared.queue.isEnabled)
+    }
 
     private init() {}
 
@@ -62,9 +72,8 @@ final class ImportCoordinator {
     @discardableResult
     func handleDrop(_ urls: [URL]) -> Bool {
         let urls = urls.filter(\.isFileURL)
-        // Files go into the active playlist, which isn't what the queue view shows.
-        let showsQueue = PlaylistStore.shared.isQueueShown && PlaybackState.shared.queue.isEnabled
-        guard !isBusy, !showsQueue, !urls.isEmpty else { return false }
+        // Files go into the active playlist, which isn't what the queue view shows, and isn't one of a server.
+        guard canAddFiles, !urls.isEmpty else { return false }
         let playlistsOnly = urls.allSatisfy(PlaylistExchange.isPlaylistFile)
         Task { await start(urls, playlists: playlistsOnly) }
         return true
@@ -77,7 +86,7 @@ final class ImportCoordinator {
         guard !isBusy, !files.isEmpty, let window = Dialogs.hostWindow else { return }
 
         let store = PlaylistStore.shared
-        let name = store.activeName
+        let name = store.activeID
         let session = ImportSession(tagParsingConcurrency: store.effectiveTagParsingConcurrency)
         self.session = session
         let sheet = ImportProgressSheet(session: session)
@@ -116,12 +125,50 @@ final class ImportCoordinator {
         CoverCache.reset()
         LyricsService.shared.refreshCurrent()
         if !outcome.aborted {
-            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
+            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeID)
         }
 
         await sheet.dismiss()
         self.session = nil
         return outcome.aborted ? nil : (outcome.fileCount, session.failed)
+    }
+
+    /// Adds Subsonic tracks to a playlist of their server behind the progress sheet: `albums` makes what is added, then the
+    /// covers of the albums are fetched, then the songs are added to the playlist on the server. Nothing is added if that
+    /// is aborted or fails (the user is told of a failure).
+    func addSubsonic(from connection: SubsonicConnection, to playlist: PlaylistID,
+                     albums: @escaping @MainActor () async throws -> [Album]) async {
+        guard !isBusy, let window = Dialogs.hostWindow else { return }
+
+        let session = SubsonicImportSession()
+        subsonicSession = session
+        let sheet = ImportProgressSheet(session: session)
+        sheet.present(on: window)
+
+        let outcome = await session.run(connection: connection, albums: albums)
+        var failure: String?
+        if !outcome.aborted, outcome.error == nil, !outcome.albums.isEmpty {
+            session.beginAppending()
+            CoverCache.reset()   // the albums have thumbnails now
+            let songs = outcome.albums.flatMap { $0.tracks.compactMap { $0.subsonic?.songID } }
+            do {
+                try await SubsonicPlaylists.shared.append(songIDs: songs, to: playlist)
+                Log.info("subsonic: added \(songs.count) track(s) of \(outcome.albums.count) album(s) from \"\(connection.name)\" to '\(PlaylistStore.shared.displayName(of: playlist))'")
+            } catch {
+                let text = (error as? SubsonicError)?.message ?? (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                Log.error("subsonic: can't add the tracks to '\(PlaylistStore.shared.displayName(of: playlist))': \(text)")
+                failure = SubsonicService.sentence(text)
+            }
+        }
+
+        await sheet.dismiss()
+        self.subsonicSession = nil
+
+        if let error = outcome.error ?? failure {
+            await Dialogs.showError(error, title: "Nothing Added")
+        } else if !outcome.aborted, outcome.albums.isEmpty {
+            await Dialogs.showError("There are no tracks to add.", title: "Nothing to Add")
+        }
     }
 
     // MARK: - Internals
@@ -136,7 +183,7 @@ final class ImportCoordinator {
     /// `playlists`: `urls` are playlist files whose entries are imported; otherwise they are audio files and
     /// directories (playlist files among them are ignored by the gatherer).
     private func start(_ urls: [URL], playlists: Bool = false) async {
-        guard !isBusy, !urls.isEmpty, let window = Dialogs.hostWindow else { return }
+        guard !isBusy, !PlaylistStore.shared.activeID.isRemote, !urls.isEmpty, let window = Dialogs.hostWindow else { return }
 
         let session = ImportSession(tagParsingConcurrency: PlaylistStore.shared.effectiveTagParsingConcurrency)
         self.session = session
@@ -147,7 +194,7 @@ final class ImportCoordinator {
         CoverCache.reset()   // the import may have found art for albums that currently show a placeholder
         LyricsService.shared.refreshCurrent()
         if !outcome.aborted {
-            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeName)
+            await PlaylistStore.shared.append(outcome.albums, to: PlaylistStore.shared.activeID)
         }
 
         await sheet.dismiss()

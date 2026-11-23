@@ -63,7 +63,7 @@ final class SearchModel {
     /// tracks all are. `nil` for the rest.
     func queueMark(for result: SearchResult) -> String? {
         guard queue.isEnabled, !queue.isEmpty, let id = result.trackID,
-              let playlist = store.playlist(named: result.playlist) else { return nil }
+              let playlist = store.playlist(result.playlist) else { return nil }
         switch result.kind {
         case .track:
             return queue.position(of: QueueEntry(playlist: result.playlist, id: id)).map { "#\($0)" }
@@ -88,7 +88,7 @@ final class SearchModel {
     }
 
     /// Playlists are named in the results only if there is more than one.
-    var showsPlaylists: Bool { store.names.count > 1 }
+    var showsPlaylists: Bool { store.count > 1 }
 
     /// Some playlists haven't been read yet, so the results may be incomplete.
     var isStillLoading: Bool { store.isLoading || store.isPreloading }

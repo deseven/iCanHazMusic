@@ -7,7 +7,7 @@ import Observation
 /// A queued track: the playlist it is in and its ID there (see `TrackID`). Positions aren't used because they
 /// don't survive an edit of the playlist; the queue only ever refers to tracks by this.
 struct QueueEntry: Hashable, Sendable {
-    let playlist: String
+    let playlist: PlaylistID
     let id: TrackID
 }
 
@@ -119,17 +119,17 @@ final class PlaybackQueue {
     // MARK: Playlists changing
 
     /// Tracks were removed from a playlist.
-    func remove(ids: Set<TrackID>, fromPlaylist name: String) {
-        remove(Set(entries.filter { $0.playlist == name && ids.contains($0.id) }))
+    func remove(ids: Set<TrackID>, fromPlaylist playlist: PlaylistID) {
+        remove(Set(entries.filter { $0.playlist == playlist && ids.contains($0.id) }))
     }
 
-    /// A playlist was deleted.
-    func removeAll(inPlaylist name: String) {
-        remove(Set(entries.filter { $0.playlist == name }))
+    /// A playlist was deleted (or its connection switched off).
+    func removeAll(inPlaylist playlist: PlaylistID) {
+        remove(Set(entries.filter { $0.playlist == playlist }))
     }
 
-    /// A playlist got another name; its entries keep their places.
-    func renamePlaylist(from old: String, to new: String) {
+    /// A local playlist got another name; its entries keep their places.
+    func renamePlaylist(from old: PlaylistID, to new: PlaylistID) {
         guard old != new, entries.contains(where: { $0.playlist == old }) else { return }
         entries = entries.map { $0.playlist == old ? QueueEntry(playlist: new, id: $0.id) : $0 }
         onChange?()

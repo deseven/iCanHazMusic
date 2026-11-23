@@ -23,7 +23,7 @@ import Observation
 @MainActor
 @Observable
 final class WaveformService: PlaybackListener {
-    static let shared = WaveformService(settings: .shared, store: .shared)
+    static let shared = WaveformService(settings: .shared, store: .shared, fetcher: SubsonicDownloads.shared)
 
     enum State: Equatable {
         /// Nothing is being done (the style is not Waveform, nothing plays, or the waveform is there).
@@ -44,6 +44,9 @@ final class WaveformService: PlaybackListener {
     @ObservationIgnored private let settings: NowPlayingSettings
     @ObservationIgnored private let store: WaveformStore
     @ObservationIgnored private let analyser: Analyser
+    /// Makes the file of a track that isn't on this Mac (a Subsonic song) to measure; the download is the one the
+    /// playback is using (or about to).
+    @ObservationIgnored private let fetcher: (any SourceFetching)?
     @ObservationIgnored private var playing: PlayedTrack?
     @ObservationIgnored private var task: Task<Void, Never>?
     /// Identifies the pass whose result may still be published.
@@ -51,10 +54,11 @@ final class WaveformService: PlaybackListener {
     /// Keys that couldn't be analysed.
     @ObservationIgnored private var failed = Set<String>()
 
-    init(settings: NowPlayingSettings, store: WaveformStore,
+    init(settings: NowPlayingSettings, store: WaveformStore, fetcher: (any SourceFetching)? = nil,
          analyser: @escaping Analyser = { await WaveformAnalyzer.analyse(source: $0) }) {
         self.settings = settings
         self.store = store
+        self.fetcher = fetcher
         self.analyser = analyser
         settings.onStyleChange = { [weak self] _ in self?.refreshCurrent() }
         settings.addVisibilityObserver { [weak self] in self?.refreshCurrent() }
@@ -99,6 +103,7 @@ final class WaveformService: PlaybackListener {
         let token = self.token
         let store = self.store
         let analyser = self.analyser
+        let fetcher = self.fetcher?.handles(url) == true ? self.fetcher : nil
         task = Task { [weak self] in
             // Stat and database: off the main thread, a stalled share must not block the UI.
             let (key, stored) = await Self.offMain { () -> (String?, Waveform?) in
@@ -107,7 +112,7 @@ final class WaveformService: PlaybackListener {
             }
             guard let self, self.token == token else { return }
             guard let key else {
-                Log.info("waveform: can't examine \(url.path)")
+                Log.info("waveform: can't examine \(source.logPath)")
                 self.state = .unavailable
                 return
             }
@@ -121,20 +126,34 @@ final class WaveformService: PlaybackListener {
             }
 
             let started = ContinuousClock.now
-            let analysis = await analyser(source)
+            var measured = source
+            // The lease keeps the downloaded file there while it is measured.
+            let lease = fetcher?.acquire(url)
+            defer { withExtendedLifetime(lease) {} }
+            if let lease {
+                guard let file = try? await lease.file() else {
+                    guard self.token == token else { return }
+                    Log.error("waveform: can't get \(source.logPath)")
+                    self.failed.insert(key)
+                    self.state = .unavailable
+                    return
+                }
+                measured = PlaybackSource(url: file, start: source.start, end: source.end)
+            }
+            let analysis = await analyser(measured)
             if let analysis, analysis.isComplete {
                 await Self.offMain { store.store(analysis.waveform, for: key) }
             }
             guard self.token == token else { return }
 
             guard let analysis else {
-                Log.error("waveform: can't analyse \(url.path)")
+                Log.error("waveform: can't analyse \(source.logPath)")
                 self.failed.insert(key)
                 self.state = .unavailable
                 return
             }
             let seconds = (ContinuousClock.now - started).components
-            Log.info("waveform: \(url.lastPathComponent) analysed in "
+            Log.info("waveform: \(url.isFileURL ? url.lastPathComponent : source.logPath) analysed in "
                 + String(format: "%.2f", Double(seconds.seconds) + Double(seconds.attoseconds) / 1e18) + " s"
                 + (analysis.isComplete ? "" : ", incomplete (not stored)"))
             self.publish(analysis.waveform)

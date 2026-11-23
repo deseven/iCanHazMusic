@@ -8,7 +8,8 @@ import Foundation
 struct Track {
     /// Stable identity within the playlist (see `TrackID`).
     let id: TrackID
-    /// The audio file the track is played from (for a track of a CUE sheet, the file the sheet cuts it out of).
+    /// The audio file the track is played from (for a track of a CUE sheet, the file the sheet cuts it out of; for a
+    /// track from a Subsonic server what stands for the song, see `subsonic`).
     let url: URL
     /// Track number from the tags; `nil` if the file has none.
     let number: Int?
@@ -22,9 +23,15 @@ struct Track {
     /// Set for a track of a CUE sheet: where in `url` it is, and which sheet and track it comes from. (A `var` only so
     /// that the memberwise initializer has it as an optional parameter; nothing changes it.)
     var cue: CueSlice? = nil
+    /// Set for a track from a Subsonic server: then `url` is what stands for the song (`SubsonicRef.url`), not a file.
+    var subsonic: SubsonicRef? = nil
 
-    /// What the track is stored under in the playlist: the file's path, or the pseudo path `sheet.cue:N`.
-    var path: String { cue?.path ?? url.path }
+    /// What the track is stored under in the playlist: the file's path, or the pseudo path `sheet.cue:N` or
+    /// `subsonic/{connection}:{song}`.
+    var path: String { subsonic?.path ?? cue?.path ?? url.path }
+
+    /// Whether Finder can show the track: it is a file (or a sheet) of this Mac.
+    var canReveal: Bool { subsonic == nil }
 
     /// What the engine plays.
     var source: PlaybackSource {
@@ -50,7 +57,8 @@ struct Track {
 
     /// The same track with another duration and format label.
     func replacing(duration: TimeInterval, codec: String) -> Track {
-        Track(id: id, url: url, number: number, title: title, artist: artist, duration: duration, codec: codec, cue: cue)
+        Track(id: id, url: url, number: number, title: title, artist: artist, duration: duration, codec: codec, cue: cue,
+              subsonic: subsonic)
     }
 }
 
@@ -210,7 +218,8 @@ final class Playlist {
                 if track.id > unassignedTrackID, seen.insert(track.id).inserted { return track }
                 defer { next += 1 }
                 return Track(id: next, url: track.url, number: track.number, title: track.title,
-                             artist: track.artist, duration: track.duration, codec: track.codec, cue: track.cue)
+                             artist: track.artist, duration: track.duration, codec: track.codec, cue: track.cue,
+                             subsonic: track.subsonic)
             }
             return Album(directory: album.directory, artist: album.artist, title: album.title, year: album.year,
                          hasMultipleArtists: album.hasMultipleArtists, tracks: tracks)

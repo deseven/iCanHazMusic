@@ -9,7 +9,7 @@ extension AllTests {
     /// The queue itself: what can be in it and how it follows changes of playlists and settings.
     @MainActor @Suite("PlaybackQueue")
     struct PlaybackQueueTests {
-        private func q(_ playlist: String, _ id: TrackID) -> QueueEntry {
+        private func q(_ playlist: PlaylistID, _ id: TrackID) -> QueueEntry {
             QueueEntry(playlist: playlist, id: id)
         }
 
@@ -137,13 +137,13 @@ extension AllTests {
             }
 
             /// The queue entry of a track of a playlist by title.
-            func entry(_ title: String, in name: String = "main") throws -> QueueEntry {
-                let playlist = try #require(store.playlist(named: name))
+            func entry(_ title: String, in name: PlaylistID = "main") throws -> QueueEntry {
+                let playlist = try #require(store.playlist(name))
                 let track = try #require(playlist.albums.flatMap(\.tracks).first { $0.title == title })
                 return QueueEntry(playlist: name, id: track.id)
             }
 
-            func enqueue(_ titles: String..., in name: String = "main") throws {
+            func enqueue(_ titles: String..., in name: PlaylistID = "main") throws {
                 state.enqueue(try titles.map { try entry($0, in: name) })
             }
         }
@@ -242,17 +242,17 @@ extension AllTests {
             env.state.play(albumIndex: 0, trackIndex: 1)
             try env.enqueue("C1", in: "other")
             try env.enqueue("A1")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
 
             env.state.nextTrack()
             #expect(env.state.info?.title == "C1")
-            #expect(env.store.playingName == "other")
-            #expect(env.store.activeName == "main")                        // what is shown stays
+            #expect(env.store.playingID == "other")
+            #expect(env.store.activeID == "main")                        // what is shown stays
             #expect(env.queue.count == 1)
 
             env.state.nextTrack()                                          // back to a track of main
             #expect(env.state.info?.title == "A1")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
             env.state.nextTrack()                                          // goes on after A1 in main
             #expect(env.state.info?.title == "A2")
         }
@@ -413,7 +413,7 @@ extension AllTests {
             #expect(env.state.status == .playing)
             #expect(env.state.info?.title == "B2")
             #expect(env.queue.entries == [try env.entry("A3")])
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
 
             env.state.stop()
             #expect(env.queue.isEmpty)
@@ -427,7 +427,7 @@ extension AllTests {
             try env.enqueue("C1", in: "other")
             env.state.resume()
             #expect(env.state.info?.title == "C1")
-            #expect(env.store.playingName == "other")
+            #expect(env.store.playingID == "other")
         }
 
         // MARK: Playlists changing
@@ -467,7 +467,7 @@ extension AllTests {
             #expect(env.queue.entries.map(\.playlist) == ["second"])
             env.state.nextTrack()
             #expect(env.state.info?.title == "C1")
-            #expect(env.store.playingName == "second")
+            #expect(env.store.playingID == "second")
         }
 
         @Test("with the queue turned off it is empty and playback follows the playlist")

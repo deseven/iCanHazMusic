@@ -18,6 +18,7 @@ struct PreferencesView: View {
         case nowPlaying
         case search
         case scrobbling
+        case subsonic
         case integrations
         case hotkeys
 
@@ -32,6 +33,7 @@ struct PreferencesView: View {
             case .nowPlaying: "Now Playing"
             case .search: "Search"
             case .scrobbling: "Scrobbling"
+            case .subsonic: "Subsonic"
             case .integrations: "Integrations"
             case .hotkeys: "Hotkeys"
             }
@@ -46,6 +48,7 @@ struct PreferencesView: View {
             case .nowPlaying: "waveform"
             case .search: "magnifyingglass"
             case .scrobbling: "antenna.radiowaves.left.and.right"
+            case .subsonic: "server.rack"
             case .integrations: "puzzlepiece.extension"
             case .hotkeys: "keyboard"
             }
@@ -91,6 +94,7 @@ struct PreferencesView: View {
                 case .nowPlaying: NowPlayingTab()
                 case .search: SearchTab()
                 case .scrobbling: ScrobblingTab()
+                case .subsonic: SubsonicTab()
                 case .integrations: IntegrationsTab()
                 case .hotkeys: HotkeysTab()
                 }
@@ -307,6 +311,29 @@ private struct ScrobblingTab: View {
                     + "scrobble time and these marks are not kept between launches."
             ) {
                 ScrobbleServiceList()
+            }
+        }
+    }
+}
+
+private struct SubsonicTab: View {
+    var body: some View {
+        TabPage {
+            PrefRow(
+                title: "Subsonic Connections",
+                description: "Play music from your own Subsonic, Navidrome or compatible server. Its playlists are listed in "
+                    + "a section of their own in the playlist selector, kept in step with the server (the server is the source "
+                    + "of truth, a copy is kept for when it can't be reached); File > Add from Subsonic... adds tracks to the "
+                    + "playlist that is open. A connection can have a public "
+                    + "endpoint, a local one, or both: with both, the local one is used while it answers (it is checked "
+                    + "once a minute and when the network changes) and the public one otherwise. Tracks are downloaded "
+                    + "as they are needed and kept in a cache folder as the connection's cache size says (or deleted as "
+                    + "soon as they are not needed, if it has none). A green "
+                    + "checkmark means that the last attempt to reach the server went through, an exclamation mark that "
+                    + "it failed (point at it to see why; it goes away once a call goes through). The last-used time and "
+                    + "these marks are not kept between launches."
+            ) {
+                SubsonicConnectionList()
             }
         }
     }

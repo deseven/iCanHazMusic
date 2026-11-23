@@ -86,13 +86,18 @@ extension AllTests {
             }
         }
 
+        /// Playlists of this Mac that have these names.
+        private static func named(_ names: [String]) -> [(id: PlaylistID, name: String)] {
+            names.map { (id: PlaylistID.local($0), name: $0) }
+        }
+
         private func index(_ name: String, _ entries: [TrackEntry], flat: Bool = false) -> SearchIndex {
-            SearchIndex(name: name, playlist: Playlist(albums: AlbumBuilder.build(from: entries, flat: flat), isFlat: flat))
+            SearchIndex(id: .local(name), name: name, playlist: Playlist(albums: AlbumBuilder.build(from: entries, flat: flat), isFlat: flat))
         }
 
         private func search(_ query: String, _ indexes: [SearchIndex], names: [String]? = nil,
-                            preferred: String? = nil, limit: Int = SearchEngine.defaultLimit) -> [SearchResult] {
-            SearchEngine.search(query, indexes: indexes, playlistNames: names ?? indexes.map(\.name), preferred: preferred,
+                            preferred: PlaylistID? = nil, limit: Int = SearchEngine.defaultLimit) -> [SearchResult] {
+            SearchEngine.search(query, indexes: indexes, playlists: Self.named(names ?? indexes.map(\.name)), preferred: preferred,
                                 limit: limit)
         }
 
@@ -221,7 +226,7 @@ extension AllTests {
             let query = "jazz"
             #expect(search(query, [one, two]).first?.kind == .playlist)
 
-            let found = SearchEngine.search(query, indexes: [one, two], playlistNames: ["Jazz", "Rock"], preferred: nil,
+            let found = SearchEngine.search(query, indexes: [one, two], playlists: Self.named(["Jazz", "Rock"]), preferred: nil,
                                             options: SearchOptions(playlists: false))
             #expect(found.map(\.kind) == [.track])
             #expect(found.first?.text == "Band – Jazz Hands")
@@ -232,7 +237,7 @@ extension AllTests {
             let main = index("main", floyd)
             let options = SearchOptions(albums: false)
             func find(_ query: String) -> [SearchResult] {
-                SearchEngine.search(query, indexes: [main], playlistNames: ["main"], preferred: nil, options: options)
+                SearchEngine.search(query, indexes: [main], playlists: Self.named(["main"]), preferred: nil, options: options)
             }
 
             // By artist: every track, no album.
@@ -248,9 +253,9 @@ extension AllTests {
             // A compilation's tracks are still found by their own artist, but "Various Artists" is an album's.
             let compilation = index("c", [Make.entry("/Music/V/01.mp3", artist: "Daft Punk", album: "Hits", title: "Around the World", track: 1),
                                          Make.entry("/Music/V/02.mp3", artist: "Moby", album: "Hits", title: "Porcelain", track: 2)])
-            let found = SearchEngine.search("daft", indexes: [compilation], playlistNames: ["c"], preferred: nil, options: options)
+            let found = SearchEngine.search("daft", indexes: [compilation], playlists: Self.named(["c"]), preferred: nil, options: options)
             #expect(found.map(\.text) == ["Daft Punk – Around the World"])
-            #expect(SearchEngine.search("various", indexes: [compilation], playlistNames: ["c"], preferred: nil, options: options).isEmpty)
+            #expect(SearchEngine.search("various", indexes: [compilation], playlists: Self.named(["c"]), preferred: nil, options: options).isEmpty)
         }
 
         @Test("without fuzzy search only parts of the text are found")
@@ -258,7 +263,7 @@ extension AllTests {
             let main = index("main", floyd)
             let off = SearchOptions(fuzzy: false)
             func find(_ query: String, _ options: SearchOptions) -> [SearchResult] {
-                SearchEngine.search(query, indexes: [main], playlistNames: ["main"], preferred: nil, options: options)
+                SearchEngine.search(query, indexes: [main], playlists: Self.named(["main"]), preferred: nil, options: options)
             }
             #expect(find("mony", SearchOptions()).map(\.text) == ["Pink Floyd – Money"])      // a typo
             #expect(find("cmfrtbl", SearchOptions()).map(\.text) == ["Pink Floyd – Comfortably Numb"])

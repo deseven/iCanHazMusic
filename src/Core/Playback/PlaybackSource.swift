@@ -20,6 +20,9 @@ struct PlaybackSource: Equatable, Hashable, Sendable {
 
     var isWholeFile: Bool { start <= 0 && end == nil }
 
+    /// What the log calls the source: the path of the file, or the URL of a song on a server (no credentials in it).
+    var logPath: String { url.isFileURL ? url.path : url.absoluteString }
+
     /// The length of the track in a file that is `fileDuration` seconds long (the end is cut at the end of the file).
     func length(inFileOf fileDuration: TimeInterval) -> TimeInterval {
         max(0, min(end ?? fileDuration, fileDuration) - start)

@@ -22,8 +22,11 @@ enum PlaylistItemActions {
         for id in rows {
             let row = playlist.rows[id]
             if row.isHeader {
-                directories.append(playlist.albums[row.albumIndex].directory)
-            } else if !albums.contains(row.albumIndex), let track = playlist.track(for: row) {
+                // The album of a Subsonic server isn't a directory.
+                if playlist.albums[row.albumIndex].tracks.contains(where: \.canReveal) {
+                    directories.append(playlist.albums[row.albumIndex].directory)
+                }
+            } else if !albums.contains(row.albumIndex), let track = playlist.track(for: row), track.canReveal {
                 files.append(track.revealURL)
             }
         }
@@ -31,11 +34,33 @@ enum PlaylistItemActions {
         for directory in directories { NSWorkspace.shared.open(directory) }
     }
 
-    /// Reads the tags of the selected tracks (of all tracks of selected albums) again, behind the import sheet.
+    /// Whether anything of the selection is on this Mac and can be shown in Finder (the tracks and albums that came
+    /// from a Subsonic server can't).
+    static func canReveal(_ selection: Set<Int>, in shown: Playlist? = nil) -> Bool {
+        let playlist = shown ?? store.activePlaylist
+        return selection.contains { id in
+            guard playlist.rows.indices.contains(id) else { return false }
+            let row = playlist.rows[id]
+            if row.isHeader { return playlist.albums[row.albumIndex].tracks.contains(where: \.canReveal) }
+            return playlist.track(for: row)?.canReveal ?? false
+        }
+    }
+
+    /// Whether the selection has a track whose tags can be read again (see `reloadTags`).
+    static func canReloadTags(_ selection: Set<Int>) -> Bool {
+        let playlist = store.activePlaylist
+        return playlist.expandedTrackRows(selection).contains { playlist.track(for: playlist.rows[$0])?.subsonic == nil }
+    }
+
+    /// Reads the tags of the selected tracks (of all tracks of selected albums) again, behind the import sheet. The tracks
+    /// from a Subsonic server have no file to read them from and keep what the server told when they were added.
     static func reloadTags(_ selection: Set<Int>) async {
         let playlist = store.activePlaylist
         var seen = Set<URL>()
-        let urls = playlist.expandedTrackRows(selection).compactMap { playlist.track(for: playlist.rows[$0])?.entryURL }
+        let urls = playlist.expandedTrackRows(selection)
+            .compactMap { playlist.track(for: playlist.rows[$0]) }
+            .filter { $0.subsonic == nil }
+            .map(\.entryURL)
             .filter { seen.insert($0).inserted }
         await ImportCoordinator.shared.reloadTags(of: urls)
     }
@@ -44,7 +69,7 @@ enum PlaylistItemActions {
     /// playing one of them.
     static func remove(_ selection: Set<Int>) async {
         let removed = store.activePlaylist.trackIDs(selection)
-        await store.remove(ids: removed, from: store.activeName)
+        await store.remove(ids: removed, from: store.activeID)
     }
 
     // MARK: Queue
@@ -74,7 +99,7 @@ enum PlaylistItemActions {
     static func queueToggle(for selection: Set<Int>) -> QueueToggle {
         let playback = PlaybackState.shared
         let playlist = store.activePlaylist
-        let name = store.activeName
+        let name = store.activeID
         let playing = playback.playingEntry
         let entries = playlist.expandedTrackRows(selection)
             .compactMap { playlist.track(for: playlist.rows[$0])?.id }

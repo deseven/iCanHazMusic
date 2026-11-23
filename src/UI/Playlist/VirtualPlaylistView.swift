@@ -29,7 +29,7 @@ import SwiftUI
 ///
 /// With `queue` it shows the play queue instead of a playlist: `playlist` is then a flat one with a track per queue entry
 /// (row = place in the queue). Nothing can be played from there, the only changes are removing entries (Backspace) and
-/// going to a track in its playlist. Otherwise (`playlistName`) tracks that are queued show their place in the
+/// going to a track in its playlist. Otherwise (`playlistID`) tracks that are queued show their place in the
 /// queue where the play symbol goes.
 ///
 /// Reordering (`beginDrag`...`endDrag`): dragging a track moves it inside its album only (a track of a flat playlist
@@ -55,8 +55,8 @@ struct VirtualPlaylistView: View {
     /// The columns and the size of the track rows, and the style of the album blocks.
     let style: TrackRowStyle
     let onActivate: (Int) -> Void
-    /// The name of the playlist shown (queue entries refer to tracks by it).
-    let playlistName: String
+    /// The playlist shown (queue entries refer to tracks by it).
+    let playlistID: PlaylistID
     /// Shows the queue: its entries, in the order of the rows of `playlist`.
     let queue: [QueueEntry]?
     /// Queue rows name the playlist of their track (when there are several).
@@ -84,9 +84,9 @@ struct VirtualPlaylistView: View {
 
     init(playlist: Playlist, selection: Binding<Set<Int>>, cursor: Binding<Int?>, revealRow: Binding<Int?>,
          playingRow: Int?, cursorFollowsPlayback: Bool, style: TrackRowStyle,
-         playlistName: String = "", queue: [QueueEntry]? = nil, showsQueuePlaylists: Bool = false,
+         playlistID: PlaylistID = .local(""), queue: [QueueEntry]? = nil, showsQueuePlaylists: Bool = false,
          onActivate: @escaping (Int) -> Void) {
-        self.playlistName = playlistName
+        self.playlistID = playlistID
         self.queue = queue
         self.showsQueuePlaylists = showsQueuePlaylists
         self.playlist = playlist
@@ -115,6 +115,7 @@ struct VirtualPlaylistView: View {
         let _ = handlers.menu = { event in showContextMenu(for: event) }
         let _ = reorder.tick = { tickDrag() }
         let _ = scrollBox.onChange = { scrollViewChanged() }
+
         ScrollView {
             VStack(spacing: 0) {
                 Color.clear.frame(height: active.rowOffsets[shown.lowerBound])
@@ -179,12 +180,14 @@ struct VirtualPlaylistView: View {
 
         .onAppear {
             installEventMonitor()
+            scrollBox.isShown = true
             scrollBox.scheduleChange()
         }
         .onDisappear {
             if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
             eventMonitor = nil
             reorder.stopTimer()
+            scrollBox.isShown = false
         }
     }
 
@@ -242,15 +245,21 @@ struct VirtualPlaylistView: View {
     /// the request comes and on every change of the scroll view (`scrollViewChanged`), the document's height
     /// included, and does nothing until it can be done. `revealRow` is reset once it is, which the parent takes as
     /// "the view is ready" (it has a safety net for a reveal that never happens).
+    ///
+    /// The request is the parent's state, which every instance of this view that was handed the binding can see: when
+    /// the view is rebuilt (another playlist, back from the queue) the outgoing one still hears of its scroll view for a
+    /// moment, and must not take the request (scroll itself, or drop a row it doesn't have) from the one replacing it.
+    /// So only a view on screen acts on it (`ScrollBox.isShown`, and a scroll view in a window).
     private func showRevealedRow() {
-        guard let row = revealRow else { return }
+        guard let row = revealRow, scrollBox.isShown, let scrollView = scrollBox.scrollView, scrollView.window != nil else { return }
         guard playlist.rows.indices.contains(row) else {
             revealRow = nil
             return
         }
-        guard let document = scrollBox.scrollView?.documentView,
+        guard let document = scrollView.documentView,
               document.frame.height + 0.5 >= layout.totalHeight else { return }
         guard scrollToReveal(row, centered: true) else { return }
+
         anchor = row
         revealRow = nil
     }
@@ -292,7 +301,9 @@ struct VirtualPlaylistView: View {
             menu.addItem(ActionMenuItem("Remove from Queue", key: Self.backspaceKey) { removeFromQueueSelected() })
             menu.addItem(.separator())
             menu.addItem(ActionMenuItem("Show in Playlist") { showInPlaylist() })
-            menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection, in: playlist) })
+            if PlaylistItemActions.canReveal(target, in: playlist) {
+                menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection, in: playlist) })
+            }
         } else {
             menu.addItem(ActionMenuItem("Play", key: "\r") { playSelected() })
             if playback.queue.isEnabled {
@@ -300,10 +311,14 @@ struct VirtualPlaylistView: View {
                 menu.addItem(ActionMenuItem(toggle.title, key: " ", isEnabled: !toggle.isUnavailable) { toggleQueued() })
             }
             menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection) })
-            menu.addItem(ActionMenuItem("Reload Tag(s)", key: "r", modifiers: .command) { reloadSelected() })
+            if PlaylistItemActions.canReveal(target) {
+                menu.addItem(ActionMenuItem("Reveal in Finder") { PlaylistItemActions.reveal(selection) })
+            }
+            menu.addItem(ActionMenuItem("Reload Tag(s)", key: "r", modifiers: .command,
+                                        isEnabled: PlaylistItemActions.canReloadTags(target)) { reloadSelected() })
             menu.addItem(.separator())
-            menu.addItem(ActionMenuItem("Remove from Playlist", key: Self.backspaceKey) { removeSelected() })
+            menu.addItem(ActionMenuItem("Remove from Playlist", key: Self.backspaceKey,
+                                        isEnabled: PlaylistStore.shared.canEdit(playlistID)) { removeSelected() })
         }
         return menu
     }
@@ -314,12 +329,13 @@ struct VirtualPlaylistView: View {
     /// The place of the track of a row in the queue (nothing for headers, or while the queue is what is shown).
     private func queuePosition(at row: Int) -> Int? {
         guard queue == nil, !playback.queue.isEmpty, let track = playlist.track(for: playlist.rows[row]) else { return nil }
-        return playback.queue.position(of: QueueEntry(playlist: playlistName, id: track.id))
+        return playback.queue.position(of: QueueEntry(playlist: playlistID, id: track.id))
     }
 
     private func queuedRow(at row: Int) -> QueuedRow? {
         guard let queue, queue.indices.contains(row) else { return nil }
-        return QueuedRow(number: row + 1, playlist: showsQueuePlaylists ? queue[row].playlist : nil)
+        return QueuedRow(number: row + 1,
+                         playlist: showsQueuePlaylists ? PlaylistStore.shared.qualifiedName(of: queue[row].playlist) : nil)
     }
 
     /// - A right click (or ⌃-click) on a row opens the context menu (`showContextMenu`). Only while the pointer is
@@ -419,7 +435,8 @@ struct VirtualPlaylistView: View {
 
     private func removeSelected() {
         let rows = selection
-        guard queue == nil, !rows.isEmpty, !ImportCoordinator.shared.isBusy else { return }
+        guard queue == nil, !rows.isEmpty, !ImportCoordinator.shared.isBusy,
+              PlaylistStore.shared.canEdit(playlistID) else { return }
         Task {
             await PlaylistItemActions.remove(rows)
             clearSelection()
@@ -554,6 +571,7 @@ struct VirtualPlaylistView: View {
     /// playlist collapses to its headers, scrolled so that the header stays where it is on screen.
     private func beginDrag(startY: CGFloat) -> Bool {
         guard queue == nil, drag == nil, !ImportCoordinator.shared.isBusy, !playlist.rows.isEmpty,
+              PlaylistStore.shared.canEdit(playlistID),
               NSEvent.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty,
               startY >= 0, startY < layout.totalHeight else { return false }
         let row = layout.rowIndex(atOffset: startY)
@@ -585,7 +603,7 @@ struct VirtualPlaylistView: View {
             guard headerOffset != nil else { return false }
         }
 
-        Log.info("reorder: picked up \(new.kind == .album ? "album" : "track") \(new.from) of '\(playlistName)'")
+        Log.info("reorder: picked up \(new.kind == .album ? "album" : "track") \(new.from) of '\(PlaylistStore.shared.displayName(of: playlistID))'")
         reorder.suppressClicks = true
         selection = [row]
         anchor = row
@@ -652,9 +670,9 @@ struct VirtualPlaylistView: View {
 
         let moved: Bool
         if d.kind == .album || playlist.isFlat {
-            moved = store.moveAlbum(d.from, to: d.target, in: playlistName)
+            moved = store.moveAlbum(d.from, to: d.target, in: playlistID)
         } else {
-            moved = store.moveTrack(id: d.movedID, toIndexInAlbum: d.target - d.range.lowerBound, in: playlistName)
+            moved = store.moveTrack(id: d.movedID, toIndexInAlbum: d.target - d.range.lowerBound, in: playlistID)
         }
         guard moved else {
             Log.error("reorder: the move was refused, putting everything back")
@@ -728,6 +746,7 @@ struct VirtualPlaylistView: View {
         refreshWindow(using: active)
     }
 
+
     /// Makes sure the rows around what is visible are rendered (see `PlaylistLayout.window`).
     private func refreshWindow(using active: PlaylistLayout) {
         guard let scrollView = scrollBox.scrollView, let content = scrollBox.anchor else { return }
@@ -738,6 +757,7 @@ struct VirtualPlaylistView: View {
         if new != window { window = new }
     }
 }
+
 
 /// Where the event monitor finds the current handlers (see `VirtualPlaylistView.body`): keys, and the right click
 /// (returns whether it showed the context menu).
@@ -787,6 +807,8 @@ private final class ScrollBox {
     /// Also once the scroll view is found, and on `scheduleChange`. Set by the latest `body` (this outlives the view
     /// struct).
     var onChange: (() -> Void)?
+    /// The view is on screen (between its `onAppear` and `onDisappear`); `onChange` is only called while it is.
+    var isShown = false
     private var observers: [NSObjectProtocol] = []
     private var changeScheduled = false
 
@@ -819,7 +841,7 @@ private final class ScrollBox {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             changeScheduled = false
-            onChange?()
+            if isShown { onChange?() }
         }
     }
 

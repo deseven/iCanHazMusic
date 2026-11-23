@@ -13,6 +13,8 @@ enum Layout {
     // Side panels (the playlist selector and the now playing block, on both sides of the playlist)
     static let playlistSelectorMinWidth = CGFloat(ConfigLimits.playlistSelectorMinWidth)
     static let playlistSelectorMaxWidth = CGFloat(ConfigLimits.playlistSelectorMaxWidth)
+    /// The bar of a playlist of a server that is being downloaded automatically, in its row of the selector.
+    static let autoDownloadProgressWidth: CGFloat = 28
     /// How the side panels slide in and out (their toolbar buttons, swapping their sides).
     static let sidePanelAnimation = Animation.easeInOut(duration: 0.25)
 
@@ -41,6 +43,9 @@ enum Layout {
     /// it sits next to a track number that follows it.
     static let trackStatusColumnWidth: CGFloat = 22
     static let trackPlaySymbolSize: CGFloat = 9
+    /// The ring or spinner that takes the place of the play symbol while the track loads (`TrackLoad`).
+    static let trackLoadIndicatorSize: CGFloat = 11
+    static let trackLoadIndicatorLineWidth: CGFloat = 1.8
     /// The track number column (fits three digits), right-aligned.
     static let trackNumberColumnWidth: CGFloat = 30
     /// The part of the details column that holds the lyrics symbol (kept free in rows without lyrics).
@@ -106,6 +111,15 @@ enum Layout {
     static let scrobbleSwitchColumnWidth: CGFloat = 44
     static let scrobbleStatusColumnWidth: CGFloat = 165
     static let scrobbleEditColumnWidth: CGFloat = 30
+
+    // Subsonic connections (Preferences > Subsonic; the list is laid out like the scrobbling one)
+    static let subsonicSheetWidth: CGFloat = 480
+
+    // "Add from Subsonic" sheet
+    static let subsonicBrowseWidth: CGFloat = 700
+    /// The lists of artists and albums.
+    static let subsonicListsHeight: CGFloat = 200
+    static let subsonicTracksHeight: CGFloat = 240
 
     // Update sheet
     static let updateSheetWidth: CGFloat = 520

@@ -85,7 +85,7 @@ final class SearchPanel {
     private func enqueue(_ result: SearchResult) {
         let playback = PlaybackState.shared
         guard playback.queue.isEnabled, let id = result.trackID,
-              let playlist = PlaylistStore.shared.playlist(named: result.playlist),
+              let playlist = PlaylistStore.shared.playlist(result.playlist),
               let pos = playlist.position(of: id) else { return }
         let tracks: [Track]
         switch result.kind {

@@ -20,6 +20,9 @@ enum PlaybackArtwork {
     struct Lookup: Sendable {
         let directory: URL
         let files: [URL]
+        /// For an album that isn't on this Mac (a Subsonic server): asks for the image itself, in which case `directory` and
+        /// `files` are not looked at.
+        var remote: (@Sendable () async -> Data?)? = nil
     }
 
     /// The art cut to a square. nil if the album has no usable art.
@@ -34,6 +37,11 @@ enum PlaybackArtwork {
     }
 
     private static func find(_ lookup: Lookup) async -> (data: Data, image: CGImage)? {
+        if let remote = lookup.remote {
+            guard let data = await remote(), !Task.isCancelled else { return nil }
+            let image = await Task.detached(priority: .userInitiated) { square(from: data) }.value
+            return image.map { (data, $0) }
+        }
         let directory = lookup.directory
         let files = lookup.files
         let listing = (try? await TagReader.offload(timeout: timeout) { ExternalArtwork.scan(directory: directory) }) ?? .empty

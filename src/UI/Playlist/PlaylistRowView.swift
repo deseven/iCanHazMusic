@@ -204,7 +204,7 @@ private struct TrackRowContent: View {
                 .frame(width: style.scaled(Layout.trackStatusColumnWidth))
                 .overlay(alignment: .trailing) {
                     if isPlaying {
-                        Image(systemName: "play.fill").font(.system(size: style.scaled(Layout.trackPlaySymbolSize)))
+                        PlayingStatusIcon(scale: style.scale)
                     } else if let queuePosition {
                         QueueBadge(position: queuePosition, isSelected: isSelected, scale: style.scale)
                     }
@@ -250,6 +250,67 @@ private struct TrackRowContent: View {
             .buttonStyle(.plain)
             .help("Show lyrics")
         }
+    }
+}
+
+/// The status of the playing track: the play symbol, or while its audio hasn't come out yet (`PlaybackState.load`) a
+/// ring that fills as the song downloads, or a spinner when there is nothing to measure. It reads the load itself, so
+/// that a change of it redraws this and not the row (or the playlist) around it.
+private struct PlayingStatusIcon: View {
+    let scale: CGFloat
+    private let playback = PlaybackState.shared
+
+    var body: some View {
+        switch playback.load {
+        case nil:
+            Image(systemName: "play.fill").font(.system(size: Layout.trackPlaySymbolSize * scale))
+        case .indeterminate:
+            LoadSpinner(scale: scale)
+        case .progress(let fraction):
+            LoadRing(fraction: fraction, scale: scale)
+        }
+    }
+}
+
+/// A ring that fills clockwise, in the colour of the row's text.
+private struct LoadRing: View {
+    let fraction: Double
+    let scale: CGFloat
+
+    var body: some View {
+        let line = Layout.trackLoadIndicatorLineWidth * scale
+        ZStack {
+            Circle().stroke(lineWidth: line).opacity(0.25)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(style: StrokeStyle(lineWidth: line, lineCap: .butt))
+                .rotationEffect(.degrees(-90))
+        }
+        .padding(line / 2)
+        .frame(width: Layout.trackLoadIndicatorSize * scale, height: Layout.trackLoadIndicatorSize * scale)
+        .animation(.linear(duration: 0.25), value: fraction)
+    }
+}
+
+/// A turning arc, in the colour of the row's text (`ProgressView` doesn't follow it on a selected row).
+private struct LoadSpinner: View {
+    let scale: CGFloat
+    private static let period = 0.9
+
+    var body: some View {
+        let line = Layout.trackLoadIndicatorLineWidth * scale
+        TimelineView(.animation) { context in
+            let turns = context.date.timeIntervalSinceReferenceDate / Self.period
+            ZStack {
+                Circle().stroke(lineWidth: line).opacity(0.25)
+                Circle()
+                    .trim(from: 0, to: 0.28)
+                    .stroke(style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(turns.truncatingRemainder(dividingBy: 1) * 360))
+            }
+            .padding(line / 2)
+        }
+        .frame(width: Layout.trackLoadIndicatorSize * scale, height: Layout.trackLoadIndicatorSize * scale)
     }
 }
 

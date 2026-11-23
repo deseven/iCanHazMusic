@@ -13,7 +13,8 @@ enum AlbumKey {
 
     static func make(directory: URL, title: String) -> String {
         // Unit separator: can't be in an album name for real, and (unlike NUL) survives being a SQLite text key.
-        directory.path + "\u{1F}" + (title.isEmpty ? untitled : title.lowercased())
+        // A Subsonic album's "directory" isn't a place on the disk (`SubsonicRef.albumURL`): its URL is what tells it apart.
+        (directory.isFileURL ? directory.path : directory.absoluteString) + "\u{1F}" + (title.isEmpty ? untitled : title.lowercased())
     }
 }
 
@@ -79,7 +80,8 @@ enum AlbumBuilder {
                 artist: e.artist,
                 duration: e.duration,
                 codec: e.codec,
-                cue: e.cue
+                cue: e.cue,
+                subsonic: e.subsonic
             )
         }
         return Album(

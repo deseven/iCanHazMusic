@@ -82,7 +82,7 @@ extension AllTests {
             #expect(env.state.info?.year == "2001")
             #expect(env.state.info?.codec == "FLAC")
             #expect(env.state.position == 0)
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
 
             try await env.run(6 * Self.slice)
             #expect(env.rig.deviation(of: .b, from: 0, at: 0, count: 6 * Self.slice) == 0)
@@ -119,7 +119,7 @@ extension AllTests {
             #expect(await waitUntil { !env.store.isLoading })
             await env.store.append(Make.albums([try entry(.c, title: "C1", album: "Z", track: 1)]), to: "other")
             env.store.setActive("main")
-            let main = try #require(env.store.playlist(named: "main"))
+            let main = try #require(env.store.playlist("main"))
             let b2 = try #require(main.albums[1].tracks.last).id
             let a2 = main.albums[0].tracks[1].id
 
@@ -130,13 +130,13 @@ extension AllTests {
             #expect(env.state.info?.title == "A1")
 
             env.state.play(playlist: "other")                                    // opened and started
-            #expect(env.store.activeName == "other")
-            #expect(env.store.playingName == "other")
+            #expect(env.store.activeID == "other")
+            #expect(env.store.playingID == "other")
             #expect(env.state.info?.title == "C1")
             #expect(env.state.playingRow == 1)
 
             env.state.play(trackID: a2, inPlaylist: "main")                      // back to a playlist that isn't shown
-            #expect(env.store.activeName == "main")
+            #expect(env.store.activeID == "main")
             #expect(env.state.info?.title == "A2")
 
             let before = env.state.info?.title
@@ -144,7 +144,7 @@ extension AllTests {
             env.state.play(trackID: a2, inPlaylist: "nope")
             env.state.play(playlist: "nope")
             #expect(env.state.info?.title == before)
-            #expect(env.store.activeName == "main")
+            #expect(env.store.activeID == "main")
         }
 
         @Test("an empty playlist is only opened")
@@ -153,7 +153,7 @@ extension AllTests {
             try env.store.create(named: "empty")
             env.store.setActive("main")
             env.state.play(playlist: "empty")
-            #expect(env.store.activeName == "empty")
+            #expect(env.store.activeID == "empty")
             #expect(env.state.status == .stopped)
         }
 
@@ -438,7 +438,7 @@ extension AllTests {
             env.state.cursorRow = 1
             try await env.run(RampFile.a.frames)
             #expect(env.state.info?.title == "C1")
-            #expect(env.store.playingName == "other")
+            #expect(env.store.playingID == "other")
             #expect(env.state.playingRow == 1)
             let from = env.rig.frame - 2000
             #expect(env.rig.deviation(of: .c, from: 0, at: RampFile.a.frames, count: 2000) == 0)   // gapless
@@ -457,7 +457,7 @@ extension AllTests {
             let at = env.rig.frame
             env.state.nextTrack()
             #expect(env.state.info?.title == "C1")
-            #expect(env.store.playingName == "other")
+            #expect(env.store.playingID == "other")
             try await env.run(8 * Self.slice)
             let settled = at + env.rig.fadeFrames + env.rig.fadeInFrames
             #expect(env.rig.deviation(of: .c, from: env.rig.fadeInFrames, at: settled, count: env.rig.frame - settled) == 0)
@@ -473,7 +473,7 @@ extension AllTests {
             try await env.run(2 * Self.slice)
             try await env.run(RampFile.a.frames)
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
         }
 
         @Test("a cursor in another playlist is ignored when playback doesn't follow the cursor")
@@ -483,7 +483,7 @@ extension AllTests {
             env.state.cursorRow = 1
             env.state.nextTrack()
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
         }
 
         @Test("a request for a track in another playlist that can't be played falls back to the playing playlist")
@@ -499,7 +499,7 @@ extension AllTests {
             try await env.run(2 * Self.slice)                // the engine finds out that the queued file is missing
             try await env.run(RampFile.a.frames)
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
         }
 
         @Test("the two options are read from the config and written back when changed")
@@ -597,7 +597,7 @@ extension AllTests {
             #expect(env.state.status == .stopped)
             #expect(env.state.info == nil)
             #expect(env.state.position == 0 && env.state.duration == 0)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
             #expect(!env.engine.isActive)
             #expect(env.rig.events.last == "finished")
         }
@@ -684,7 +684,7 @@ extension AllTests {
             try await env.run(4 * Self.slice)
 
             try env.store.create(named: "other")          // becomes the active one
-            #expect(env.store.activeName == "other")
+            #expect(env.store.activeID == "other")
             #expect(env.state.status == .playing)
             try await env.run(RampFile.a.frames)          // across the first boundary
             #expect(env.state.info?.title == "A2")
@@ -1196,7 +1196,7 @@ extension AllTests {
             #expect(env.state.status == .stopped)
             #expect(env.state.info == nil && env.state.artwork == nil)
             #expect(env.state.position == 0 && env.state.duration == 0)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
             try await env.run(6 * Self.slice)
             #expect(isSilent(env.rig.out, in: (env.rig.frame - 4 * Self.slice)..<env.rig.frame))
             #expect(!env.engine.isActive)
@@ -1226,7 +1226,7 @@ extension AllTests {
             try env.store.create(named: "other")
             try await env.store.delete("main")
             #expect(env.state.status == .stopped)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
         }
 
         @Test("the volume reaches the output")
@@ -1347,7 +1347,7 @@ extension AllTests {
             env.state.play(albumIndex: 0, trackIndex: 0)
             try await env.run(6 * Self.slice)
             #expect(env.state.status == .stopped)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
         }
 
         @Test("a missing last track ends the playback after the one before it")
@@ -1597,7 +1597,7 @@ extension AllTests {
             await env.store.remove(ids: [2], from: "main")
             #expect(env.state.status == .stopped)
             #expect(env.state.info == nil)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
             #expect(!env.engine.isActive)
         }
 
@@ -1668,7 +1668,7 @@ extension AllTests {
             #expect(env.state.cursorRow == 1)
             try await env.run(RampFile.a.frames)
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
 
             env.state.nextTrack()
             #expect(env.state.info?.title == "A3")
@@ -1681,7 +1681,7 @@ extension AllTests {
             env.state.placeCursor(at: nil)
             try await env.run(RampFile.a.frames)
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
         }
 
         @Test("a cursor that was placed is not a request, but moving it afterwards is")

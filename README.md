@@ -1,5 +1,5 @@
 # iCanHazMusic
-A music player for macOS 15.4 or higher. The latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
+A playlist-based music player for macOS 15.4 or higher. The latest stable version can be downloaded on [the releases page](https://github.com/deseven/iCanHazMusic/releases), the latest unstable dev version is always available via [this link](https://d7.wtf/s/ichm-dev.zip) (use with caution!), see below for compiling from source.
 
 ![iCHM screenshot](screenshots/main.png)
 
@@ -33,6 +33,7 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 - Global hotkeys (media keys & custom ones) for playback, track/album navigation, random track/album, volume and search
 - Dock menu with the current track and playback controls
 - System notifications about the playback
+- Subsonic-compatible APIs (Navidrome, Gonic, etc) with a full playlist support; the files are downloaded as they are needed with a cache size limit or synced automatically on the per-playlist basis
 - Scrobbling and now playing updates through the Audioscrobbler API (Last.fm, Libre.fm and others) and ListenBrainz, any number of services at once
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
 
@@ -54,8 +55,8 @@ It's by no means a replacement for foobar2000, just my personal compilation of t
 
 ## Roadmap
 - simple web interface and API
-
-- Subsonic/Navidrome integration
+- basic visualizers
+- extra polishing
 
 #### What is not planned
 - equalizer

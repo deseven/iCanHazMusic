@@ -10,8 +10,16 @@ final class ImportProgressSheet {
     private weak var parent: NSWindow?
     private var closed: AsyncStream<Void>?
 
-    init(session: ImportSession) {
-        let hosting = NSHostingController(rootView: ImportProgressView(session: session))
+    convenience init(session: ImportSession) {
+        self.init(content: ImportProgressView(session: session))
+    }
+
+    convenience init(session: SubsonicImportSession) {
+        self.init(content: SubsonicImportProgressView(session: session))
+    }
+
+    private init<Content: View>(content: Content) {
+        let hosting = NSHostingController(rootView: content)
         // The sheet height follows the content (statistics appear once reading starts).
         hosting.sizingOptions = [.preferredContentSize]
         panel = NSWindow(contentViewController: hosting)

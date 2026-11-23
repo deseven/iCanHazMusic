@@ -25,6 +25,10 @@ let unassignedTrackID: TrackID = 0
 /// A track of a CUE sheet has the pseudo path `/path/to/album.cue:3` (`CuePath`) and a `cue` object saying where its audio
 /// is: `{"file": "/path/to/album.flac", "start": 215.4, "end": 430.1}` (`end` is missing for the last track of a file).
 /// The two always come together; an entry with only one of them can't be played and is dropped when the file is read.
+///
+/// A track from a Subsonic server has the pseudo path `subsonic/{connection id}:{song id}` (`SubsonicRef`) and a
+/// `subsonic` object: `{"album_id": "...", "cover_art": "...", "suffix": "flac"}`. The path is enough to read it; a
+/// missing or broken object only costs the grouping by the server's albums, the cover and the suffix.
 struct TrackEntry: Codable {
     var id: TrackID
     /// Full file path; for a track of a CUE sheet the pseudo path `sheet.cue:N` (see `CuePath`).
@@ -41,12 +45,16 @@ struct TrackEntry: Codable {
     var codec: String
     /// Set for a track of a CUE sheet: the audio file and the part of it that is this track.
     var cue: CueSlice?
+    /// Set for a track from a Subsonic server (and then `path` is its pseudo path).
+    var subsonic: SubsonicRef?
 
-    /// The file the audio is in (for a CUE track the audio file, not the sheet).
-    var url: URL { cue?.fileURL ?? Self.url(forPath: path) }
+    /// The file the audio is in (for a CUE track the audio file, not the sheet); for a Subsonic track what the engine
+    /// is given instead of a file.
+    var url: URL { subsonic?.url ?? cue?.fileURL ?? Self.url(forPath: path) }
 
-    /// The directory the track is shown in: the one of the file, or of the sheet for a CUE track.
-    var directory: URL { Self.url(forPath: path).deletingLastPathComponent() }
+    /// The directory the track is shown in: the one of the file, or of the sheet for a CUE track; for a Subsonic track
+    /// something that stands for its album on the server.
+    var directory: URL { subsonic?.albumURL ?? Self.url(forPath: path).deletingLastPathComponent() }
 
     /// `isDirectory:` is given on purpose: without it Foundation stats the file, which is slow on network shares.
     private static func url(forPath path: String) -> URL {
@@ -54,7 +62,8 @@ struct TrackEntry: Codable {
     }
 
     init(id: TrackID = unassignedTrackID, path: String, artist: String, album: String, title: String,
-         trackNumber: Int?, year: String?, duration: TimeInterval?, codec: String, cue: CueSlice? = nil) {
+         trackNumber: Int?, year: String?, duration: TimeInterval?, codec: String, cue: CueSlice? = nil,
+         subsonic: SubsonicRef? = nil) {
         self.id = id
         self.path = path
         self.artist = artist
@@ -65,6 +74,7 @@ struct TrackEntry: Codable {
         self.duration = duration
         self.codec = codec
         self.cue = cue
+        self.subsonic = subsonic
     }
 
     /// From a tag read result (the caller has already dropped unusable ones).
@@ -93,7 +103,8 @@ struct TrackEntry: Codable {
             year: album.year,
             duration: track.duration,
             codec: track.codec,
-            cue: track.cue
+            cue: track.cue,
+            subsonic: track.subsonic
         )
     }
 
@@ -106,13 +117,20 @@ struct TrackEntry: Codable {
         let url = Self.url(forPath: path)
 
         let stored = try? c.decodeIfPresent(StoredCue.self, forKey: .cue)
-        if let cuePath = CuePath.parse(path) {
+        if let parsed = SubsonicRef.parse(path: path) {
+            let extra = try? c.decodeIfPresent(StoredSubsonic.self, forKey: .subsonic)
+            subsonic = SubsonicRef(connection: parsed.connection, songID: parsed.songID, suffix: extra?.suffix ?? "",
+                                   albumID: extra?.albumID, coverArt: extra?.coverArt)
+            cue = nil
+        } else if let cuePath = CuePath.parse(path) {
             guard let stored else {
                 throw DecodingError.dataCorruptedError(forKey: .cue, in: c, debugDescription: "a CUE track without its audio file")
             }
             cue = CueSlice(sheet: cuePath.sheet, number: cuePath.number, file: stored.file, start: stored.start, end: stored.end)
+            subsonic = nil
         } else {
             cue = nil
+            subsonic = nil
         }
         let fileURL = cue?.fileURL ?? url
 
@@ -129,11 +147,24 @@ struct TrackEntry: Codable {
         trackNumber = try? c.decodeIfPresent(Int.self, forKey: .trackNumber)
         year = string(.year)
         duration = try? c.decodeIfPresent(TimeInterval.self, forKey: .duration)
-        codec = string(.codec) ?? fileURL.pathExtension.uppercased()
+        codec = string(.codec) ?? (subsonic?.suffix.uppercased() ?? fileURL.pathExtension.uppercased())
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, path, artist, album, title, trackNumber, year, duration, codec, cue
+        case id, path, artist, album, title, trackNumber, year, duration, codec, cue, subsonic
+    }
+
+    /// The `subsonic` object of the file (the connection and the song are in the path).
+    private struct StoredSubsonic: Codable {
+        var albumID: String?
+        var coverArt: String?
+        var suffix: String?
+
+        enum CodingKeys: String, CodingKey {
+            case albumID = "album_id"
+            case coverArt = "cover_art"
+            case suffix
+        }
     }
 
     /// The `cue` object of the file (the sheet and the number are in the path).
@@ -155,6 +186,10 @@ struct TrackEntry: Codable {
         try c.encodeIfPresent(duration, forKey: .duration)
         try c.encode(codec, forKey: .codec)
         if let cue { try c.encode(StoredCue(file: cue.file, start: cue.start, end: cue.end), forKey: .cue) }
+        if let subsonic {
+            try c.encode(StoredSubsonic(albumID: subsonic.albumID, coverArt: subsonic.coverArt,
+                                        suffix: subsonic.suffix.isEmpty ? nil : subsonic.suffix), forKey: .subsonic)
+        }
     }
 }
 

@@ -505,14 +505,14 @@ extension AllTests {
                            try cueEntry(2, start: 1.0, end: 2.4, title: "Two"),
                            try cueEntry(3, start: 2.4, end: nil, title: "Three", duration: 10)]
             let env = try await makeEnv(entries)
-            let playlist = try #require(env.store.playlist(named: "main"))
+            let playlist = try #require(env.store.playlist("main"))
             let ids = playlist.entries.map(\.id)
 
             for index in 0..<3 {
                 env.state.play(albumIndex: 0, trackIndex: index)
                 try await env.run(2 * Self.slice)
             }
-            let corrected = try #require(env.store.playlist(named: "main"))
+            let corrected = try #require(env.store.playlist("main"))
             let durations = ids.map { corrected.track(id: $0)?.duration ?? -1 }
             #expect(abs(durations[0] - 1.0) < 1e-9)                                      // was 77
             #expect(abs(durations[1] - 1.4) < 1e-9)                                      // was right, kept
@@ -582,7 +582,7 @@ extension AllTests {
         @Test("with the queue, a track of a sheet plays after the current one, whatever comes after it in the sheet")
         func stateQueue() async throws {
             let env = try await makeEnv(try sheet())
-            let list = try #require(env.store.playlist(named: "main"))
+            let list = try #require(env.store.playlist("main"))
             env.state.play(albumIndex: 0, trackIndex: 0)
             env.state.enqueue([QueueEntry(playlist: "main", id: list.entries[2].id)])
             env.state.nextTrack()

@@ -35,13 +35,14 @@ enum PlaylistExchange {
     /// What an export makes of the entries.
     struct Export {
         let data: Data
-        /// Entries that are not in `data`: the tracks of CUE sheets. None of the formats has a way to name a part of an
-        /// audio file, and listing the whole file for each of them would play it once per track.
+        /// Entries that are not in `data`: the tracks of CUE sheets and the ones from Subsonic servers. None of the
+        /// formats has a way to name a part of an audio file (listing the whole file for each of them would play it once
+        /// per track), or a song on a server that isn't a file.
         let skipped: Int
     }
 
     static func export(_ entries: [TrackEntry], format: PlaylistFormat) -> Export {
-        let exported = entries.filter { $0.cue == nil }
+        let exported = entries.filter { $0.cue == nil && $0.subsonic == nil }
         let text: String
         switch format {
         case .m3u, .m3u8: text = m3u(exported)

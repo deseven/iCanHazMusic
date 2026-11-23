@@ -44,8 +44,8 @@ extension AllTests {
             }
 
             /// The ID of a track of the playlist (by album and place in it).
-            func id(of playlist: String = "main", album: Int = 0, track: Int) throws -> TrackID {
-                try #require(store.playlist(named: playlist)).albums[album].tracks[track].id
+            func id(of playlist: PlaylistID = "main", album: Int = 0, track: Int) throws -> TrackID {
+                try #require(store.playlist(playlist)).albums[album].tracks[track].id
             }
         }
 
@@ -241,7 +241,7 @@ extension AllTests {
             await env.state.restorePlayback()
             #expect(env.state.status == .playing)
             #expect(env.state.info?.title == "A2")
-            #expect(env.store.playingName == "main")
+            #expect(env.store.playingID == "main")
             #expect(env.state.position == 1)
 
             try await env.run(6 * Self.slice)
@@ -304,8 +304,8 @@ extension AllTests {
 
             let second = try await launch(in: dir)
             await second.state.restorePlayback()
-            #expect(second.store.activeName == "main")
-            #expect(second.store.playingName == "other")
+            #expect(second.store.activeID == "main")
+            #expect(second.store.playingID == "other")
             #expect(second.state.info?.title == "C1")
             #expect(second.state.status == .playing)
             #expect(second.saved?.playlist == "other")
@@ -352,7 +352,7 @@ extension AllTests {
             let env = try await launch(in: try TempDir(), entries: standard())
             await env.state.restorePlayback()
             #expect(env.state.status == .stopped)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
         }
 
         @Test("a track or a playlist that is gone is forgotten")
@@ -396,7 +396,7 @@ extension AllTests {
             env.state.stop()                                           // forgets what was kept
             await task.value
             #expect(env.state.status == .stopped)
-            #expect(env.store.playingName == nil)
+            #expect(env.store.playingID == nil)
             #expect(env.saved == nil)
         }
 

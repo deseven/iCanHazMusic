@@ -18,6 +18,10 @@ enum WaveformKey {
     /// for a whole file it is the same key as always.
     static func make(source: PlaybackSource) -> String? {
         let url = source.url
+        // A song on a server has no file to examine (and the one it is downloaded to is deleted again): the song is the key.
+        if let ref = url.subsonicRef {
+            return SHA256.hash(data: Data("subsonic|\(ref.connection.uuidString)|\(ref.songID)".utf8)).hexString
+        }
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attributes[.size] as? NSNumber,
               let modified = attributes[.modificationDate] as? Date else { return nil }
