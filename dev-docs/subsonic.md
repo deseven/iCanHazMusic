@@ -99,8 +99,8 @@ every time, so a file that is there is the song, complete (the partial files a c
 
 ### The cache
 
-`.cache/subsonic/{connection id}/` has two directories: `downloads/` (below) and `playlists/` (the cached playlists, see
-further down), and `pinned.json` (below) if anything is pinned. `SubsonicDownloads` only ever deletes inside `downloads/`,
+`.cache/subsonic/{connection id}/` has three directories: `downloads/` (below), `playlists/` (the cached playlists, see
+further down) and `covers/` (the covers of played albums, see "Covers" below), and `pinned.json` (below) if anything is pinned. `SubsonicDownloads` only ever deletes inside `downloads/`,
 except for a removed connection, which loses the whole directory. The connection's `cache_size` says what happens to the downloaded files nothing needs any more. `SubsonicService` hands the sizes of
 *all* connections (disabled ones too) to `SubsonicDownloads` (`setCachePolicies`, whenever the list is saved); a
 connection that isn't in them is a removed one, and one that is unknown to the downloads (tests) has no cache.
@@ -130,8 +130,21 @@ connection that isn't in them is a removed one, and one that is unknown to the d
   everything of those that are gone are deleted, the others lose only partial files. *Two instances on one `--workdir` would delete each other's files:* the
   app doesn't prevent that, and they already share `config.json` and the playlists.
 
-Not saved anywhere else: the cover of the playing album is fetched when it starts (`PlaybackArtwork.Lookup.remote`),
-held in memory like any playing cover; the thumbnails of added albums go to the cover cache when they are added.
+### Covers
+
+The thumbnails of added albums go to the cover cache (`covers.sqlite`) when they are added. The big cover of the playing
+album is asked for when the album starts (`PlaybackArtwork.Lookup.remote` -> `SubsonicService.coverArt`) and kept by
+`SubsonicCoverCache` in `{connection id}/covers/`, one file per album, named by a hash of the album's ID and one of the
+cover id and size. Albums are told apart by `SubsonicRef.albumID` (the cover id for a song that has none); the cover id says
+which picture it is, since servers put a version into it (Navidrome adds the time of the last change).
+
+- A file for the very cover id asked for is used without asking the server (that also works offline and for a switched off
+  connection).
+- Otherwise the server is asked; its answer, if it is an image, replaces what the album had. If it doesn't answer, a file of
+  the album with another cover id (a stale one) is used, better than none.
+- **Never pruned, and not subject to the connection's cache size** (that is about songs; covers are a few hundred KB and
+  offline use is the point). They go with the connection's directory when the connection is removed.
+- Only the embedded art of the song's file is *not* looked at for Subsonic albums: the server is the only source.
 
 ## Playlists of a server
 

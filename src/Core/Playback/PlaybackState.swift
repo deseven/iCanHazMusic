@@ -1146,7 +1146,10 @@ final class PlaybackState {
         // An album of a Subsonic server has its cover there, not in a folder or in the files.
         if let ref = album.tracks.lazy.compactMap(\.subsonic).first(where: { $0.coverArt != nil }), let art = ref.coverArt {
             let connection = ref.connection
-            lookup.remote = { await SubsonicService.shared.coverArt(connection: connection, id: art, size: Self.remoteArtworkSize) }
+            let albumID = ref.albumID ?? art
+            lookup.remote = {
+                await SubsonicService.shared.coverArt(connection: connection, album: albumID, id: art, size: Self.remoteArtworkSize)
+            }
         }
         let finalLookup = lookup
         artworkTask = Task { [weak self] in

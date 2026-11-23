@@ -16,7 +16,7 @@ import Observation
 @MainActor
 @Observable
 final class SubsonicService {
-    static let shared = SubsonicService(configStore: .shared)
+    static let shared = SubsonicService(configStore: .shared, covers: SubsonicCoverCache(directory: AppPaths.current.subsonicCacheDir))
 
     /// What is known about a connection since the app started.
     struct Status: Equatable {
@@ -46,20 +46,24 @@ final class SubsonicService {
     @ObservationIgnored private let configStore: ConfigStore
     @ObservationIgnored private let transport: any HTTPTransport
     @ObservationIgnored private let pingTransport: (any HTTPTransport)?
+    @ObservationIgnored private let covers: SubsonicCoverCache?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var runtimes: [UUID: SubsonicConnection] = [:]
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var sawFirstPath = false
 
     /// `watchesNetwork`: look at the addresses again when the network changes. Tests turn it off.
+    /// `covers`: where the covers that are fetched for playback are kept; nil = nowhere.
     init(configStore: ConfigStore,
          transport: any HTTPTransport = URLSessionTransport(timeout: SubsonicHTTP.requestTimeout),
          pingTransport: (any HTTPTransport)? = nil,
+         covers: SubsonicCoverCache? = nil,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
          watchesNetwork: Bool = true) {
         self.configStore = configStore
         self.transport = transport
         self.pingTransport = pingTransport
+        self.covers = covers
         self.sleep = sleep
         connections = configStore.config.subsonic
 
@@ -104,11 +108,27 @@ final class SubsonicService {
         connections.first { $0.id == id }?.displayName ?? "a removed connection"
     }
 
-    /// The cover art `id` of a connection (not kept anywhere, the caller shows it and lets go); nil if the connection is
-    /// switched off or the server doesn't have it.
-    func coverArt(connection id: UUID, id art: String, size: Int?) async -> Data? {
-        guard let connection = runtimes[id] else { return nil }
-        return try? await connection.coverArt(art, size: size)
+    /// The cover art `art` of the album `album` (its ID on the server) of a connection, for the Now Playing block. What was
+    /// fetched before is kept per album (`SubsonicCoverCache`): the copy of this very cover is used without asking the server,
+    /// a copy of another (older) cover of the album only when the server can't give the new one, which is also the case
+    /// for a switched off connection. nil if there is none and the server doesn't have it.
+    func coverArt(connection id: UUID, album: String, id art: String, size: Int?) async -> Data? {
+        let covers = covers
+        var cached: SubsonicCoverCache.Hit?
+        if let covers {
+            cached = await Task.detached(priority: .userInitiated) {
+                covers.lookup(connection: id, album: album, art: art, size: size)
+            }.value
+        }
+        if let cached, cached.isCurrent { return cached.data }
+
+        if let connection = runtimes[id], let data = try? await connection.coverArt(art, size: size) {
+            if let covers {
+                Task.detached(priority: .utility) { covers.store(data, connection: id, album: album, art: art, size: size) }
+            }
+            return data
+        }
+        return cached?.data
     }
 
     // MARK: - Editing

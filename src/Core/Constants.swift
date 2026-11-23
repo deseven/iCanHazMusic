@@ -54,6 +54,7 @@ enum AppConstants {
 ///   .cache/subsonic/{connection id}/
 ///       downloads/           the downloaded files of Subsonic songs (`SubsonicDownloads`): kept up to the connection's cache size, or (no cache) deleted as soon as nothing needs them and at launch and quit
 ///       playlists/           the playlists of the server as they were seen last (`RemotePlaylistIndex`), what is shown until the server answers
+///       covers/              the full-size covers of the albums that were played, one file per album (`SubsonicCoverCache`), never pruned
 ///   (the directory of a connection is deleted with the connection)
 /// ```
 struct AppPaths {
@@ -80,6 +81,7 @@ struct AppPaths {
 
     static let subsonicDownloadsDirName = "downloads"
     static let subsonicPlaylistsDirName = "playlists"
+    static let subsonicCoversDirName = "covers"
 
     /// What is kept of one connection (`root`: `subsonicCacheDir`). The name is the UUID as Foundation writes it.
     static func subsonicDir(of connection: UUID, in root: URL) -> URL {
