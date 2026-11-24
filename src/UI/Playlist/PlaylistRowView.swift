@@ -147,9 +147,15 @@ private struct AlbumCover: View {
         }
         .frame(width: Layout.coverSize, height: Layout.coverSize)
         .task(id: "\(album.key)\u{1F}\(CoverCache.generation)") {
-            guard CoverCache.cached(for: album) == nil else { return }   // shown already
             let key = album.key
-            if let image = await CoverCache.load(for: album) { loaded = (key, image) }
+            if CoverCache.cached(for: album) == nil {
+                if let image = await CoverCache.load(for: album) { loaded = (key, image) }
+            }
+            // An album of a Subsonic server that has no thumbnail yet: it is fetched now that the header is really on
+            // screen (not when it only flew by: the task was cancelled then) and swapped in for the placeholder.
+            guard !Task.isCancelled, await CoverCache.fetchMissingThumbnail(for: album),
+                  let image = await CoverCache.load(for: album) else { return }
+            loaded = (key, image)
         }
     }
 }

@@ -279,32 +279,8 @@ extension AllTests {
             #expect(albums.allSatisfy { $0.tracks.allSatisfy { $0.subsonic?.connection == connection } })
         }
 
-        @Test("a cover is fetched for the albums that have one and no thumbnail, and cached as a thumbnail")
-        func covers() async throws {
-            let transport = SubsonicStubServer().transport
-            let config = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            let service = SubsonicService(configStore: config, transport: transport, pingTransport: transport,
-                                          sleep: BlockingSleep().sleep, watchesNetwork: false)
-            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
-            service.add(home)
-            let live = try #require(service.connection(home.id))
-            let store = CoverStore(url: try TempDir().path("covers.sqlite"), thumbnailPixels: AppConstants.coverThumbnailPixels)
-
-            let albums = SubsonicImport.albums(of: picks(), connection: home.id)
-            #expect(await SubsonicImport.cacheCovers(of: albums, from: live, into: store) == 1)   // "Waterloo" has no cover
-            let thumbnail = try #require(store.data(for: albums[0].key))
-            let info = try #require(TestImages.inspect(thumbnail))
-            #expect(info.width == AppConstants.coverThumbnailPixels && info.height == AppConstants.coverThumbnailPixels)
-            #expect(store.data(for: albums[1].key) == nil)
-
-            // Nothing is fetched again for what is cached.
-            let fetched = transport.requests(for: "getCoverArt").count
-            #expect(await SubsonicImport.cacheCovers(of: albums, from: live, into: store) == 0)
-            #expect(transport.requests(for: "getCoverArt").count == fetched)
-        }
-
-        @Test("the songs of a server's playlist are one album each, in the order of the playlist, covers asked for once per album")
-        func playlistSongs() async throws {
+        @Test("the songs of a server's playlist are one album each, in the order of the playlist")
+        func playlistSongs() {
             func song(_ id: String, album: String, art: String?) -> SubsonicSong {
                 SubsonicSong(id: id, title: id, album: "Album \(album)", albumID: album, artist: "Abba", track: nil, disc: nil, year: 1976,
                              duration: 100, suffix: "mp3", bitRate: nil, coverArt: art)
@@ -316,80 +292,33 @@ extension AllTests {
             #expect(albums.allSatisfy { $0.tracks.count == 1 })
             #expect(albums.map(\.title) == ["Album al-1", "Album al-2", "Album al-1", "Album al-1"])
             #expect(albums[0].key == albums[2].key && albums[0].key != albums[1].key)
-
-            let transport = SubsonicStubServer().transport
-            let config = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            let service = SubsonicService(configStore: config, transport: transport, pingTransport: transport,
-                                          sleep: BlockingSleep().sleep, watchesNetwork: false)
-            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
-            service.add(home)
-            let store = CoverStore(url: try TempDir().path("covers.sqlite"), thumbnailPixels: AppConstants.coverThumbnailPixels)
-            let flat = SubsonicImport.albums(of: SubsonicImport.picks(ofPlaylist: songs), connection: home.id, flat: true)
-            var reported: [[Int]] = []
-            let stored = await SubsonicImport.cacheCovers(of: flat, from: try #require(service.connection(home.id)), into: store) { done, total in
-                reported.append([done, total])
-            }
-            #expect(stored == 1)
-            #expect(transport.requests(for: "getCoverArt").count == 1)
-            #expect(reported == [[0, 1], [1, 1]])
         }
 
-        @Test("a run gets the albums, then their covers")
-        func session() async throws {
-            let transport = SubsonicStubServer().transport
-            let config = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            let service = SubsonicService(configStore: config, transport: transport, pingTransport: transport,
-                                          sleep: BlockingSleep().sleep, watchesNetwork: false)
-            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
-            service.add(home)
-            let live = try #require(service.connection(home.id))
-            let id = home.id
+        @Test("a run gets the albums")
+        func session() async {
+            let id = connection
             let picks = picks()
 
             let session = SubsonicImportSession()
-            let outcome = await session.run(connection: live) { SubsonicImport.albums(of: picks, connection: id) }
+            let outcome = await session.run { SubsonicImport.albums(of: picks, connection: id) }
             #expect(outcome.albums.count == 2 && !outcome.aborted && outcome.error == nil)
-            #expect(session.stage == .covers && session.coversTotal >= 0)
+            #expect(session.stage == .loading)
         }
 
         @Test("a run that fails to get the albums says why, an aborted one yields nothing")
-        func sessionFailures() async throws {
-            let transport = SubsonicStubServer().transport
-            let config = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            let service = SubsonicService(configStore: config, transport: transport, pingTransport: transport,
-                                          sleep: BlockingSleep().sleep, watchesNetwork: false)
-            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
-            service.add(home)
-            let live = try #require(service.connection(home.id))
-
-            let failing = await SubsonicImportSession().run(connection: live) {
+        func sessionFailures() async {
+            let failing = await SubsonicImportSession().run {
                 throw SubsonicError(.rejected, "the server's answer has no playlist")
             }
             #expect(failing.albums.isEmpty && !failing.aborted && failing.error == "The server's answer has no playlist.")
 
             let session = SubsonicImportSession()
-            let aborted = await session.run(connection: live) {
+            let aborted = await session.run {
                 session.abort()
                 try await Task.sleep(for: .seconds(30))
                 return []
             }
             #expect(aborted.aborted && aborted.albums.isEmpty && aborted.error == nil)
-        }
-
-        @Test("a cover the server can't give is not an error")
-        func coverFailure() async throws {
-            let server = SubsonicStubServer()
-            let config = ConfigStore(paths: AppPaths(workDir: try TempDir().path("work")), saveDelay: .seconds(60))
-            let transport = StubTransport { request, _ in
-                request.url?.path == "/rest/getCoverArt.view" ? SubsonicAnswer.failed(code: 70, message: "Cover not found") : try server.answer(request)
-            }
-            let service = SubsonicService(configStore: config, transport: transport, pingTransport: transport,
-                                          sleep: BlockingSleep().sleep, watchesNetwork: false)
-            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
-            service.add(home)
-            let store = CoverStore(url: try TempDir().path("covers.sqlite"), thumbnailPixels: AppConstants.coverThumbnailPixels)
-            let albums = SubsonicImport.albums(of: picks(), connection: home.id)
-            #expect(await SubsonicImport.cacheCovers(of: albums, from: try #require(service.connection(home.id)), into: store) == 0)
         }
     }
 

@@ -61,8 +61,8 @@ is the grouping by album, the cover and the suffix. `SubsonicRef` is the model (
 (`Track.url`, `PlaybackSource.url`) is `subsonic://{connection id}/{song id}?ext=flac`, an URL that is **not a file**:
 anything that opens `url` as a file has to check (`url.subsonicRef`, `Track.canReveal`). `Album.directory` is
 `subsonic://{connection id}/album/{album id}` (`AlbumKey` uses the URL for such albums), which is what groups the tracks
-of one server album. Tags come from the API when the tracks are read (`SubsonicImport`), there is no Reload Tag(s) for
-them (nothing to read) and playlist export (M3U/PLS) skips them (and is off for remote playlists). The codec label starts as the upper-cased suffix and becomes
+of one server album. Tags come from the API when the tracks are read (`SubsonicImport`) and again whenever the playlist is
+read from the server (Reload Tag(s) does that at once, see "Covers"), and playlist export (M3U/PLS) skips them (and is off for remote playlists). The codec label starts as the upper-cased suffix and becomes
 what `CodecLabel` makes of the file after the first play, like everywhere.
 
 A connection that is switched off hides its playlists (they leave memory, playback from them stops, their queued tracks
@@ -132,19 +132,48 @@ connection that isn't in them is a removed one, and one that is unknown to the d
 
 ### Covers
 
-The thumbnails of added albums go to the cover cache (`covers.sqlite`) when they are added. The big cover of the playing
-album is asked for when the album starts (`PlaybackArtwork.Lookup.remote` -> `SubsonicService.coverArt`) and kept by
-`SubsonicCoverCache` in `{connection id}/covers/`, one file per album, named by a hash of the album's ID and one of the
-cover id and size. Albums are told apart by `SubsonicRef.albumID` (the cover id for a song that has none); the cover id says
-which picture it is, since servers put a version into it (Navidrome adds the time of the last change).
+Nothing is fetched when tracks are added or a playlist is opened: a cover is asked for only when something shows it, **once
+per album and run** (`SubsonicCovers`, which does it all; `SubsonicService.cover` is the call to the server). It makes two
+things:
 
+1. The picture, asked for at 1200 px (`SubsonicCovers.originalSize`, which counts as "the original"), kept by `SubsonicCoverCache`
+   in `{connection id}/covers/`, one file per album, named by a hash of the album's ID and one of the cover id and size. Albums
+   are told apart by `SubsonicRef.albumID` (the cover id for a song that has none); the cover id says which picture it is, since
+   servers put a version into it (Navidrome adds the time of the last change). This is what Now Playing shows.
+2. The thumbnail of the playlist's album block, made from it (`Thumbnailer`) and put into the cover cache (`covers.sqlite`)
+   under `Album.key` if it is missing, or if the picture just came from the server.
+
+Who asks:
+- **Now Playing**, when an album starts (`PlaybackArtwork.Lookup.remote` -> `SubsonicCovers.original`), only while it shows
+  art. With Now Playing art hidden, `PlaybackState` still makes the thumbnail if the playlist is grouped by albums and its header
+  style shows art (nothing at all if neither does).
+- **An album block on screen** (`AlbumCover` -> `CoverCache.fetchMissingThumbnail` -> `SubsonicCovers.ensureThumbnail`): only
+  once the header stayed on screen (a fast scroll cancels its task before), only in a playlist grouped by albums (a flat one has
+  no blocks), only with a header style with art. The block shows the placeholder meanwhile and swaps the thumbnail in.
+- **Reload Tag(s)** (below).
+
+Rules:
 - A file for the very cover id asked for is used without asking the server (that also works offline and for a switched off
-  connection).
-- Otherwise the server is asked; its answer, if it is an image, replaces what the album had. If it doesn't answer, a file of
-  the album with another cover id (a stale one) is used, better than none.
+  connection). Otherwise the server is asked; its answer, if it is an image, replaces what the album had. If it doesn't answer, a
+  file of the album with another cover id (a stale one) is used, better than none.
+- A thumbnail that is in the cover cache is enough for an album block: nothing is asked, even offline. So a cover that changed
+  on the server shows in the playlist only after the next play of the album (the cover id differs from the file's: fetched, thumbnail
+  replaced) or Reload Tag(s).
+- An album that was dealt with this run (it has a thumbnail, or the server couldn't give the cover) isn't asked for again by album
+  blocks (in memory, `settled`); a play does try again.
+- The work in flight is shared per album (a block and a play never fetch twice) and goes on if the block that started it scrolls away;
+  `SubsonicCovers.onThumbnailStored` makes the views forget the album's old cover (`CoverCache.forget`).
 - **Never pruned, and not subject to the connection's cache size** (that is about songs; covers are a few hundred KB and
   offline use is the point). They go with the connection's directory when the connection is removed.
 - Only the embedded art of the song's file is *not* looked at for Subsonic albums: the server is the only source.
+
+### Reload Tag(s)
+
+Works in playlists of a server too (`PlaylistItemActions.reloadTags` -> `SubsonicPlaylists.reloadTags`), without a sheet:
+the playlist is read from the server again (`refreshContent`: titles, albums, years, cover ids; skipped while a change of ours
+waits to be sent), then the covers of the albums of the selection are asked for again whatever is on disk
+(`SubsonicCovers.reload`, four at a time) and their thumbnails made anew. If the playing album is one of them, Now Playing loads
+its art again (`PlaybackState.albumCoversWereReloaded`). A cover the server can't give leaves what there is.
 
 ## Playlists of a server
 
@@ -225,12 +254,10 @@ checkboxes, all ticked. Picking an artist loads all its albums with their songs 
 by disc, then track number; the disc number isn't kept.
 
 Adding (`ImportCoordinator.addSubsonic`, one at a time with the other imports) goes behind the same kind of progress
-sheet as adding files (`SubsonicImportSession`, `SubsonicImportProgressView`, Abort works): the covers of the albums are
-fetched and made thumbnails in the cover cache (`SubsonicImport.cacheCovers`; none for an album that has one already),
-then the songs are added to the playlist on the server (`SubsonicPlaylists.append`). **An aborted run adds nothing.**
+sheet as adding files (`SubsonicImportSession`, `SubsonicImportProgressView`, Abort works): the albums are made, then the
+songs are added to the playlist on the server (`SubsonicPlaylists.append`). **An aborted run adds nothing.**
 Nothing is downloaded here: songs are downloaded when they play (and are then subject to the cache size), or right away
-if the playlist is downloaded automatically. The covers of a playlist that is opened are fetched in the background when it
-has albums without a thumbnail (`SubsonicPlaylists.ensureCovers`, once per run and playlist).
+if the playlist is downloaded automatically; covers are fetched when something shows them (see "Covers").
 
 ## Scrobbling
 
@@ -246,4 +273,3 @@ without tags are sent too (a song is told by its ID); files of this Mac and song
 - Editing a remote playlist while its server can't be reached (it would need a queue of changes and a way to settle
   conflicts: the playlists are read-only then), choosing "public" when making a playlist (the server's default, private),
   moving a track in a playlist other than by drag and drop.
-- Reload Tag(s) for Subsonic tracks (would be a `getSong`).

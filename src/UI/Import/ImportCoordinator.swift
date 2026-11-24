@@ -134,8 +134,8 @@ final class ImportCoordinator {
     }
 
     /// Adds Subsonic tracks to a playlist of their server behind the progress sheet: `albums` makes what is added, then the
-    /// covers of the albums are fetched, then the songs are added to the playlist on the server. Nothing is added if that
-    /// is aborted or fails (the user is told of a failure).
+    /// songs are added to the playlist on the server (their covers are fetched when something shows them, see
+    /// `SubsonicCovers`). Nothing is added if that is aborted or fails (the user is told of a failure).
     func addSubsonic(from connection: SubsonicConnection, to playlist: PlaylistID,
                      albums: @escaping @MainActor () async throws -> [Album]) async {
         guard !isBusy, let window = Dialogs.hostWindow else { return }
@@ -145,11 +145,10 @@ final class ImportCoordinator {
         let sheet = ImportProgressSheet(session: session)
         sheet.present(on: window)
 
-        let outcome = await session.run(connection: connection, albums: albums)
+        let outcome = await session.run(albums: albums)
         var failure: String?
         if !outcome.aborted, outcome.error == nil, !outcome.albums.isEmpty {
             session.beginAppending()
-            CoverCache.reset()   // the albums have thumbnails now
             let songs = outcome.albums.flatMap { $0.tracks.compactMap { $0.subsonic?.songID } }
             do {
                 try await SubsonicPlaylists.shared.append(songIDs: songs, to: playlist)

@@ -27,7 +27,7 @@ final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(fetcher: SubsonicDownloads.shared), configStore: .shared,
                                       listeners: [ScrobblingService.shared, SubsonicScrobbler.shared, LyricsService.shared,
                                                   NotificationService.shared, WaveformService.shared],
-                                      nowPlaying: .shared)
+                                      nowPlaying: .shared, playlistSettings: .shared)
 
     enum Status { case stopped, playing, paused }
 
@@ -270,6 +270,7 @@ final class PlaybackState {
     @ObservationIgnored private let positionStep: Double
     @ObservationIgnored private let configStore: ConfigStore?
     @ObservationIgnored private let nowPlaying: NowPlayingSettings?
+    @ObservationIgnored private let playlistSettings: PlaylistSettings?
     @ObservationIgnored private var listeners: [WeakListener]
     /// A random number in `0..<count` (replaced by tests). The system generator, which is plenty for shuffling.
     @ObservationIgnored var randomIndex: (Int) -> Int = { Int.random(in: 0..<$0) }
@@ -341,11 +342,14 @@ final class PlaybackState {
     /// `listeners`: told about every track that starts and ends (held weakly).
     /// `queue`: the playback queue; by default a new one that keeps its settings in `configStore`.
     /// `nowPlaying`: the album art is only loaded while it is shown there; `nil` = always.
+    /// `playlistSettings`: whether the album blocks of the playlist show art, which makes a Subsonic album's thumbnail
+    /// worth making when Now Playing shows none; `nil` = they don't.
     init(store: PlaylistStore, engine: PlaybackEngine, tickInterval: Duration? = .milliseconds(250),
          positionStep: Double = 1, configStore: ConfigStore? = nil, listeners: [PlaybackListener] = [],
-         queue: PlaybackQueue? = nil, nowPlaying: NowPlayingSettings? = nil) {
+         queue: PlaybackQueue? = nil, nowPlaying: NowPlayingSettings? = nil, playlistSettings: PlaylistSettings? = nil) {
         self.store = store
         self.engine = engine
+        self.playlistSettings = playlistSettings
         self.queue = queue ?? PlaybackQueue(configStore: configStore)
         self.tickInterval = tickInterval
         self.positionStep = positionStep
@@ -1128,8 +1132,14 @@ final class PlaybackState {
 
     /// Loads the original art of the album, unless it is the one already loaded (or loading), which is the case
     /// for every track change within an album.
+    ///
+    /// Without art in Now Playing nothing is loaded for it. An album of a Subsonic server still gets its thumbnail (from the
+    /// disk or the server, see `SubsonicCovers`) if the playlist shows album blocks with art and the album has none yet.
     private func loadArtworkIfNeeded(for album: Album, playing trackIndex: Int) {
-        guard nowPlaying?.showsArt ?? true else { return }
+        guard nowPlaying?.showsArt ?? true else {
+            ensureThumbnail(of: album)
+            return
+        }
         let key = album.key
         guard key != artworkKey else { return }
         artworkKey = key
@@ -1144,12 +1154,9 @@ final class PlaybackState {
 
         var lookup = PlaybackArtwork.Lookup(directory: directory, files: files)
         // An album of a Subsonic server has its cover there, not in a folder or in the files.
-        if let ref = album.tracks.lazy.compactMap(\.subsonic).first(where: { $0.coverArt != nil }), let art = ref.coverArt {
-            let connection = ref.connection
-            let albumID = ref.albumID ?? art
-            lookup.remote = {
-                await SubsonicService.shared.coverArt(connection: connection, album: albumID, id: art, size: Self.remoteArtworkSize)
-            }
+        // Its thumbnail for the playlist is made along with it (`SubsonicCovers`).
+        if let request = SubsonicCovers.Request(album: album) {
+            lookup.remote = { await SubsonicCovers.shared.original(for: request) }
         }
         let finalLookup = lookup
         artworkTask = Task { [weak self] in
@@ -1161,9 +1168,20 @@ final class PlaybackState {
         }
     }
 
-    /// The size (pixels, longer side) the cover of a Subsonic album is asked for: more than the now playing block and the
-    /// sheet that enlarges it show.
-    private static let remoteArtworkSize = 1200
+    /// Makes the playlist thumbnail of a Subsonic album that is playing while Now Playing shows no art: only if the playlist
+    /// has album blocks with art (grouped by albums, a header style that shows it). Cheap for an album that was dealt with.
+    private func ensureThumbnail(of album: Album) {
+        guard let request = SubsonicCovers.Request(album: album), !(store.playingPlaylist?.isFlat ?? true),
+              playlistSettings?.albumHeaderStyle.showsArt ?? false else { return }
+        Task { _ = await SubsonicCovers.shared.ensureThumbnail(for: request) }
+    }
+
+    /// The covers of these albums (`Album.key`) were fetched again: the art of what plays is loaded again if it is one of them.
+    func albumCoversWereReloaded(_ keys: Set<String>) {
+        guard let key = artworkKey, keys.contains(key) else { return }
+        dropArtwork()
+        refreshInfo()
+    }
 
     /// Lets go of the art, and of the work to load it.
     private func dropArtwork() {

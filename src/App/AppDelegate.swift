@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = SubsonicService.shared   // pings the servers of the enabled connections
         _ = SubsonicDownloads.shared   // trims the cache of downloaded songs to its size, clears what has no cache
         SubsonicPlaylists.shared.onProblem = { SubsonicActions.playlistProblem(title: $0, message: $1) }
-        SubsonicPlaylists.shared.onCoversStored = { CoverCache.reset() }
+        SubsonicCovers.shared.onThumbnailStored = { CoverCache.forget(key: $0) }
         SubsonicPlaylists.shared.watcher = SubsonicAutoDownloads.shared   // downloads the playlists that are to be kept
         SubsonicPlaylists.shared.start()   // shows the playlists of the servers and keeps them up to date
         PlaybackState.shared.onGiveUp = { PlaybackActions.gaveUp($0) }

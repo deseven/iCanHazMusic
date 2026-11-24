@@ -48,16 +48,31 @@ enum PlaylistItemActions {
 
     /// Whether the selection has a track whose tags can be read again (see `reloadTags`).
     static func canReloadTags(_ selection: Set<Int>) -> Bool {
-        let playlist = store.activePlaylist
-        return playlist.expandedTrackRows(selection).contains { playlist.track(for: playlist.rows[$0])?.subsonic == nil }
+        !store.activePlaylist.expandedTrackRows(selection).isEmpty
     }
 
-    /// Reads the tags of the selected tracks (of all tracks of selected albums) again, behind the import sheet. The tracks
-    /// from a Subsonic server have no file to read them from and keep what the server told when they were added.
+    /// A Reload Tag(s) of a playlist of a server is under way (it has no sheet that keeps a second one out).
+    private static var isReloadingRemote = false
+
+    /// Reads the tags of the selected tracks (of all tracks of selected albums) again, behind the import sheet. In a playlist
+    /// of a Subsonic server there are no files to read: the playlist is read from the server again and the album art of the
+    /// selected albums (and its thumbnails) is fetched again, in the background.
     static func reloadTags(_ selection: Set<Int>) async {
         let playlist = store.activePlaylist
+        let rows = playlist.expandedTrackRows(selection)
+        let id = store.activeID
+        if id.isRemote {
+            guard !isReloadingRemote else { return }
+            isReloadingRemote = true
+            defer { isReloadingRemote = false }
+            let albums = Set(rows.map { playlist.rows[$0].albumIndex }).sorted().map { playlist.albums[$0] }
+            let keys = await SubsonicPlaylists.shared.reloadTags(of: id, albums: albums)
+            CoverCache.reset()
+            PlaybackState.shared.albumCoversWereReloaded(keys)
+            return
+        }
         var seen = Set<URL>()
-        let urls = playlist.expandedTrackRows(selection)
+        let urls = rows
             .compactMap { playlist.track(for: playlist.rows[$0]) }
             .filter { $0.subsonic == nil }
             .map(\.entryURL)

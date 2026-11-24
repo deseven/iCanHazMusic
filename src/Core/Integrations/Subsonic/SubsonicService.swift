@@ -108,11 +108,24 @@ final class SubsonicService {
         connections.first { $0.id == id }?.displayName ?? "a removed connection"
     }
 
+    /// A cover and where it came from.
+    struct Cover: Equatable {
+        let data: Data
+        /// The server just gave it (it is not the copy on disk that was there).
+        let isFromServer: Bool
+    }
+
     /// The cover art `art` of the album `album` (its ID on the server) of a connection, for the Now Playing block. What was
     /// fetched before is kept per album (`SubsonicCoverCache`): the copy of this very cover is used without asking the server,
     /// a copy of another (older) cover of the album only when the server can't give the new one, which is also the case
     /// for a switched off connection. nil if there is none and the server doesn't have it.
     func coverArt(connection id: UUID, album: String, id art: String, size: Int?) async -> Data? {
+        await cover(connection: id, album: album, id: art, size: size)?.data
+    }
+
+    /// Like `coverArt`, but says where the picture came from. `refresh`: the server is asked even if the copy on disk is
+    /// of this very cover (which is then still the answer if the server can't give it).
+    func cover(connection id: UUID, album: String, id art: String, size: Int?, refresh: Bool = false) async -> Cover? {
         let covers = covers
         var cached: SubsonicCoverCache.Hit?
         if let covers {
@@ -120,15 +133,16 @@ final class SubsonicService {
                 covers.lookup(connection: id, album: album, art: art, size: size)
             }.value
         }
-        if let cached, cached.isCurrent { return cached.data }
+        if !refresh, let cached, cached.isCurrent { return Cover(data: cached.data, isFromServer: false) }
 
         if let connection = runtimes[id], let data = try? await connection.coverArt(art, size: size) {
             if let covers {
-                Task.detached(priority: .utility) { covers.store(data, connection: id, album: album, art: art, size: size) }
+                // Waited for: whoever asks next (the thumbnail, the next album start) finds the file.
+                await Task.detached(priority: .utility) { covers.store(data, connection: id, album: album, art: art, size: size) }.value
             }
-            return data
+            return Cover(data: data, isFromServer: true)
         }
-        return cached?.data
+        return cached.map { Cover(data: $0.data, isFromServer: false) }
     }
 
     // MARK: - Editing

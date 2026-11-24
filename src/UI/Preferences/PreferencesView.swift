@@ -590,7 +590,8 @@ private struct PlaylistTab: View {
                 description: "How the album blocks of playlists grouped by albums look: the album art with the "
                     + "artist, album and tags next to it (on the left or mirrored to the right), or a single line "
                     + "without the art. The art is still cached when adding files, so switching back to a style "
-                    + "with it shows it right away."
+                    + "with it shows it right away. The art of Subsonic albums is fetched from the server when "
+                    + "it is shown (or played), not before."
             ) {
                 Picker("", selection: $settings.albumHeaderStyle) {
                     ForEach(AlbumHeaderStyle.allCases) { style in

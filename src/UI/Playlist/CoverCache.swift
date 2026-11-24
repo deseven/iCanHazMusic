@@ -43,6 +43,19 @@ enum CoverCache {
         return image
     }
 
+    /// Forget what is remembered of one album's cover (a thumbnail was stored for it).
+    static func forget(key: String) {
+        cache.removeObject(forKey: key as NSString)
+    }
+
+    /// For the header of an album of a Subsonic server that is on screen: gets the thumbnail from the server if there is none
+    /// (see `SubsonicCovers`; nothing is done for any other album, or one that was dealt with). Whether one was stored, in
+    /// which case `load` gives it. Not cancelled with the header: the work is shared and goes on.
+    static func fetchMissingThumbnail(for album: Album) async -> Bool {
+        guard let request = SubsonicCovers.Request(album: album) else { return false }
+        return await SubsonicCovers.shared.ensureThumbnail(for: request)
+    }
+
     /// Forget everything, e.g. after an import, which may have added art for albums that showed a placeholder.
     static func reset() {
         cache.removeAllObjects()

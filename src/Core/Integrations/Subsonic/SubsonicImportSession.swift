@@ -5,17 +5,16 @@ import Foundation
 import Observation
 
 /// One "add Subsonic tracks to the playlist" run, the counterpart of `ImportSession` for the tracks of a server: get the
-/// albums (a playlist of the server has to be read first), and fetch the covers and make their thumbnails. The songs
-/// themselves are downloaded when they play (or by `SubsonicAutoDownloads`). Progress is published for the sheet that is
-/// shown meanwhile, which calls `abort()`. Foundation only.
+/// albums (a playlist of the server has to be read first). The songs themselves are downloaded when they play (or by
+/// `SubsonicAutoDownloads`), and the covers are fetched when something shows them (`SubsonicCovers`). The stage is
+/// published for the sheet that is shown meanwhile, which calls `abort()`. Foundation only.
 ///
 /// What is added to the playlist is up to the caller (`ImportCoordinator`): an aborted run yields no albums.
 @MainActor
 @Observable
 final class SubsonicImportSession {
     enum Stage {
-        case loading       // the playlist is read from the server
-        case covers        // album art is fetched and made a thumbnail
+        case loading       // the albums are read from the server
         case appending     // the caller adds the albums to the playlist
     }
 
@@ -28,9 +27,6 @@ final class SubsonicImportSession {
     }
 
     private(set) var stage = Stage.loading
-    /// Covers dealt with (stored or not) of those that are needed.
-    private(set) var coversProcessed = 0
-    private(set) var coversTotal = 0
     private(set) var isAborting = false
 
     @ObservationIgnored private var task: Task<Outcome, Never>?
@@ -48,9 +44,9 @@ final class SubsonicImportSession {
         stage = .appending
     }
 
-    /// Gets the albums from `makeAlbums`, then their covers from `connection`.
-    func run(connection: SubsonicConnection, albums makeAlbums: @escaping @MainActor () async throws -> [Album]) async -> Outcome {
-        let task = Task { [self] () -> Outcome in
+    /// Gets the albums from `makeAlbums`.
+    func run(albums makeAlbums: @escaping @MainActor () async throws -> [Album]) async -> Outcome {
+        let task = Task { () -> Outcome in
             let albums: [Album]
             do {
                 albums = try await makeAlbums()
@@ -62,14 +58,7 @@ final class SubsonicImportSession {
             }
             guard !Task.isCancelled else { return Outcome(albums: [], aborted: true, error: nil) }
 
-            stage = .covers
-            await SubsonicImport.cacheCovers(of: albums, from: connection) { [self] done, total in
-                coversProcessed = done
-                coversTotal = total
-            }
-            guard !Task.isCancelled else { return Outcome(albums: [], aborted: true, error: nil) }
-
-            Log.info("subsonic: \(albums.count) album(s) ready, covers \(coversTotal == 0 ? "already there" : "\(coversProcessed)/\(coversTotal)")")
+            Log.info("subsonic: \(albums.count) album(s) ready")
             return Outcome(albums: albums, aborted: false, error: nil)
         }
         self.task = task

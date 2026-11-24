@@ -59,8 +59,7 @@ final class SubsonicPlaylists: RemotePlaylistEditing {
 
     /// Told when something the user did can't be carried to the server (title, message). Set by the UI.
     @ObservationIgnored var onProblem: ((_ title: String, _ message: String) -> Void)?
-    /// Told when covers of albums were stored in the cover cache (the views drop what they remember about them).
-    @ObservationIgnored var onCoversStored: (() -> Void)?
+
     /// Follows the playlists (see "Watching" above).
     @ObservationIgnored weak var watcher: RemotePlaylistWatching?
 
@@ -75,6 +74,7 @@ final class SubsonicPlaylists: RemotePlaylistEditing {
 
     @ObservationIgnored private let store: PlaylistStore
     @ObservationIgnored private let service: SubsonicService
+    @ObservationIgnored private let covers: SubsonicCovers?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var files: SubsonicSongFileRemoving?
     @ObservationIgnored private var timer: Task<Void, Never>?
@@ -85,15 +85,17 @@ final class SubsonicPlaylists: RemotePlaylistEditing {
     @ObservationIgnored private var pushes: [PlaylistID: Task<Void, Never>] = [:]
     /// The server's order after the grouped order was sent to it, to not try that again for the same result.
     @ObservationIgnored private var rewrites: [PlaylistID: [String]] = [:]
-    @ObservationIgnored private var coversRequested = Set<PlaylistID>()
+
     @ObservationIgnored private var started = false
 
     /// `files`: what deletes the downloaded files of a gone playlist's songs; nil: `SubsonicDownloads.shared` (made when
     /// first needed).
-    init(store: PlaylistStore, service: SubsonicService, files: SubsonicSongFileRemoving?,
+    /// `covers`: what Reload Tag(s) asks for the covers; nil: `SubsonicCovers.shared` (made when first needed).
+    init(store: PlaylistStore, service: SubsonicService, files: SubsonicSongFileRemoving?, covers: SubsonicCovers? = nil,
          sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
         self.store = store
         self.service = service
+        self.covers = covers
         self.files = files
         self.sleep = sleep
     }
@@ -292,26 +294,30 @@ final class SubsonicPlaylists: RemotePlaylistEditing {
             Log.info("subsonic[\(connection.name)]: '\(store.displayName(of: id))' is shown grouped by albums, the server gets that order")
             markEdited(id, baseline: fresh.changed ?? "")
         }
-        if id == store.activeID { ensureCovers(for: id) }
-    }
-
-    // MARK: - Covers
-
-    /// Stores the thumbnails of the covers of a playlist's albums that have none yet, in the background (once per run).
-    private func ensureCovers(for id: PlaylistID) {
-        guard let connectionID = id.connection, let connection = service.connection(connectionID),
-              let playlist = store.playlist(id), playlist.trackCount > 0, coversRequested.insert(id).inserted else { return }
-        let albums = playlist.albums
-        Task { [weak self] in
-            let stored = await SubsonicImport.cacheCovers(of: albums, from: connection)
-            if stored > 0 { self?.onCoversStored?() }
-        }
     }
 
     func playlistWasOpened(_ id: PlaylistID) {
         guard let connection = id.connection else { return }
-        ensureCovers(for: id)
         Task { await refresh(connection) }
+    }
+
+    // MARK: - Reload Tag(s)
+
+    /// Reload Tag(s) of a playlist of a server: what the server says about the playlist is read again (titles, albums, years;
+    /// nothing happens to that while a change of ours is waiting to be sent), and the covers of `albums` (as they were shown)
+    /// are asked for again, the thumbnails made anew. Returns the keys of the albums whose covers were asked for, as they are
+    /// after reading the playlist (a new tag can change an album's key).
+    func reloadTags(of id: PlaylistID, albums: [Album]) async -> Set<String> {
+        let albumIDs = Set(albums.compactMap(SubsonicCovers.Request.init(album:)).map(\.albumID))
+        await refreshContent(id)
+
+        var seen = Set<String>()
+        let requests = (store.playlist(id)?.albums ?? albums)
+            .compactMap(SubsonicCovers.Request.init(album:))
+            .filter { albumIDs.contains($0.albumID) && seen.insert($0.albumKey).inserted }
+        await (covers ?? .shared).reload(requests)
+        Log.info("subsonic: reloaded '\(store.displayName(of: id))', \(requests.count) cover(s) asked for again")
+        return seen
     }
 
     // MARK: - Changes of the content
@@ -420,7 +426,6 @@ final class SubsonicPlaylists: RemotePlaylistEditing {
         pending[id] = nil
         pushes[id] = nil
         rewrites[id] = nil
-        coversRequested.remove(id)
     }
 
     // MARK: - Adding songs, creating, renaming, deleting

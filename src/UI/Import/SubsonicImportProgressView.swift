@@ -3,8 +3,8 @@
 
 import SwiftUI
 
-/// Content of the modal progress sheet of adding Subsonic tracks (`SubsonicImportSession`): spinner + stage title,
-/// the numbers of what is fetched, and an Abort button. Looks like `ImportProgressView`.
+/// Content of the modal progress sheet of adding Subsonic tracks (`SubsonicImportSession`): spinner + stage title and an
+/// Abort button. Looks like `ImportProgressView`.
 struct SubsonicImportProgressView: View {
     let session: SubsonicImportSession
 
@@ -14,8 +14,6 @@ struct SubsonicImportProgressView: View {
                 ProgressView().controlSize(.small)
                 Text(title).font(.headline)
             }
-
-            statistics
 
             HStack {
                 Spacer()
@@ -34,24 +32,7 @@ struct SubsonicImportProgressView: View {
     private var title: String {
         switch session.stage {
         case .loading: "Reading the playlist from the server..."
-        case .covers: "Fetching album art..."
         case .appending: "Appending to current playlist..."
-        }
-    }
-
-    @ViewBuilder
-    private var statistics: some View {
-        if session.stage == .covers || session.stage == .appending {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                row("Album arts processed", "\(session.coversProcessed) / \(session.coversTotal)")
-            }
-        }
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label).foregroundStyle(.secondary)
-            Text(value).monospacedDigit()
         }
     }
 }

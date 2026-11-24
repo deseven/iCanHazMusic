@@ -48,13 +48,13 @@ enum AppConstants {
 ///   config.json
 ///   app.log                  the log of the current run (stdout is duplicated into it), rewritten on every start
 ///   playlists/{name}.json
-///   .cache/covers.sqlite     album art thumbnails, safe to delete
+///   .cache/covers.sqlite     album art thumbnails, safe to delete (Subsonic albums get theirs when they are shown or played)
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
 ///   .cache/waveforms.sqlite  what the visual seekbar styles show about the tracks played with them (loudness, spectrum, sections), made again on demand
 ///   .cache/subsonic/{connection id}/
 ///       downloads/           the downloaded files of Subsonic songs (`SubsonicDownloads`): kept up to the connection's cache size, or (no cache) deleted as soon as nothing needs them and at launch and quit
 ///       playlists/           the playlists of the server as they were seen last (`RemotePlaylistIndex`), what is shown until the server answers
-///       covers/              the full-size covers of the albums that were played, one file per album (`SubsonicCoverCache`), never pruned
+///       covers/              the covers (1200 px) of the albums that were played or shown, one file per album (`SubsonicCoverCache`, `SubsonicCovers`), never pruned
 ///   (the directory of a connection is deleted with the connection)
 /// ```
 struct AppPaths {

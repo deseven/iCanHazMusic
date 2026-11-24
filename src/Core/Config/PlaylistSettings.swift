@@ -12,7 +12,7 @@ enum AlbumHeaderStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     /// Mirrored: the three lines aligned to the right, the album art at the right edge.
     case albumArtRight = "album_art_right"
     /// One line: the artist on the left, the tags and the album on the right. No album art is shown or loaded (it is
-    /// still cached when adding files).
+    /// still cached when adding files; the art of a Subsonic album is fetched when it is shown or played, see `SubsonicCovers`).
     case noAlbumArt = "no_album_art"
 
     static let `default`: AlbumHeaderStyle = .albumArt

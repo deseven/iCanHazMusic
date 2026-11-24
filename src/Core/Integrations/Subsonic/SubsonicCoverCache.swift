@@ -5,8 +5,8 @@ import Foundation
 import CryptoKit
 import ImageIO
 
-/// The full-size covers of Subsonic albums (what the Now Playing block shows), kept on disk so that they are there when
-/// the server isn't, and aren't asked for again and again.
+/// The big covers of Subsonic albums (what the Now Playing block shows and the playlist's thumbnails are made from), kept on
+/// disk so that they are there when the server isn't, and aren't asked for again and again (see `SubsonicCovers`).
 ///
 /// - One file per album in `{connection id}/covers/`, named `{hash of the album}.{hash of the cover id and size}`. The
 ///   second part says which picture it is: servers put a version into the cover ids (Navidrome adds the time of the last
