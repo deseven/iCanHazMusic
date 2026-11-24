@@ -514,8 +514,8 @@ final class PlaybackState {
         if !isQuitting { saveState() }   // nothing plays: nothing to restore
     }
 
-    /// `stop()`, returning once the output has faded out and stopped. For quitting: the process ending in the middle
-    /// of the sound pops.
+    /// `stop()`, returning once the output has faded out and stopped, and the device had a moment to wind down
+    /// (`PlaybackEngine.quitSettleDelay`). For quitting: the process ending in the middle of the sound leaves artifacts.
     ///
     /// Where the track was is kept for the next launch (see `restorePlayback`), which then goes on with it. So the
     /// track isn't left: the listeners hear nothing of its end, a scrobble is made once it really is over, and counted
@@ -526,7 +526,7 @@ final class PlaybackState {
         isQuitting = saveState()
         stop()
         isQuitting = false
-        await engine.waitForFade()
+        await engine.waitForFadeAndSettle()
     }
 
     /// The track that plays after this one by the playback order (a random one while shuffling, or the one the

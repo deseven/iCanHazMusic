@@ -61,6 +61,11 @@ final class PlaybackEngine {
 
     /// Time the output takes to fade out before pausing/seeking/stopping.
     static let fadeDuration: Double = 0.03
+    /// The same for a stop on a device: the node is muted at once and the stream is stopped this much later. It has to
+    /// cover the time the mute takes to reach the speaker (the output buffers), or the stream ends with sound still in
+    /// them, which is heard as artifacts. Longer than `fadeDuration`, which pausing and seeking can't afford (they would
+    /// lag); a stop isn't time critical. Offline (tests) a stop takes `fadeDuration` like the others.
+    static let stopFadeDuration: Double = 0.1
     /// Seconds of pause after which the output is let go of (`releaseIdleOutput`).
     static let pauseReleaseDelay: Double = 60
     /// Frames rendered at once by `renderOffline` (the engine's maximum).
@@ -366,6 +371,18 @@ final class PlaybackEngine {
         await fadeTask?.value
     }
 
+    /// Time the process is kept alive after the output was stopped, for quitting: `AVAudioEngine.stop` returns before
+    /// the device has wound its stream down, and a process that ends in the middle of that leaves artifacts in the sound.
+    static let quitSettleDelay: Double = 0.1
+
+    /// `waitForFade`, then gives a device that was stopped a moment to settle (`quitSettleDelay`). Nothing offline.
+    func waitForFadeAndSettle() async {
+        let wasRunning = engine.isRunning
+        await waitForFade()
+        guard case .device = output, wasRunning else { return }
+        try? await Task.sleep(for: .seconds(Self.quitSettleDelay))
+    }
+
     /// Moves the current track to `seconds` (at most its last frame).
     func seek(to seconds: Double) {
         guard !pendingStop, let source = pendingRestart?.source ?? slots.first?.source ?? parked?.restart.source else { return }
@@ -419,8 +436,9 @@ final class PlaybackEngine {
         case .offline:
             fadeFramesRemaining = Int((Self.fadeDuration * sampleRate).rounded(.up))
         case .device:
+            let duration = pendingStop ? Self.stopFadeDuration : Self.fadeDuration
             fadeTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Self.fadeDuration))
+                try? await Task.sleep(for: .seconds(duration))
                 guard !Task.isCancelled else { return }
                 self?.fadeFinished()
             }

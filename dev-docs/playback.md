@@ -98,8 +98,12 @@ What the decoders do, as the app uses them (all of it in `tests/`, with fixtures
 - **Position** comes from the node's timeline (`playerTime`), not from completion callbacks. If the feeder ever falls
   behind, the node plays silence and the timeline moves on; the gap is detected when the next buffer is scheduled and
   subtracted from the position.
-- Pause, seek, stop and replacing the track **fade the output out** (`node.volume = 0`, ramps in about 25 ms), act
-  `fadeDuration` (30 ms) later, and fade back in when playing again. Without it each of them clicks.
+- Pause, seek, stop and replacing the track **fade the output out** (`node.volume = 0`; offline it ramps in about 25 ms,
+  on a device the mixer does it in under 1 ms), act `fadeDuration` (30 ms) later, and fade back in when playing again.
+  What the wait is for is the mute reaching the speaker through the output buffers (about 20 ms on a 512-frame device).
+  A stop on a device waits `stopFadeDuration` (100 ms) before the stream is stopped, and quitting waits another
+  `quitSettleDelay` (100 ms) after that (`waitForFadeAndSettle`): a process that ends right after `AVAudioEngine.stop`,
+  or one that stops the stream with sound still in the buffers, leaves audible digital artifacts.
 - `PlaybackState` keeps the playlist logic (which track follows which, the display) and talks to the engine through
   `start`, `setNext`, `pause`/`resume`, `seek`, `stop` and the events `started`, `advanced`, `finished`, `failed`,
   `deviceError`. `started` comes when the current track's first audio is scheduled (after any start, seek or restart):
