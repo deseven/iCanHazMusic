@@ -48,6 +48,7 @@ enum AppConstants {
 ///   config.json
 ///   app.log                  the log of the current run (stdout is duplicated into it), rewritten on every start
 ///   playlists/{name}.json
+///   .cache/last_played.json  the track that was started last in each playlist (`LastPlayedStore`), shown again when the playlist is opened; losing it costs nothing
 ///   .cache/covers.sqlite     album art thumbnails, safe to delete (Subsonic albums get theirs when they are shown or played)
 ///   .cache/lyrics.sqlite     lyrics (from the tags and from LRCLIB); the embedded ones come back with Reload Tag(s)
 ///   .cache/waveforms.sqlite  what the visual seekbar styles show about the tracks played with them (loudness, spectrum, sections), made again on demand
@@ -73,6 +74,7 @@ struct AppPaths {
     let playlistsDir: URL
     /// Everything in here can be rebuilt, so it is always safe to delete.
     let cacheDir: URL
+    let lastPlayedURL: URL
     let coverCacheURL: URL
     let lyricsCacheURL: URL
     let waveformCacheURL: URL
@@ -100,6 +102,7 @@ struct AppPaths {
         logURL = workDir.appendingPathComponent("app.log")
         playlistsDir = workDir.appendingPathComponent("playlists", isDirectory: true)
         cacheDir = workDir.appendingPathComponent(".cache", isDirectory: true)
+        lastPlayedURL = cacheDir.appendingPathComponent("last_played.json")
         coverCacheURL = cacheDir.appendingPathComponent("covers.sqlite")
         lyricsCacheURL = cacheDir.appendingPathComponent("lyrics.sqlite")
         waveformCacheURL = cacheDir.appendingPathComponent("waveforms.sqlite")

@@ -303,10 +303,7 @@ final class PlaybackState {
         let paused: Bool
     }
 
-    /// Seconds of playback between two writes of the position to the config while a track plays (replaced by tests).
-    @ObservationIgnored var stateSaveInterval = 10.0
-    /// The position (seconds) that was last written to the config as where playback stands.
-    @ObservationIgnored private var savedPosition = 0.0
+
     /// The app is quitting with something playing: the track is put aside for the next launch instead of being left
     /// (see `stopAndWait`).
     @ObservationIgnored private var isQuitting = false
@@ -649,7 +646,6 @@ final class PlaybackState {
         position = target
         Log.info("playback: seek to \(Self.clock(target)) of \(Self.clock(duration))")
         engine.seek(to: target)
-        saveState(position: target)
     }
 
     /// What plays after the current track may have changed: the playing playlist got more tracks (they are only
@@ -728,6 +724,10 @@ final class PlaybackState {
     /// Writes where playback stands to the config (`AppConfig.Playback.SavedState`): the playing track, the position in
     /// it (`seconds`; the engine's by default), playing or paused. With nothing playing, or with `restoresState` off,
     /// what was kept is forgotten instead. Returns whether a state was kept.
+    ///
+    /// Called only when the track or the paused flag changes and at quit, never periodically or on a seek: the config
+    /// is not rewritten while a track just plays, so the position is only exact after a pause, a resume or a quit (a
+    /// crash loses it).
     @discardableResult
     private func saveState(position seconds: Double? = nil) -> Bool {
         guard let configStore else { return false }
@@ -739,7 +739,7 @@ final class PlaybackState {
         let time = seconds ?? engine.position
         // Not a number JSON can hold, or not a position at all: the start of the track is the safe answer.
         let position = time.isFinite ? (max(time, 0) * 1000).rounded() / 1000 : 0
-        savedPosition = position
+
         let state = AppConfig.Playback.SavedState(playlist: playing.text, trackID: id, position: position,
                                                   paused: status == .paused)
         configStore.update { $0.playback.state = state }
@@ -970,9 +970,6 @@ final class PlaybackState {
         let time = engine.position
         guard time.isFinite, time >= 0 else { return }
         progress?.observe(position: time)
-        if restoresState, status == .playing, abs(time - savedPosition) >= stateSaveInterval {
-            saveState(position: time)
-        }
         guard isWatched else { return }
         publishPosition(time)
         alignAnchor(to: time)

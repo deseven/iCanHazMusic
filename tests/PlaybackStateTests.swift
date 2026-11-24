@@ -1632,7 +1632,7 @@ extension AllTests {
             #expect(env.state.playingRow == 1)
         }
 
-        @Test("the tracks that start are the playlist's last played one, in the file too")
+        @Test("the tracks that start are the playlist's last played one, kept in the last played file and not in the playlist's")
         func lastPlayed() async throws {
             let env = try await standard()
             #expect(env.store.lastPlayedRow == nil)
@@ -1646,9 +1646,12 @@ extension AllTests {
             env.state.stop()
             #expect(env.store.lastPlayedRow == 3)              // stays after the playback ended
             await env.store.flushWrites()
+            let stored = try JSONDecoder().decode([String: TrackID].self,
+                                                  from: Data(contentsOf: env.dir.path("work/.cache/last_played.json")))
+            #expect(stored == ["main": 3])
             let data = try Data(contentsOf: env.dir.path("work/playlists/main.json"))
             let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-            #expect(object["last_played"] as? Int == 3)
+            #expect(object["last_played"] == nil)
         }
 
         @Test("a track that moves to another row is still the last played one")

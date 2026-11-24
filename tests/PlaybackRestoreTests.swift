@@ -92,25 +92,22 @@ extension AllTests {
 
         // MARK: Keeping it
 
-        @Test("a track that starts is kept at its start, then its position every few seconds")
+        @Test("a track that starts is kept at its start, and the config is not rewritten while it plays")
         func keepsWhilePlaying() async throws {
             let env = try await launch(in: try TempDir(), entries: standard())
             let a2 = try env.id(track: 1)
             #expect(env.saved == nil)
-            env.state.stateSaveInterval = 1
 
             env.state.play(albumIndex: 0, trackIndex: 1)
-            #expect(env.saved == Saved(playlist: "main", trackID: a2, position: 0, paused: false))
+            let started = Saved(playlist: "main", trackID: a2, position: 0, paused: false)
+            #expect(env.saved == started)
 
-            try await env.listen(0.5)
-            #expect(env.saved?.position == 0)                      // not yet
-            try await env.listen(0.7)
-            let position = try #require(env.saved).position
-            #expect(position > 0.9 && position < 1.3, "saved \(position)")
-            #expect(env.saved?.trackID == a2)
+            try await env.listen(2)                                // A2 lasts 2.5 s
+            #expect(env.state.status == .playing)
+            #expect(env.saved == started)                          // the position is only written at quit
         }
 
-        @Test("pausing, resuming and seeking are kept, and stopping forgets it")
+        @Test("pausing and resuming are kept, a seek is not written, and stopping forgets it")
         func followsPlayback() async throws {
             let env = try await launch(in: try TempDir(), entries: standard())
             let a1 = try env.id(track: 0)
@@ -124,8 +121,9 @@ extension AllTests {
             env.state.resume()
             #expect(env.saved?.paused == false)
 
+            let resumed = try #require(env.saved)
             env.state.seek(to: 2)
-            #expect(env.saved?.position == 2)
+            #expect(env.saved == resumed)
 
             env.state.stop()
             #expect(env.saved == nil)

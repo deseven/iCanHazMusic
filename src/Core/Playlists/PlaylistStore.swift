@@ -123,9 +123,9 @@ final class PlaylistStore {
     /// Number of the newest write queued for each file (key: `key(id)`, or `indexKey`): older ones still waiting in the
     /// chain are covered by it and skipped.
     @ObservationIgnored private var saveSerial: [String: Int] = [:]
-    /// The `last_played` of every playlist that has been loaded (key: `key(id)`); a playlist's file is only
-    /// ever written while it is in memory, so what is stored here is what its file gets.
-    @ObservationIgnored private var lastPlayedByKey: [String: TrackID] = [:]
+    /// The last played track of every playlist (key: `key(id)`), kept apart from the playlist files so that starting a
+    /// track doesn't rewrite one. A `last_played` in a file (older versions) only seeds it, see `adopt`.
+    @ObservationIgnored private let lastPlayedStore: LastPlayedStore
     /// The row of the active playlist that `reveal` wants shown when the view reacts to the opening.
     @ObservationIgnored private var pendingReveal: Int?
 
@@ -134,6 +134,7 @@ final class PlaylistStore {
     init(paths: AppPaths, configStore: ConfigStore) {
         self.paths = paths
         self.configStore = configStore
+        lastPlayedStore = LastPlayedStore(url: paths.lastPlayedURL)
 
         tagParsingConcurrency = configStore.config.engine.tagParsingConcurrency
         do {
@@ -157,6 +158,13 @@ final class PlaylistStore {
         // The playlists of the enabled connections as they were seen last; the servers are asked later (`SubsonicPlaylists`).
         remoteSections = configStore.config.subsonic.filter(\.enabled).map { connection in
             RemoteSection(connection: connection.id, name: connection.displayName, playlists: readIndex(of: connection.id))
+        }
+
+        let knownKeys = Set(names.map { Self.key($0) })
+        let connections = Set(configStore.config.subsonic.map(\.id))
+        lastPlayedStore.prune { key in
+            if let connection = PlaylistID(text: key).connection { return connections.contains(connection) }
+            return knownKeys.contains(key)
         }
 
         // Fall back to the first playlist if the configured one is gone.
@@ -269,7 +277,7 @@ final class PlaylistStore {
     func lastPlayed(in id: PlaylistID) -> TrackID? {
         let key = Self.key(id)
         guard loaded[key] != nil else { return nil }
-        return lastPlayedByKey[key]
+        return lastPlayedStore[key]
     }
 
     /// Returns once the active playlist is in memory (at once if it is). A load that is replaced by another (the
@@ -282,7 +290,7 @@ final class PlaylistStore {
 
     /// The row of the active playlist's last played track (see `setLastPlayed`), if it is loaded and has it.
     var lastPlayedRow: Int? {
-        guard !isLoading, let id = lastPlayedByKey[Self.key(activeID)] else { return nil }
+        guard !isLoading, let id = lastPlayedStore[Self.key(activeID)] else { return nil }
         return activePlaylist.row(of: id)
     }
 
@@ -398,18 +406,16 @@ final class PlaylistStore {
     }
 
     /// Playback has started this track of the playlist it runs from: it is that playlist's last played one, which
-    /// is stored with it (and shown again when the playlist is opened).
+    /// is remembered (and shown again when the playlist is opened). Only `LastPlayedStore` is written, not the playlist.
     func setLastPlayed(_ id: TrackID) {
         guard let playing = playingID, let playlist = playingPlaylist, playlist.position(of: id) != nil else { return }
-        let key = Self.key(playing)
-        guard lastPlayedByKey[key] != id else { return }
-        lastPlayedByKey[key] = id
-        save(playlist, as: playing)
+        lastPlayedStore[Self.key(playing)] = id
     }
 
-    /// Waits until everything queued by `save` is on disk.
+    /// Waits until everything queued by `save` is on disk, and writes the last played tracks if they changed.
     func flushWrites() async {
         await writeTask?.value
+        lastPlayedStore.flush()
     }
 
     /// Opens a playlist that is in memory and has the view show one of its tracks (or the header of its album with
@@ -503,7 +509,10 @@ final class PlaylistStore {
         reload()
         let finalID = PlaylistID.local(existingName(matching: newName) ?? newName)
         let newKey = Self.key(finalID)
-        if let last = lastPlayedByKey.removeValue(forKey: oldKey) { lastPlayedByKey[newKey] = last }
+        if let last = lastPlayedStore[oldKey] {
+            lastPlayedStore[oldKey] = nil
+            lastPlayedStore[newKey] = last
+        }
         if let playing = playingID, Self.key(playing) == oldKey { playingID = finalID }
         playback?.queue.renamePlaylist(from: oldID, to: finalID)
         if let content = loaded.removeValue(forKey: oldKey) { loaded[newKey] = content }
@@ -534,6 +543,7 @@ final class PlaylistStore {
 
         let id = PlaylistID.local(current)
         forget(id)
+        lastPlayedStore[Self.key(id)] = nil
         reload()
         if Self.key(activeID) == Self.key(id), let first = names.first { setActive(.local(first)) }
     }
@@ -636,6 +646,7 @@ final class PlaylistStore {
               remoteSections[section].playlists.contains(where: { $0.id == remoteID }) else { return }
         Log.info("remote playlist '\(displayName(of: id))' of \"\(remoteSections[section].name)\" is gone")
         forget(id)
+        lastPlayedStore[Self.key(id)] = nil
         let file = fileURL(id)
         queueWrite(key: Self.key(id), label: "delete '\(id)'") { try? FileManager.default.removeItem(at: file) }
         remoteSections[section].playlists.removeAll { $0.id == remoteID }
@@ -665,7 +676,7 @@ final class PlaylistStore {
     private func install(_ updated: Playlist, replacing current: Playlist, as match: PlaylistID) {
         commit(updated, as: match)
         let key = Self.key(match)
-        if let last = lastPlayedByKey[key], updated.position(of: last) == nil { lastPlayedByKey[key] = nil }
+        if let last = lastPlayedStore[key], updated.position(of: last) == nil { lastPlayedStore[key] = nil }
         save(updated, as: match)
         if let playing = playingID, Self.key(playing) == key {
             playback?.playlistWasReplaced(from: current, to: updated)
@@ -691,7 +702,6 @@ final class PlaylistStore {
             playback?.halt()   // also releases the playlist held for the playback; the queue is kept (minus this playlist's tracks)
         }
         playback?.queue.removeAll(inPlaylist: id)
-        lastPlayedByKey[key] = nil
         loaded[key] = nil
         saveSerial[key, default: 0] += 1
     }
@@ -799,22 +809,27 @@ final class PlaylistStore {
 
         let playlist: Playlist
         switch result {
-        case .loaded(let content, let lastPlayed):
+        case .loaded(let content, let legacyLastPlayed):
             playlist = content
-            lastPlayedByKey[key] = lastPlayed
+            if let known = lastPlayedStore[key] {
+                // What the file says is ignored, it is only the older versions' place for it.
+                if content.position(of: known) == nil { lastPlayedStore[key] = nil }
+            } else if let legacyLastPlayed {
+                lastPlayedStore[key] = legacyLastPlayed
+            }
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             Log.info("loaded '\(displayName(of: id))': \(content.trackCount) tracks in \(content.albums.count) albums, \(ms) ms")
         case .missing where id.isRemote:
             playlist = Playlist(albums: [], isFlat: true)
-            lastPlayedByKey[key] = nil
+            lastPlayedStore[key] = nil
             updateRemoteInfo(id) { $0.synced = nil }
         case .missing:
             playlist = .empty
-            lastPlayedByKey[key] = nil
+            lastPlayedStore[key] = nil
             Log.error("playlist file of '\(displayName(of: id))' is gone, starting empty")
         case .invalid(let reason):
             playlist = id.isRemote ? Playlist(albums: [], isFlat: true) : .empty
-            lastPlayedByKey[key] = nil
+            lastPlayedStore[key] = nil
             Log.error("can't load '\(displayName(of: id))': \(reason)")
             if id.isRemote {
                 // Only a copy: it is read from the server again.
@@ -904,17 +919,16 @@ final class PlaylistStore {
         }
     }
 
-    /// Queues a background write of the whole playlist file (with its `last_played`). If another save of the same
+    /// Queues a background write of the whole playlist file. If another save of the same
     /// file is queued behind this one by the time its turn comes, this one is skipped: the newer one writes it all.
     private func save(_ playlist: Playlist, as id: PlaylistID) {
         let url = fileURL(id)
-        let lastPlayed = lastPlayedByKey[Self.key(id)]
         let remote = id.isRemote
         queueWrite(key: Self.key(id), label: "'\(displayName(of: id))'") {
             if remote {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             }
-            try PlaylistFile.write(playlist, lastPlayed: lastPlayed, to: url)
+            try PlaylistFile.write(playlist, to: url)
         }
     }
 

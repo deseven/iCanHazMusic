@@ -313,13 +313,12 @@ extension AllTests {
             let url = dir.path("p.json")
             let plain = Make.entry("/Music/B/x.mp3", album: "Other", track: 1, duration: 5)
             let playlist = Make.playlist([entry(1, end: 100), entry(2, start: 100, end: 250.25), entry(3, start: 250.25, end: nil), plain])
-            try PlaylistFile.write(playlist, lastPlayed: 2, to: url)
+            try PlaylistFile.write(playlist, to: url)
 
-            guard case .loaded(let loaded, let lastPlayed) = PlaylistFile.load(from: url) else {
+            guard case .loaded(let loaded, _) = PlaylistFile.load(from: url) else {
                 Issue.record("not loaded")
                 return
             }
-            #expect(lastPlayed == 2)
             #expect(loaded.entries.map(\.path) == playlist.entries.map(\.path))
             #expect(loaded.entries.map(\.id) == playlist.entries.map(\.id))
             #expect(loaded.entries.map(\.cue) == playlist.entries.map(\.cue))

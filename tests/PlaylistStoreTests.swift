@@ -20,10 +20,13 @@ extension AllTests {
             func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: file(name).path) }
         }
 
-        private func makeEnv(playlists: [String: String] = [:], active: String? = nil, wait: Bool = true) async throws -> Env {
+        /// `lastPlayedFile`: what `.cache/last_played.json` holds at launch.
+        private func makeEnv(playlists: [String: String] = [:], active: String? = nil, wait: Bool = true,
+                             lastPlayedFile: String? = nil) async throws -> Env {
             let dir = try TempDir()
             let paths = AppPaths(workDir: dir.path("work"))
             for (name, json) in playlists { try dir.write("work/playlists/\(name).json", Data(json.utf8)) }
+            if let lastPlayedFile { try dir.write("work/.cache/last_played.json", Data(lastPlayedFile.utf8)) }
             let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
             if let active { config.update { $0.activePlaylist = active } }
             let store = PlaylistStore(paths: paths, configStore: config)
@@ -38,11 +41,14 @@ extension AllTests {
             #expect(done, "playlists did not finish loading")
         }
 
+        /// A playlist file; with `lastPlayed` it has the `last_played` that older versions wrote (this one doesn't).
         private func playlistJSON(_ entries: [TrackEntry], lastPlayed: TrackID? = nil) throws -> String {
             let dir = try TempDir()
             let url = dir.path("x.json")
-            try PlaylistFile.write(Make.playlist(entries), lastPlayed: lastPlayed, to: url)
-            return try String(contentsOf: url, encoding: .utf8)
+            try PlaylistFile.write(Make.playlist(entries), to: url)
+            let json = try String(contentsOf: url, encoding: .utf8)
+            guard let lastPlayed else { return json }
+            return json.replacingOccurrences(of: "{", with: "{\"last_played\":\(lastPlayed),", options: [], range: json.startIndex..<json.index(after: json.startIndex))
         }
 
         // MARK: Startup
@@ -412,10 +418,20 @@ extension AllTests {
             return nil
         }
 
-        /// The `last_played` value as it is in the file.
+        /// What `.cache/last_played.json` says of a playlist (the file as it is on disk, so after `flushWrites`).
         private func storedLastPlayed(_ env: Env, _ name: String = "main") throws -> TrackID? {
+            try storedLastPlayedMap(env)[name.lowercased()]
+        }
+
+        private func storedLastPlayedMap(_ env: Env) throws -> [String: TrackID] {
+            guard let data = try? Data(contentsOf: env.paths.lastPlayedURL) else { return [:] }
+            return try JSONDecoder().decode([String: TrackID].self, from: data)
+        }
+
+        /// Whether the playlist's own file has a `last_played` (it never gets one any more).
+        private func fileHasLastPlayed(_ env: Env, _ name: String = "main") throws -> Bool {
             let object = try JSONSerialization.jsonObject(with: Data(contentsOf: env.file(name))) as? [String: Any]
-            return object?["last_played"] as? Int
+            return object?["last_played"] != nil
         }
 
         @Test("the playlist settings are read from the config and written back when changed")
@@ -564,7 +580,7 @@ extension AllTests {
 
         // MARK: Last played
 
-        @Test("setLastPlayed records the track of the playing playlist and stores it in the file")
+        @Test("setLastPlayed records the track of the playing playlist and stores it in the last played file")
         func lastPlayed() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
             let env = try await makeEnv(playlists: ["main": json])
@@ -580,15 +596,17 @@ extension AllTests {
 
             store.setLastPlayed(2)
             #expect(store.lastPlayedRow == 2)               // row 0 is the album header
+            #expect(!store.hasPendingWrites)                // the playlist itself is not written
             await store.flushWrites()
             #expect(try storedLastPlayed(env) == 2)
+            #expect(try !fileHasLastPlayed(env))
 
             let restarted = PlaylistStore(paths: env.paths, configStore: env.config)
             await settle(restarted)
             #expect(restarted.lastPlayedRow == 2)
         }
 
-        @Test("a last_played in the file is available once loaded; one that doesn't exist is not")
+        @Test("a last_played in an older playlist file is available once loaded and seeds the last played file; one that doesn't exist is not")
         func lastPlayedFromFile() async throws {
             let entries = Make.entries(dir: "A", album: "A", count: 3)
             let env = try await makeEnv(playlists: ["a": try playlistJSON(entries, lastPlayed: 3),
@@ -607,6 +625,49 @@ extension AllTests {
             let gone = try playlistJSON(entries, lastPlayed: 3).replacingOccurrences(of: "\"last_played\":3", with: "\"last_played\":77")
             let other = try await makeEnv(playlists: ["main": gone])
             #expect(other.store.lastPlayedRow == nil)
+
+            await env.store.flushWrites()
+            #expect(try storedLastPlayedMap(env) == ["a": 3, "b": 3])
+        }
+
+        @Test("a value in the last played file wins over the one in the playlist file, which is never written back")
+        func lastPlayedCacheWins() async throws {
+            let entries = Make.entries(dir: "A", album: "A", count: 3)
+            let env = try await makeEnv(playlists: ["main": try playlistJSON(entries, lastPlayed: 3)],
+                                        lastPlayedFile: #"{"main": 1}"#)
+            #expect(env.store.lastPlayedRow == 1)
+
+            await env.store.append(Make.albums(Make.entries(dir: "B", album: "B", count: 1)), to: "main")
+            await env.store.flushWrites()
+            #expect(try fileHasLastPlayed(env) == false)
+            #expect(try storedLastPlayed(env) == 1)
+
+            // A cached track that the playlist doesn't have is dropped, and the file's value stays ignored.
+            let stale = try await makeEnv(playlists: ["main": try playlistJSON(entries, lastPlayed: 3)],
+                                          lastPlayedFile: #"{"main": 99}"#)
+            #expect(stale.store.lastPlayedRow == nil)
+            await stale.store.flushWrites()
+            #expect(try storedLastPlayedMap(stale)["main"] == nil)
+        }
+
+        @Test("entries of playlists that don't exist any more are dropped at launch, those of known connections are kept")
+        func lastPlayedPruned() async throws {
+            let home = SubsonicConnectionConfig(name: "Home", publicEndpoint: "https://music.example.org", username: "bob", password: "pw")
+            let remote = PlaylistID.remote(connection: home.id, id: "p1").text
+            let removed = PlaylistID.remote(connection: UUID(), id: "p9").text
+            let file = try JSONEncoder().encode(["main": 1, "ghost": 2, remote: 3, removed: 4])
+            let dir = try TempDir()
+            let paths = AppPaths(workDir: dir.path("work"))
+            try dir.write("work/.cache/last_played.json", file)
+            try dir.write("work/playlists/main.json", Data(try playlistJSON(Make.entries(dir: "A", album: "A", count: 3)).utf8))
+            let config = ConfigStore(paths: paths, saveDelay: .seconds(60))
+            config.update { $0.subsonic = [home] }
+            let store = PlaylistStore(paths: paths, configStore: config)
+            await settle(store)
+            await store.flushWrites()
+            let data = try Data(contentsOf: paths.lastPlayedURL)
+            let map = try JSONDecoder().decode([String: TrackID].self, from: data)
+            #expect(map == ["main": 1, remote: 3])
         }
 
         @Test("the last played track of a playlist is kept while another one is browsed and when coming back")
@@ -632,7 +693,7 @@ extension AllTests {
             #expect(store.lastPlayedRow == 3)
         }
 
-        @Test("a track of the background playlist that starts is stored with that playlist")
+        @Test("a track of the background playlist that starts is stored for that playlist")
         func lastPlayedBackground() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
             let env = try await makeEnv(playlists: ["a": json, "b": Self.emptyJSON], active: "a")
@@ -690,7 +751,7 @@ extension AllTests {
             #expect(try storedLastPlayed(env) == 2)
         }
 
-        @Test("renaming keeps the last played track, and later saves still write it")
+        @Test("renaming keeps the last played track under the new name")
         func lastPlayedRename() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 3))
             let env = try await makeEnv(playlists: ["main": json])
@@ -699,20 +760,23 @@ extension AllTests {
             store.setLastPlayed(3)
             try await store.rename("main", to: "renamed")
             #expect(store.lastPlayedRow == 3)
-            #expect(try storedLastPlayed(env, "renamed") == 3)
+            await store.flushWrites()
+            #expect(try storedLastPlayedMap(env) == ["renamed": 3])
 
             await store.append(Make.albums(Make.entries(dir: "B", album: "B", count: 1)), to: "renamed")
             await store.flushWrites()
             #expect(try storedLastPlayed(env, "renamed") == 3)
+            #expect(try !fileHasLastPlayed(env, "renamed"))
         }
 
-        @Test("many quick changes end with the newest one on disk")
+        @Test("many quick changes write nothing of the playlist and end with the newest one on disk")
         func lastPlayedBurst() async throws {
             let json = try playlistJSON(Make.entries(dir: "A", album: "A", count: 10))
             let env = try await makeEnv(playlists: ["main": json])
             let store = env.store
             store.playbackStarted()
             for id in 1...10 { store.setLastPlayed(id) }
+            #expect(!store.hasPendingWrites)
             await store.flushWrites()
             #expect(!store.hasPendingWrites)
             #expect(try storedLastPlayed(env) == 10)

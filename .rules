@@ -59,7 +59,7 @@ This file is a map plus the few invariants that are easy to break. Everything el
 
 ## Runtime data
 Everything lives in `~/Library/Application Support/iCanHazMusic` (`AppPaths`). Pass `--workdir /some/dir` to use another directory.
-- `app.log` (current run; earlier ones are rotated), `config.json` (keys and defaults in `Config.swift`), `playlists/{name}.json` (one file per playlist), `.cache/*.sqlite` (covers, lyrics, waveforms; safe to delete).
+- `app.log` (current run; earlier ones are rotated), `config.json` (keys and defaults in `Config.swift`), `playlists/{name}.json` (one file per playlist), `.cache/*.sqlite` (covers, lyrics, waveforms; safe to delete), `.cache/last_played.json` (the last played track per playlist, `LastPlayedStore`; kept out of the playlist files on purpose, which are rewritten whole on every save).
 
 This is the user's real dev data. When testing, prefer seeding/inspecting the files over deleting them, and leave the directory in a sane state afterwards.
 

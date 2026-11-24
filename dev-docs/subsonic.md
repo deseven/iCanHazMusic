@@ -185,7 +185,7 @@ refer to playlists by it. `RemoteSection` is what the selector shows per enabled
 **Cache** (`.cache/subsonic/{connection id}/playlists/`): `index.json` (`RemotePlaylistIndex`: per playlist what the last
 `getPlaylists` said: `name`, `owner`, `changed`, `song_count`, whether it is somebody else's or read-only, and `synced`, the
 `changed` of the version the content is; also `auto_download`, the app's own) and one `PlaylistFile` per playlist (named by a hash of its ID; it also keeps
-`is_flat` and `last_played` of the playlist, which are the app's own). The playlists of the enabled connections are read
+`is_flat` of the playlist, which is the app's own; the last played track is in `.cache/last_played.json`, see `LastPlayedStore`). The playlists of the enabled connections are read
 from it at launch, so they are there and play (from downloaded files) before the server answers or when it doesn't.
 
 **`SubsonicPlaylists`** keeps the store and the servers in step (`start()` at launch):

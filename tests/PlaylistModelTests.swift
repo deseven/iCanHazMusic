@@ -745,16 +745,16 @@ extension AllTests {
             #expect(text.contains("\"/M/A/1.mp3\""))                 // slashes aren't escaped
         }
 
-        @Test("IDs, next_id and last_played are stored and come back")
+        @Test("IDs and next_id are stored and come back; last_played is read from older files but never written")
         func idsRoundTrip() throws {
             let dir = try TempDir()
             let playlist = Make.playlist(Make.entries(dir: "A", album: "A", count: 3)).removing(ids: [3])
             let url = dir.path("p.json")
-            try PlaylistFile.write(playlist, lastPlayed: 2, to: url)
+            try PlaylistFile.write(playlist, to: url)
 
             let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             #expect(object["next_id"] as? Int == 4)
-            #expect(object["last_played"] as? Int == 2)
+            #expect(object["last_played"] == nil)
             let tracks = try #require(object["tracks"] as? [[String: Any]])
             #expect(tracks.map { $0["id"] as? Int } == [1, 2])
 
@@ -762,12 +762,16 @@ extension AllTests {
             let back = try #require(loaded(result))
             #expect(back.albums[0].tracks.map(\.id) == [1, 2])
             #expect(back.nextID == 4)                       // 3 isn't handed out again
-            #expect(lastPlayed(result) == 2)
+            #expect(lastPlayed(result) == nil)
 
-            try PlaylistFile.write(playlist, to: url)       // nothing played
-            let none = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-            #expect(none["last_played"] == nil)
-            #expect(lastPlayed(PlaylistFile.load(from: url)) == nil)
+            // An older file has it, and rewriting that file leaves it out.
+            let older = #"{"version": 1, "last_played": 2, "tracks": [{"id": 1, "path": "/M/A/1.mp3"}, {"id": 2, "path": "/M/A/2.mp3"}]}"#
+            let olderURL = try dir.write("older.json", Data(older.utf8))
+            let olderResult = PlaylistFile.load(from: olderURL)
+            #expect(lastPlayed(olderResult) == 2)
+            try PlaylistFile.write(try #require(loaded(olderResult)), to: olderURL)
+            let rewritten = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: olderURL)) as? [String: Any])
+            #expect(rewritten["last_played"] == nil)
         }
 
         @Test("a last_played that isn't in the playlist (or isn't a number) is ignored")

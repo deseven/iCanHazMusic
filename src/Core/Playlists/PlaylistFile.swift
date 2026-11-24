@@ -10,7 +10,6 @@ import Foundation
 ///   "version": 1,
 ///   "is_flat": false,
 ///   "next_id": 1043,
-///   "last_played": 42,
 ///   "tracks": [
 ///     {"id": 42, "path": "/Music/A/B/01.flac", "artist": "A", "album": "B", "title": "T",
 ///      "trackNumber": 1, "year": "2019", "duration": 215.4, "codec": "FLAC"}
@@ -24,7 +23,9 @@ import Foundation
 /// `is_flat`: the playlist isn't grouped into albums (missing = false).
 /// `id` (see `TrackID`) identifies a track in its playlist; `next_id` is the number the next new track gets, so a
 /// number is never used twice. Files from before IDs existed have neither: the playlist numbers the tracks on load.
-/// `last_played`: the ID of the track that was started last (missing = none, or one that isn't in `tracks` is ignored).
+/// `last_played`, the ID of the track that was started last, is only read (files of older versions have it; a value that
+/// isn't in `tracks` is ignored) and never written: it lives in `LastPlayedStore` now, so a track change doesn't rewrite
+/// the whole playlist.
 /// Album art isn't stored. A file without `version` (the former empty `{}`) is read as version 0, an empty playlist.
 struct PlaylistFile: Codable {
     static let currentVersion = 1
@@ -33,7 +34,8 @@ struct PlaylistFile: Codable {
     var tracks: [TrackEntry] = []
     var isFlat = false
     var nextID: TrackID = 1
-    var lastPlayed: TrackID?
+    /// Read from older files only, see above.
+    private(set) var lastPlayed: TrackID?
     /// Entries that were dropped while decoding (not written).
     private(set) var skipped = 0
 
@@ -44,11 +46,10 @@ struct PlaylistFile: Codable {
         case lastPlayed = "last_played"
     }
 
-    init(tracks: [TrackEntry], isFlat: Bool = false, nextID: TrackID = 1, lastPlayed: TrackID? = nil) {
+    init(tracks: [TrackEntry], isFlat: Bool = false, nextID: TrackID = 1) {
         self.tracks = tracks
         self.isFlat = isFlat
         self.nextID = nextID
-        self.lastPlayed = lastPlayed
     }
 
     init(from decoder: Decoder) throws {
@@ -62,6 +63,14 @@ struct PlaylistFile: Codable {
         skipped = entries.count - tracks.count
     }
 
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(tracks, forKey: .tracks)
+        try c.encode(isFlat, forKey: .isFlat)
+        try c.encode(nextID, forKey: .nextID)
+    }
+
     /// Decodes one array element without letting a bad entry fail the whole playlist.
     private struct Lossy<T: Decodable>: Decodable {
         let value: T?
@@ -73,7 +82,7 @@ struct PlaylistFile: Codable {
     // MARK: - Reading and writing
 
     enum LoadResult {
-        /// `lastPlayed` is only given if the playlist has that track.
+        /// `lastPlayed`: what an older file says (see above); only given if the playlist has that track.
         case loaded(Playlist, lastPlayed: TrackID?)
         /// There is no such file (e.g. deleted behind our back).
         case missing
@@ -111,11 +120,11 @@ struct PlaylistFile: Codable {
     }
 
     /// Blocking: atomic replace of the whole file. Meant to run off the main thread.
-    static func write(_ playlist: Playlist, lastPlayed: TrackID? = nil, to url: URL) throws {
+    static func write(_ playlist: Playlist, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(PlaylistFile(tracks: playlist.entries, isFlat: playlist.isFlat,
-                                                   nextID: playlist.nextID, lastPlayed: lastPlayed))
+                                                   nextID: playlist.nextID))
         try data.write(to: url, options: .atomic)
     }
 

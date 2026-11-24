@@ -150,8 +150,10 @@ are stopped, the position and the next track are kept, and `resume` restarts fro
 
 `playback.state` in `config.json` (`{playlist, track_id, position, paused}`) is what the last run left; it lives in the
 config and not in the playlist files (which are rewritten whole on every save, and are about content, not about what
-happens to be playing). Written by `PlaybackState.saveState`, so it is always true to within ~10 s, and exact after a
-pause, a seek or a quit; every stop clears it, except the one at quit (`stopAndWait` keeps it).
+happens to be playing). Written by `PlaybackState.saveState` only when the track or the paused flag changes and at quit (never
+periodically, nor on a seek, so the config is not rewritten while a track just plays): the position is exact after a
+pause, a resume or a quit, and a crash loses what came after; every stop clears it, except the one at quit
+(`stopAndWait` keeps it).
 
 - `restorePlayback()` (called from `AppDelegate`) reads the playlist the track is in on demand
   (`PlaylistStore.readPlaylist`, so it needn't wait for the preload of all the others), finds the track by ID and calls
