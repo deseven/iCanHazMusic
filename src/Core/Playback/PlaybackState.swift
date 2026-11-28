@@ -26,7 +26,8 @@ import Observation
 final class PlaybackState {
     static let shared = PlaybackState(store: .shared, engine: PlaybackEngine(fetcher: SubsonicDownloads.shared), configStore: .shared,
                                       listeners: [ScrobblingService.shared, SubsonicScrobbler.shared, LyricsService.shared,
-                                                  NotificationService.shared, WaveformService.shared],
+                                                  NotificationService.shared, WaveformService.shared,
+                                                  DiscordPresence.shared],
                                       nowPlaying: .shared, playlistSettings: .shared)
 
     enum Status { case stopped, playing, paused }

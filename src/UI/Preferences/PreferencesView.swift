@@ -273,6 +273,7 @@ private struct GeneralTab: View {
 
 private struct IntegrationsTab: View {
     @Bindable private var lyrics = LyricsService.shared
+    @Bindable private var discord = DiscordPresence.shared
 
     var body: some View {
         TabPage {
@@ -283,7 +284,28 @@ private struct IntegrationsTab: View {
                     .toggleStyle(.switch)
                     .disabled(!lyrics.isEnabled)
             }
+
+            PrefRow(title: "Discord", description: discordDescription) {
+                DiscordStatusMark(presence: discord)
+            } control: {
+                // Shows Off in a build without an application ID; the choice itself is kept.
+                Toggle("", isOn: Binding(get: { discord.isEnabled && discord.isAvailable },
+                                         set: { discord.isEnabled = $0 }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!discord.isAvailable)
+            }
         }
+    }
+
+    private var discordDescription: Text {
+        let text = Text("Show the track that plays on your Discord profile (\"Listening to...\" with the title, artist "
+            + "and album, and the time left), through the Discord app running on this Mac. Nothing is shown while "
+            + "paused or stopped, and tracks without tags are never shown. Everybody who can see your Discord "
+            + "activity sees it.")
+        guard !discord.isAvailable else { return text }
+        return text + Text("\nNot available: this build has no Discord application ID.")
+            .foregroundStyle(.red)
     }
 
     private var lrclibDescription: Text {
@@ -294,6 +316,29 @@ private struct IntegrationsTab: View {
         guard !lyrics.isEnabled else { return text }
         return text + Text("\nNot working: Lyrics Support is turned off (General).")
             .foregroundStyle(.red)
+    }
+}
+
+/// Connected (green), or why not (red, while it keeps trying); nothing while it is off or has nothing to show.
+private struct DiscordStatusMark: View {
+    let presence: DiscordPresence
+
+    var body: some View {
+        Group {
+            if presence.isEnabled, presence.isAvailable {
+                if presence.connectionState == .connected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .help("Connected to Discord.")
+                } else if let problem = presence.problem {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .help("Not connected to Discord (\(problem)), trying again every 20 seconds while a "
+                            + "track plays.")
+                }
+            }
+        }
+        .font(.callout)
     }
 }
 

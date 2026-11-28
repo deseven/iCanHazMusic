@@ -428,7 +428,20 @@ struct AppConfig: Codable, Equatable {
             }
         }
 
+        struct Discord: Codable, Equatable {
+            /// Show what plays on the user's Discord profile (Rich Presence, `DiscordPresence`).
+            var enabled = false
+
+            init() {}
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                enabled = c.value(.enabled, default: Discord().enabled)
+            }
+        }
+
         var lrclib = LRCLIB()
+        var discord = Discord()
 
         init() {}
 
@@ -436,6 +449,7 @@ struct AppConfig: Codable, Equatable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             let d = Integrations()
             lrclib = c.value(.lrclib, default: d.lrclib)
+            discord = c.value(.discord, default: d.discord)
         }
     }
 

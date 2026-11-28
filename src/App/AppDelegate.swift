@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyService.shared.onSearch = { SearchPanel.shared.toggle() }
         HotkeyService.shared.start()
         SystemMediaControls.shared.start()
+        DiscordPresence.shared.start(playback: .shared)
         observeWindowFocus()
         Log.info("App started, working directory: \(AppPaths.current.workDir.path)")
         Task {

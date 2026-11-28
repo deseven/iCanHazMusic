@@ -151,6 +151,12 @@ product_path() {
     echo "$dir/$name"
 }
 
+# XORs $1 with the repeated key $2 and prints it as base64: the same scheme as `Obfuscation` (obfuscation, not
+# protection). The value goes in through stdin so it doesn't show up in the process list.
+obfuscate_value() {
+    printf '%s' "$1" | python3 -I -c 'import sys, base64; k = sys.argv[1].encode(); d = sys.stdin.buffer.read(); print(base64.b64encode(bytes(b ^ k[i % len(k)] for i, b in enumerate(d))).decode())' "$2"
+}
+
 do_create_bundle() {
     mkdir -p "$loc/dist/$name.app/Contents/MacOS"
     mkdir -p "$loc/dist/$name.app/Contents/Resources"
@@ -158,6 +164,17 @@ do_create_bundle() {
     cp "$(product_path)" "$loc/dist/$name.app/Contents/MacOS/$name"
 
     cp "$loc/Info.plist" "$loc/dist/$name.app/Contents/Info.plist"
+    # The Discord application ID comes from .env, not from the sources (see `DiscordPresence.appID`).
+    if [ -n "${ICHM_DISCORD_APP_ID:-}" ]; then
+        local obfuscationKey
+        obfuscationKey="$(sed -n 's/.*static let key = "\([^"]*\)".*/\1/p' "$loc/src/Core/Config/Obfuscation.swift")"
+        [ -n "$obfuscationKey" ] || { echo "can't find Obfuscation.key"; return 1; }
+        /usr/libexec/PlistBuddy \
+            -c "Add :ICHMDiscordAppID string $(obfuscate_value "$ICHM_DISCORD_APP_ID" "$obfuscationKey")" \
+            "$loc/dist/$name.app/Contents/Info.plist"
+    else
+        echo "ICHM_DISCORD_APP_ID not set in .env: Discord Rich Presence will be unavailable"
+    fi
     cp "$loc/res/main.icns" "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/res/ui/"*.png "$loc/dist/$name.app/Contents/Resources/"
     cp "$loc/LICENSE" "$loc/dist/$name.app/Contents/Resources/"

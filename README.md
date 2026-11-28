@@ -36,6 +36,7 @@ More screenshots: [SCREENSHOTS.md](screenshots/SCREENSHOTS.md)
 - Subsonic-compatible APIs (Navidrome, Gonic, etc) with a full playlist support; the files are downloaded as they are needed with a cache size limit or synced automatically on the per-playlist basis
 - Scrobbling and now playing updates through the Audioscrobbler API (Last.fm, Libre.fm and others) and ListenBrainz, any number of services at once
 - Lyrics: embedded in tags or fetched from [LRCLIB](https://lrclib.net) (opt-in)
+- Discord Rich Presence: the current track on your Discord profile (opt-in)
 
 ### Under the hood
 - Fully native macOS app, built in Swift/SwiftUI/AppKit with no third-party dependencies other than the reference WV/APE decoders
